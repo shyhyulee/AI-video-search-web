@@ -28,7 +28,6 @@ dev = [
 
 [project.scripts]
 ai-video-search-web = "ai_video_search_web:main"
-ai-video-search-web-api = "ai_video_search_web.api.main:run"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
@@ -43,8 +42,10 @@ markers = [
 addopts = "-m 'not integration'"
 
 [tool.uv]
-# Linux 上 uv 下載的 standalone Python 內建 Tk 缺少 Xft/fontconfig 支援，
-# 會導致 tkinter 完全無法顯示 CJK 文字；改用系統 Python 才有可用的中文字型。
+# 原本是因為 Tkinter（uv 下載的 standalone Python 內建 Tk 缺少 Xft/fontconfig
+# 支援，CJK 文字會顯示空白）才鎖定系統 Python；Tkinter UI 已於 Phase 4 移除
+# （見 docs/09-web-ui-migration-plan.md），這個理由不再成立，但沿用系統
+# Python 沒有已知副作用，維持不動避免無謂的環境變動。
 python-preference = "only-system"
 
 # 註：曾嘗試用 [tool.uv.sources] 把 torch/torchvision 導向官方 CPU-only wheel

@@ -8,7 +8,7 @@
 
 本文件的目標是依照專案**目前程式與檔案的真實現況**（已用三個 Explore agent + 一個 Plan agent 完整盤點、且逐一親自讀過全部關鍵原始檔驗證行號與事實）重新推導一份可執行的計畫。技術選型大致沿用 `08-web-ui-migration-design.md`（React／FastAPI／Polling 這些主流選擇沒有爭議），但架構細節、Job 設計、檔案結構、分期順序都改成基於實測事實推導，多處明確偏離該文件。
 
-**目前狀態**：Phase 0（規劃）、Phase 1（Service 層）、Phase 2（FastAPI + Job Manager）、Phase 3（React 前端，四個頁面）已完成並通過瀏覽器實測；Phase 4（切換與清理）尚未開始。實作細節與跟本文件原規劃的落差見 4.2／4.3／4.4 節「實作紀錄」。Phase 3 一開始受限於環境缺 Playwright 系統函式庫（`libnspr4.so` 等）無法視覺驗證，使用者事後手動裝好相依套件（`sudo apt-get install libnspr4 libnss3 ...`）解鎖後，已補做完整的瀏覽器互動測試（見 4.4 節），四個頁面、含真實搜尋／對話／排序／篩選／影片播放跳轉互動，零 JS 錯誤。
+**目前狀態**：Phase 0～Phase 4 全部完成。實作細節與跟本文件原規劃的落差見 4.2／4.3／4.4／4.5 節「實作紀錄」。Phase 3 一開始受限於環境缺 Playwright 系統函式庫（`libnspr4.so` 等）無法視覺驗證，使用者事後手動裝好相依套件解鎖後，已補做完整的瀏覽器互動測試（見 4.4 節）。Phase 4 在使用者實測過上傳／YouTube 下載／分析輪詢後執行，過程中發現並記錄了一個真實的已知限制（見 4.5 節「實作紀錄」的「job 追蹤跨頁籤遺失」），使用者知情後選擇先完成 Phase 4 收尾，這個限制留待之後再處理。Tkinter UI（`ui/`／`app.py`／`theme.py`）已移除，專案現在是純 Web 應用。
 
 ## 2. 現況關鍵事實（決策依據）
 
@@ -225,9 +225,18 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - 上傳進度用 `XMLHttpRequest`（不是 `fetch`）——`fetch` 目前沒有原生的上傳進度事件；下載／分析進度沿用既有 `useJobPolling`／`useJobsPolling`（`frontend/src/lib/useJobPolling.ts`，基於 TanStack Query 的 `refetchInterval`，終態自動停止輪詢）。
 - **驗證方式（分兩階段）**：這個開發環境一開始沒有 Playwright headless Chromium 需要的系統共用函式庫（`libnspr4.so` 等），`sudo apt-get install` 需要互動式密碼，環境本身裝不了；先用三層驗證頂替：(1) `tsc -b --noEmit` 型別檢查全過；(2) `npm run build` production build 成功（85 modules，299KB／92KB gzip）；(3) `oxlint` 零警告（含修掉兩處 React 反模式：在 render body 直接呼叫 `queryClient.invalidateQueries()`，改寫成 `useEffect`）；(4) 透過 Vite proxy 對真實 FastAPI／`app.db` 做端到端 curl 測試。使用者事後在自己的終端機用 `! sudo apt-get install ...` 補裝相依套件解鎖後，補做了完整的 Playwright 瀏覽器互動測試：四個頁面截圖、影片庫點列表看詳細面板（縮圖／Badge／摘要都正確渲染）、影片庫排序與篩選按鈕、搜尋「獅子」拿到 6 個正確排序結果並點結果驗證 HTML5 Video 正確 seek 到片段起始時間（畫面確實跳到獅子出現的那一幀）、對話搜尋送出訊息拿到正確回覆與結果、對話結果點擊播放同樣正確 seek。全程 `page.on('console'/'pageerror')` 監聽零錯誤。
 
-### 4.5 Phase 4 — 切換與清理
+### 4.5 Phase 4 — 切換與清理 ✅ 已完成
 
 兩邊穩定運行一段時間、功能對等確認後才移除 `ui/`／`app.py`／`theme.py`；才處理 `ai_video_search_web` 命名／`[project.scripts]` 收斂；同步更新 `00-overview.md`（目前仍只寫「四個頁籤」，未提對話搜尋，`07-ui-structure-and-features.md` 已標注此落差待確認）。
+
+**實作紀錄**：
+
+- **執行前的功能對等確認**：使用者實際測試了上傳／YouTube 下載／分析輪詢（4.4 節列的「沒做到」項目），過程中發現一個真實的已知限制——**分析中途切換頁籤，該支影片的追蹤狀態會遺失**：job 進度是每個頁面元件自己的 React 區域狀態（`useState`），不是跨頁籤持續存在的全域狀態，切走再切回來不會恢復。已分兩種情況記錄：(1) 工作還在排隊中就切頁 → 回來後恢復顯示「等待分析」，看起來像沒送出過；(2) 工作已經開始跑（DB 狀態變成 `analyzing`）才切頁 → 該影片從「待分析影片」清單消失（因為 `list_pending_videos()` 只查 `status='pending'`），要等分析完成、手動切去「影片庫」才看得到；Header 統計卡也不會自動更新，因為觸發刷新的 `useEffect` 綁在已經卸載的頁面元件上。**根本原因是分析本身在後端持續執行、不受影響，只是前端沒有一個跨頁籤持續存在的追蹤機制**（例如 Header 常駐一個「N 個工作進行中」指示器），這是 Phase 3 的已知架構缺口，不是 Phase 4 要解決的範圍。使用者知情後決定接受這個缺口、先完成 Phase 4，之後有需要再補（建議修法：讓「待分析影片」／「影片庫」兩個列表查詢各自加上背景輪詢，不用追蹤特定 job id，單純定期反映資料庫當下狀態）。
+- **實際刪除／改動的檔案**：`git rm -r` 整個 `src/ai_video_search_web/ui/`（8 個模組）、`app.py`、`theme.py`、`tests/test_widgets.py`（測 `ui/widgets.py`，隨其一起移除）。刪除前用 grep 確認 `pipeline/`／`db/`／`services/`／`schemas/`／`api/` 沒有任何檔案 import `ui/`／`app.py`／`theme.py`——這條依賴邊界在 Phase 1-3 全程維持乾淨，刪除本身沒有波及其他模組。
+- **進入點收斂**：`src/ai_video_search_web/__init__.py` 的 `main()` 從 `App().mainloop()` 改成呼叫 `api.main.run()`；`pyproject.toml` 的 `[project.scripts]` 從兩個進入點（`ai-video-search-web`／`ai-video-search-web-api`）收斂成一個：`ai-video-search-web` 現在直接啟動 Web API。`[tool.uv] python-preference = "only-system"` 的**設定值維持不變**（改動它有風險、沒有已知效益），但註解改成如實反映「原本因為 Tkinter／Tk CJK 字型問題而設，現在理由已經不成立，純粹維持不動避免無謂變動」，不再誤導成「還需要 Tkinter」。
+- **清掉兩處死碼**：`video_service.register_local_video()`（Phase 1 為 Tkinter「選擇本機影片」寫的，title 直接用 `path.stem`）與 `conversation_service.send_message(state, message)`（Phase 1 為 Tkinter 對話頁籤寫的純記憶體介面）——grep 確認兩者的唯一呼叫端都在剛刪除的 `ui/` 內，Web API 分別用 `register_uploaded_video()`／`send_message_by_id()` 取代。對應的舊測試（`test_services_video.py`／`test_services_conversation.py`）沒有直接刪除，改寫成測真正還在用的函式，`test_services_conversation.py` 額外補了 `start_conversation`／`get_conversation_state`／`send_message_by_id` 對 DB 讀寫的直接單元測試（原本只在 `tests/api/test_api_conversations.py` 間接測到）。
+- **README.md 全面改寫**：定位從「Tkinter 桌面應用」改成「Web 應用」；系統需求移除 `ffplay`（HTML5 Video 取代）、加入 Node.js／npm；執行方式改成「兩個終端機分別跑後端＋前端」；專案結構圖換成 `services/`／`schemas/`／`api/`／`frontend/`。順手修正一個實作前就存在的既有 bug：「深入文件」區塊的連結全部指向不存在的 `docs/organize-docs/` 路徑（實際文件都直接放在 `docs/` 下），已改成正確路徑，並補上 06／07／09 三份新文件的連結。
+- **驗證**：`uv run pytest` 255 通過（256 − 4，對應被刪除的 `test_widgets.py` 4 個測試，其餘增減互相抵銷）+ 1 deselected；`uv run ai-video-search-web`（新的單一進入點）實測能正確啟動 FastAPI／uvicorn，`/api/v1/stats`／`/docs` 都正常回應，讀到真實 `app.db`（使用者測試期間已把已分析影片數從 7 支增加到 8 支、片段數 537→649，證實 Phase 3 的上傳／下載／分析流程在真實使用中確實可用）。
 
 ## 5. 風險與相容性
 
@@ -266,7 +275,8 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 ## 9. Phase 3 待辦與已知限制
 
-- **上傳／YouTube 下載／分析輪詢沒有跑過 E2E**：這三個流程分別需要真的上傳檔案、真的觸發 yt-dlp 下載、真的花錢跑 VLM／ASR／embedding 分析，這次沒有在瀏覽器裡實際觸發（會員生真實成本與長時間等待），只驗證到程式碼、型別、以及 Phase 2 API 層級的測試（`tests/api/test_api_videos.py`／`test_api_jobs.py` 已經涵蓋 422／409／併發序列化等邏輯）。已驗證過的是：影片庫（列表／排序／篩選／詳細面板／縮圖／Badge）、搜尋（送查詢／結果表格／播放器 seek／CSV 匯出按鈕存在）、對話搜尋（送訊息／結果／播放器），見 4.4 節「實作紀錄」。建議你實際跑一次「本機上傳一支短影片」或「YouTube 下載＋分析」驗證這條路徑的進度條與輪詢 UI。
+- ~~上傳／YouTube 下載／分析輪詢沒有跑過 E2E~~ **已由使用者實測完成**（Phase 4 執行前），過程中發現下面這項限制。
+- **分析中途切換頁籤，該支影片的 job 追蹤狀態會遺失**（Phase 3 已知架構缺口，Phase 4 沒有處理）：job 進度是「影片與分析」頁面元件自己的區域狀態，不是跨頁籤持續存在的全域狀態。工作還在排隊中就切頁 → 回來後恢復顯示「等待分析」；工作已經開始跑才切頁 → 該影片從「待分析影片」清單消失，要等分析完成、手動切去「影片庫」才看得到；Header 統計卡也不會自動更新。**分析本身在後端持續進行、不受影響**，純粹是前端顯示遺失同步。建議修法：讓「待分析影片」／「影片庫」兩個列表查詢各自加上背景輪詢（例如每 3 秒），不用追蹤特定 job id，單純定期反映資料庫當下狀態；更完整的修法是做一個常駐 Header 的全域工作指示器。詳見 4.5 節「實作紀錄」。
 - **`GET /search/recent`（最近搜尋）沒有前端功能**：跟 4.3 節記錄的後端缺口一致，這次沒有補。
 - **對話搜尋頁面沒有「指代上一輪結果」的特別 UI 提示**：`pipeline/conversation.py` 的 `select_result` 意圖（例如使用者說「播放第二段」）後端邏輯已經支援（Phase 2 直接復用，零修改），但前端沒有額外標示「目前在指代哪一輪」，使用者體驗上可能不夠明確，之後可以加強。
 - **上傳／下載併發限制只在 UI 層用 disable 按鈕做**：YouTube 下載按鈕在下載中會 disable（對齊 Tkinter 行為），但後端 `submit_download()` 本身不限制併發下載數（跟 Job Manager 設計一致，見 3.2 節）；如果使用者用兩個分頁同時操作，後端仍會分別處理，屬於已知、刻意接受的行為，不是這次要修的缺口。

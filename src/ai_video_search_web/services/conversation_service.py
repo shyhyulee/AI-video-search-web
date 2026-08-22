@@ -1,10 +1,7 @@
-"""對話搜尋 Application Service：薄包裝 pipeline.conversation.handle_turn()。
-
-Tkinter（Phase 1）繼續用 send_message(state, message) 純記憶體介面，不受
-影響。Phase 2 新增以 conversations 表持久化 ConversationState，讓 Web 版
-的多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續——這是刻意補上的，因為
-pipeline/conversation.py 的模組說明明講原設計「本機單人 Tkinter 桌面 App，
-不需要 conversation_id」，這個假設在 Web 化後不成立，見
+"""對話搜尋 Application Service：以 conversations 表持久化 ConversationState，
+讓 Web 版的多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續——這是刻意補上
+的，因為 pipeline/conversation.py 的模組說明明講原設計「本機單人 Tkinter
+桌面 App，不需要 conversation_id」，這個假設在 Web 化後不成立，見
 docs/09-web-ui-migration-plan.md 2.2／3.2 節。
 
 `handle_turn()` 本身是純函式（永遠回傳全新 state，不原地修改），且
@@ -26,7 +23,6 @@ __all__ = [
     "ConversationTurnResult",
     "SearchResult",
     "ConversationNotFoundError",
-    "send_message",
     "start_conversation",
     "get_conversation_state",
     "send_message_by_id",
@@ -35,10 +31,6 @@ __all__ = [
 
 class ConversationNotFoundError(Exception):
     """找不到指定的 conversation_id。"""
-
-
-def send_message(state: ConversationState, message: str) -> ConversationTurnResult:
-    return conversation_pipeline.handle_turn(state, message)
 
 
 def start_conversation() -> int:

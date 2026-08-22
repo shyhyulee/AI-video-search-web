@@ -43,7 +43,7 @@ def test_register_downloaded_video_inserts_youtube_source(monkeypatch):
     assert captured["duration_sec"] == 10
 
 
-def test_register_local_video_inserts_local_source(monkeypatch):
+def test_register_uploaded_video_inserts_local_source_with_explicit_title(monkeypatch):
     captured = {}
 
     def fake_insert_video(**kwargs):
@@ -52,11 +52,16 @@ def test_register_local_video_inserts_local_source(monkeypatch):
 
     monkeypatch.setattr(video_service.db, "insert_video", fake_insert_video)
 
-    video_id = video_service.register_local_video(Path("/tmp/my video.mp4"), duration_sec=99)
+    video_id = video_service.register_uploaded_video(
+        "使用者看到的標題", Path("/tmp/uploads/deadbeef.mp4"), duration_sec=99
+    )
 
     assert video_id == 7
     assert captured["source"] == db.SOURCE_LOCAL
-    assert captured["title"] == "my video"
+    # 標題來自呼叫端明確傳入，不是磁碟上的 uuid 檔名（跟舊版
+    # register_local_video 用 path.stem 當標題的差別）。
+    assert captured["title"] == "使用者看到的標題"
+    assert captured["file_path"] == "/tmp/uploads/deadbeef.mp4"
     assert captured["source_url"] is None
 
 

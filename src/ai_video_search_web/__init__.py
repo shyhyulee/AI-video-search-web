@@ -1,5 +1,5 @@
-from .app import App
+from .api.main import run
 
 
 def main() -> None:
-    App().mainloop()
+    run()

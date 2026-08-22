@@ -31,7 +31,7 @@
 
 全域 Header 顯示待分析／已分析／影片片段／累計成本四張統計卡。要求風格統一（集中管理顏色／間距／字型）、Responsive（1366×768 與 1920×1080 皆可用）。
 
-> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)（設計）與 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)（現有 UI 完整盤點，含此落差的記錄）。
+> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)（設計）與 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)（Tkinter UI 完整盤點，含此落差的記錄）。**這份 Tkinter 實作後來整個被 Web UI（React + FastAPI）取代並移除**，`07-ui-structure-and-features.md` 保留下來作為歷史設計記錄，實際程式碼已經不存在，見 3.5 節與 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
 
 ### 2.2 OCR 功能需求（來自 `Claude_Code_OCR_影片搜尋開發規劃.md`）
 
@@ -76,8 +76,9 @@
 
 | 分類 | 選擇 | 備註 |
 |---|---|---|
-| UI | Tkinter（`ttk`） | 本機桌面應用，非網頁 |
-| 資料庫 | SQLite（`app.db`） | 含 FTS5 trigram 虛擬表供 BM25 檢索 |
+| 後端 API | FastAPI（`uvicorn`） | REST API，見 `api/`／`services/`／`schemas/` |
+| 前端 | React + TypeScript + Vite + Tailwind + TanStack Query | 見 `frontend/`；原本的 Tkinter 桌面 UI 已移除，見 3.5 節 |
+| 資料庫 | SQLite（`app.db`） | 含 FTS5 trigram 虛擬表供 BM25 檢索；另有 `jobs`／`conversations` 表供 Web 版背景工作與對話狀態持久化用 |
 | ASR | OpenAI Whisper（`whisper-1`） | $0.006／分鐘 |
 | VLM（畫面描述＋OCR） | OpenAI GPT-4o-mini | 同一次呼叫回傳描述＋畫面文字，structured output |
 | Embedding | OpenAI `text-embedding-3-small` | 原生 1536 維，截短為 1024 維 |
@@ -91,15 +92,19 @@
 ### 3.2 模組分層與依賴方向
 
 ```text
-app.py（組裝進入點）
-  └─ ui/*.py（video_tab／library_tab／search_tab／logs_tab／header／widgets）
-       └─ pipeline/*.py（analyzer 是 orchestrator，呼叫 scene_detect／asr／vlm／
-          embedding／ocr_service／ocr_adapters／frames／summary／translation／
-          evaluation／openai_client）
-            └─ db/（connection／videos／segments／ocr_events／search_log）
+frontend/（React SPA，透過 Vite dev server proxy 呼叫 /api/*）
+  └─ api/*.py（FastAPI router：videos／jobs／search／conversations／stats）
+       └─ services/*.py（job_manager 是背景工作序列化與進度持久化；
+          video_service／search_service／conversation_service／stats_service
+          是薄包裝層）
+            └─ pipeline/*.py（analyzer 是 orchestrator，呼叫 scene_detect／asr／vlm／
+               embedding／ocr_service／ocr_adapters／frames／summary／translation／
+               conversation／evaluation／openai_client）
+                 └─ db/（connection／videos／segments／ocr_events／search_log／
+                    jobs／conversations）
 ```
 
-單向依賴、無循環依賴：`db/` 不 import 任何 `pipeline/`／`ui/`；`pipeline/*` 不 import `ui/*`。這個結構經過兩輪重構驗證仍然健康（見 [`02-technical-decisions.md`](02-technical-decisions.md#重構)）。
+單向依賴、無循環依賴：`db/` 不 import 任何 `pipeline/`／`services/`／`api/`；`pipeline/*` 不 import `services/`／`api/`。這個結構經過兩輪重構驗證仍然健康（見 [`02-technical-decisions.md`](02-technical-decisions.md#重構)），Web UI 遷移（見 3.5 節）延續同樣的單向依賴慣例，只在最外層新增 `services/`／`api/`／`frontend/`。原本的 `app.py`／`ui/*.py`（Tkinter）已於 Phase 4 移除，見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
 
 ### 3.3 整體資料流
 
@@ -146,9 +151,11 @@ flowchart TD
 
 ### 3.5 Web UI 遷移進度
 
-專案原本是純 Tkinter 桌面應用；目前正在進行 Web UI 遷移（React 前端 + FastAPI 後端），跟 Tkinter 版並存、共用同一套 `pipeline/`／`db/` 邏輯不重寫。詳細架構決策、Job Manager 設計、分階段驗收條件見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
+專案原本是純 Tkinter 桌面應用，已完成 Web UI 遷移（React 前端 + FastAPI 後端）並移除 Tkinter，現在是純 Web 應用。共用同一套 `pipeline/`／`db/` 邏輯，遷移過程沒有重寫這兩層。詳細架構決策、Job Manager 設計、分階段執行紀錄見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
 
-**目前進度**：Phase 0（規劃）／Phase 1（Service 層抽取）／Phase 2（FastAPI + Job Manager）／Phase 3（React 前端，四個頁面：影片與分析／影片庫／搜尋結果／對話搜尋）已完成並通過瀏覽器互動實測；Phase 4（移除 Tkinter 專用程式、套件命名收斂）**尚未開始**——計畫裡這一步的前提是「兩邊穩定運行一段時間、功能對等確認後」才進行，目前上傳、YouTube 下載、分析輪詢這三個流程還沒有在瀏覽器裡實際跑過，見 `09-web-ui-migration-plan.md` 第 9 節待辦。在 Phase 4 完成前，`ui/`／`app.py`／`theme.py`（Tkinter）與 `services/`／`schemas/`／`api/`（Web）會持續並存，`uv run ai-video-search-web` 啟動 Tkinter 版、`uv run ai-video-search-web-api` 啟動 Web 版後端 API。
+**目前進度**：Phase 0～Phase 4 全部完成。`uv run ai-video-search-web` 啟動 FastAPI／uvicorn 後端；`cd frontend && npm run dev` 啟動 React 前端。`ui/`／`app.py`／`theme.py`（Tkinter）已刪除，`07-ui-structure-and-features.md` 保留其設計記錄作為歷史參考。
+
+**已知限制**：分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，不是跨頁籤持續存在的全域狀態——分析中途切去別的頁籤，該支影片的進度顯示會遺失（分析本身在後端不受影響、持續進行），詳見 `09-web-ui-migration-plan.md` 第 9 節。
 
 ## 4. 如何使用這個資料夾
 
@@ -158,5 +165,5 @@ flowchart TD
 - 想知道「測試怎麼跑、品質怎麼量」→ 看 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md)。
 - 想知道「還有什麼沒做完、哪些數字還不能全信」→ 看 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
 - 想知道「對話搜尋怎麼設計的」→ 看 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)。
-- 想知道「現有 Tkinter UI 每個頁籤的功能與結構」→ 看 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)。
+- 想知道「已移除的 Tkinter UI 每個頁籤的功能與結構（歷史記錄）」→ 看 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)。
 - 想知道「Web UI 遷移進度、架構決策、Job Manager 設計」→ 看 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)（`08-web-ui-migration-design.md` 是尚未盤點現有程式碼前的原始參考稿，`09` 才是實際採用、持續更新的計畫）。

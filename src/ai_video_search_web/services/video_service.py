@@ -54,20 +54,10 @@ def probe_local_duration(video_path: Path) -> int | None:
         return None
 
 
-def register_local_video(path: Path, duration_sec: int | None) -> int:
-    return db.insert_video(
-        title=path.stem,
-        source=db.SOURCE_LOCAL,
-        source_url=None,
-        file_path=str(path),
-        duration_sec=duration_sec,
-    )
-
-
 def register_uploaded_video(title: str, file_path: Path, duration_sec: int | None) -> int:
-    """跟 register_local_video() 的差別：Web 上傳情境下磁碟檔名是系統產生的
-    uuid（避免 Path Traversal／檔名衝突，見 api/videos.py 上傳端點），跟
-    使用者看到的標題是兩件事，標題要由呼叫端另外傳入，不能沿用 file_path.stem。
+    """磁碟檔名是系統產生的 uuid（避免 Path Traversal／檔名衝突，見
+    api/videos.py 上傳端點），跟使用者看到的標題是兩件事，標題要由呼叫端
+    另外傳入，不能沿用 file_path.stem。
     """
     return db.insert_video(
         title=title,
