@@ -19,3 +19,6 @@ wheels/
 
 # Windows/WSL 下載檔案殘留的 zone-identifier 中繼資料，非專案內容
 *:Zone.Identifier
+
+# Claude Code harness 執行期 session lock（含 PID／timestamp），非專案內容
+.claude/scheduled_tasks.lock

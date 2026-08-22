@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import queue
-import subprocess
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -11,6 +10,7 @@ from typing import Callable
 
 from .. import db, downloader, theme
 from ..pipeline import analyzer
+from ..services import video_service
 from .widgets import (
     EmptyState,
     format_analysis_result_note,
@@ -34,18 +34,6 @@ _WIDTHS = {"title": 320, "duration": 80, "source": 90, "added_at": 140, "status"
 _SOURCE_DISPLAY = {db.SOURCE_YOUTUBE: "YouTube", db.SOURCE_LOCAL: "本機"}
 
 _LOCAL_VIDEO_FILETYPES = [("影片檔案", "*.mp4 *.mov *.mkv *.webm")]
-
-
-def _probe_duration_sec(video_path: Path) -> int | None:
-    """用 ffprobe 讀取本機影片長度；讀不到就回傳 None，不擋住新增流程。"""
-    try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video_path)],
-            capture_output=True, text=True, timeout=10, check=True,
-        )
-        return round(float(result.stdout.strip()))
-    except (subprocess.SubprocessError, OSError, ValueError):
-        return None
 
 
 class VideoAnalysisTab(ttk.Frame):
@@ -196,10 +184,10 @@ class VideoAnalysisTab(ttk.Frame):
         if not url:
             self._set_status("請輸入 YouTube 網址", "error")
             return
-        if not downloader.is_youtube_url(url):
+        if not video_service.is_youtube_url(url):
             self._set_status("請輸入有效的 YouTube 網址", "error")
             return
-        existing = db.find_by_source_url(url)
+        existing = video_service.find_existing_by_url(url)
         if existing is not None:
             self._set_status(f"此影片已經在庫中（狀態：{existing.status}）", "error")
             return
@@ -243,11 +231,10 @@ class VideoAnalysisTab(ttk.Frame):
         elif isinstance(item, downloader.DownloadResult):
             self._download_active = False
             self._progress_var.set(100.0)
-            db.insert_video(
+            video_service.register_downloaded_video(
                 title=item.title,
-                source=db.SOURCE_YOUTUBE,
                 source_url=self._url_var.get().strip(),
-                file_path=str(item.file_path),
+                file_path=item.file_path,
                 duration_sec=item.duration_sec,
             )
             self._url_var.set("")
@@ -264,14 +251,8 @@ class VideoAnalysisTab(ttk.Frame):
         if not path_str:
             return
         path = Path(path_str)
-        duration_sec = _probe_duration_sec(path)
-        db.insert_video(
-            title=path.stem,
-            source=db.SOURCE_LOCAL,
-            source_url=None,
-            file_path=str(path),
-            duration_sec=duration_sec,
-        )
+        duration_sec = video_service.probe_local_duration(path)
+        video_service.register_local_video(path, duration_sec)
         self._set_status("✓ 已加入待分析清單", "success")
         self._refresh_pending_list()
 
@@ -288,7 +269,7 @@ class VideoAnalysisTab(ttk.Frame):
     # 待分析影片列表
     # ------------------------------------------------------------------
     def _refresh_pending_list(self) -> None:
-        records = db.list_pending_videos()
+        records = video_service.list_pending_videos()
         self._pending_by_id = {record.id: record for record in records}
 
         self._tree.delete(*self._tree.get_children())
@@ -335,19 +316,11 @@ class VideoAnalysisTab(ttk.Frame):
             return
 
         for video_id in selected_ids:
-            record = db.delete_video(video_id)
+            record, file_error = video_service.delete_video(video_id)
             if record is None:
                 continue
-            file_path = Path(record.file_path)
-            try:
-                file_path.unlink(missing_ok=True)
-            except OSError as exc:
-                logger.error(
-                    f"「{record.title}」的檔案刪除失敗：{exc}",
-                    exc_info=True,
-                    extra={"video_title": record.title, "pipeline_stage": "刪除檔案"},
-                )
-                messagebox.showwarning("刪除檔案失敗", f"「{record.title}」的檔案刪除失敗：{exc}")
+            if file_error is not None:
+                messagebox.showwarning("刪除檔案失敗", f"「{record.title}」的檔案刪除失敗：{file_error}")
 
         self._refresh_pending_list()
 
@@ -367,14 +340,14 @@ class VideoAnalysisTab(ttk.Frame):
             record = self._pending_by_id.get(video_id)
             if record is None:
                 continue
-            if analyzer.is_within_duration_limit(record.duration_sec):
+            if video_service.is_within_duration_limit(record.duration_sec):
                 eligible.append(video_id)
             else:
                 too_long.append(record.title)
 
         if too_long:
             preview = "、".join(too_long[:3]) + ("…" if len(too_long) > 3 else "")
-            limit_min = analyzer.MAX_DURATION_SEC // 60
+            limit_min = video_service.max_duration_minutes()
             messagebox.showwarning(
                 "影片長度超過限制",
                 f"「{preview}」超過 {limit_min} 分鐘，本輪不分析這些影片。",

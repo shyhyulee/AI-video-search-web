@@ -17,8 +17,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from .. import theme
-from ..pipeline import conversation as conversation_pipeline
-from ..pipeline.search import SearchResult
+from ..services import conversation_service
+from ..services.conversation_service import SearchResult
 from .playback import play_segment
 from .widgets import EmptyState, format_percent, format_time_range, make_scrollable_treeview, truncate
 
@@ -45,7 +45,7 @@ _GREETING = "你好，跟我說說想找的影片內容，例如「找出有人�
 class ConversationTab(ttk.Frame):
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent, padding=theme.SPACE_16)
-        self._state = conversation_pipeline.ConversationState()
+        self._state = conversation_service.ConversationState()
         self._turn_active = False
         self._turn_queue: "queue.Queue[object]" = queue.Queue()
         self._turn_start_time = 0.0
@@ -185,11 +185,11 @@ class ConversationTab(ttk.Frame):
     def _run_turn_worker(
         self,
         message: str,
-        state: conversation_pipeline.ConversationState,
+        state: conversation_service.ConversationState,
         result_queue: "queue.Queue[object]",
     ) -> None:
         try:
-            result = conversation_pipeline.handle_turn(state, message)
+            result = conversation_service.send_message(state, message)
             result_queue.put(result)
         except Exception as exc:  # API/網路錯誤都攔截，避免背景執行緒讓程式崩潰
             logger.error(

@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import db, theme
+from .services import stats_service
 from .ui.conversation_tab import ConversationTab
 from .ui.header import HeaderFrame
 from .ui.library_tab import LibraryTab
@@ -29,7 +30,7 @@ class App(tk.Tk):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-        self._header_stats = db.get_header_stats()
+        self._header_stats = stats_service.get_header_stats()
         self.header = HeaderFrame(self, self._header_stats)
         self.header.grid(row=0, column=0, sticky="ew")
 
@@ -63,7 +64,7 @@ class App(tk.Tk):
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _on_stats_changed(self) -> None:
-        self._header_stats = db.get_header_stats()
+        self._header_stats = stats_service.get_header_stats()
         self.header.update_stats(self._header_stats)
         # 分析／摘要完成時即時刷新影片庫列表，不用等使用者切換分頁才看得到最新資料
         # （原本只在切到「影片庫」分頁那一刻才 refresh，如果分析是在使用者已經

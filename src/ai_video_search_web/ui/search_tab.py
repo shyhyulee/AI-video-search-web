@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from .. import theme
-from ..pipeline import search as search_pipeline
+from ..services import search_service
 from .playback import play_segment
 from .widgets import (
     EmptyState,
@@ -46,8 +46,8 @@ class SearchResultsTab(ttk.Frame):
         super().__init__(parent, padding=theme.SPACE_16)
         self._search_active = False
         self._search_queue: "queue.Queue[object]" = queue.Queue()
-        self._results: list[search_pipeline.SearchResult] = []
-        self._results_by_id: dict[str, search_pipeline.SearchResult] = {}
+        self._results: list[search_service.SearchResult] = []
+        self._results_by_id: dict[str, search_service.SearchResult] = {}
         self._scope_video_id: int | None = None
         self._scope_video_title: str | None = None
         self._recent_queries: list[str] = []
@@ -267,7 +267,7 @@ class SearchResultsTab(ttk.Frame):
         self, query: str, video_id: int | None, result_queue: "queue.Queue[object]"
     ) -> None:
         try:
-            response = search_pipeline.search(query, video_id=video_id)
+            response = search_service.search(query, video_id=video_id)
             result_queue.put(response)
         except Exception as exc:  # API/網路錯誤都攔截，避免背景執行緒讓程式崩潰
             logger.error(f"搜尋失敗：{query}｜{exc}", exc_info=True, extra={"pipeline_stage": "搜尋"})
@@ -352,7 +352,7 @@ class SearchResultsTab(ttk.Frame):
     def _on_row_selected(self, _event: object = None) -> None:
         self._show_selected_detail()
 
-    def _get_selected_result(self) -> search_pipeline.SearchResult | None:
+    def _get_selected_result(self) -> search_service.SearchResult | None:
         selection = self._tree.selection()
         if not selection:
             return None

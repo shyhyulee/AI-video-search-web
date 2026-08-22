@@ -15,8 +15,7 @@ from typing import Callable
 
 from .. import db, theme
 from ..pipeline import analyzer
-from ..pipeline import summary as summary_pipeline
-from ..pipeline.openai_client import get_client
+from ..services import video_service
 from .widgets import (
     Badge,
     EmptyState,
@@ -323,13 +322,13 @@ class LibraryTab(ttk.Frame):
             # 這時候重新整理會讓該影片從列表暫時消失；忽略外部觸發的 refresh，
             # 等重新分析結束（_handle_reanalysis_item）自己呼叫 refresh() 再更新。
             return
-        self._rows = [self._build_row(video) for video in db.list_library_videos()]
+        self._rows = [self._build_row(video) for video in video_service.list_library_videos()]
         self._rows_by_id = {str(r.video.id): r for r in self._rows}
         self._refresh_recent_queries()
         self._populate_list()
 
     def _build_row(self, video: db.VideoRecord) -> _LibraryRow:
-        segments = db.list_segments_for_video(video.id)
+        segments = video_service.list_segments_for_video(video.id)
         return _LibraryRow(
             video=video,
             has_transcript=any(s.transcript for s in segments),
@@ -496,7 +495,7 @@ class LibraryTab(ttk.Frame):
         if self._summary_active or self._selected_video_id is None:
             return
         video_id = self._selected_video_id
-        segments = db.list_segments_for_video(video_id)
+        segments = video_service.list_segments_for_video(video_id)
         if not segments:
             messagebox.showinfo("無法產生摘要", "這支影片還沒有任何分析片段。")
             return
@@ -515,12 +514,10 @@ class LibraryTab(ttk.Frame):
         self, video_id: int, segments: list[db.SegmentRecord], result_queue: "queue.Queue[object]"
     ) -> None:
         try:
-            client = get_client()
-            result = summary_pipeline.generate_summary(client, segments)
-            db.update_video_summary(video_id, result.summary, summary_pipeline.MODEL_NAME, result.cost_usd)
+            result = video_service.regenerate_summary(video_id, segments)
             result_queue.put(result)
         except Exception as exc:  # API/網路錯誤都攔截，避免背景執行緒讓程式崩潰
-            video = db.get_video(video_id)
+            video = video_service.get_video(video_id)
             title = video.title if video else str(video_id)
             logger.error(
                 f"「{title}」產生摘要失敗：{exc}",
@@ -580,7 +577,7 @@ class LibraryTab(ttk.Frame):
         if not confirmed:
             return
 
-        db.reset_to_pending(video_id)
+        video_service.reset_to_pending(video_id)
 
         self._reanalysis_active = True
         self._regenerate_btn.configure(state="disabled")
