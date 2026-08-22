@@ -18,7 +18,7 @@ class App(tk.Tk):
         super().__init__()
         db.init_db()
 
-        self.title("AI 影片語意搜尋")
+        self.title("AI 影片搜尋")
         self.geometry("1366x768")
         self.minsize(1024, 640)
 

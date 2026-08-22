@@ -16,7 +16,7 @@ class HeaderFrame(ttk.Frame):
 
         title_box = ttk.Frame(self)
         title_box.grid(row=0, column=0, sticky="w")
-        ttk.Label(title_box, text="AI 影片語意搜尋", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_box, text="AI 影片搜尋", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             title_box,
             text="快速找到影片中的關鍵時刻",

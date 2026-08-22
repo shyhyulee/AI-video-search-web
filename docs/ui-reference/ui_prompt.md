@@ -1,4 +1,4 @@
-請以資深 UI/UX Designer、Python Desktop Application Architect 與 Tkinter/ttk Engineer 的角度，重新設計目前「AI 影片語意搜尋」POC 的 UI/UX。
+請以資深 UI/UX Designer、Python Desktop Application Architect 與 Tkinter/ttk Engineer 的角度，重新設計目前「AI 影片搜尋」POC 的 UI/UX。
 
 本專案目前已有可運作的 Tkinter UI，請先閱讀現有程式碼及以下三張介面截圖：
 
@@ -74,7 +74,7 @@ UI 必須讓以下流程清楚、快速且容易展示：
 左側：
 
 ```text
-AI 影片語意搜尋
+AI 影片搜尋
 快速找到影片中的關鍵時刻
 ```
 
@@ -93,7 +93,7 @@ AI 影片語意搜尋
 * 成本使用 `US$1.08`，統一小數位。
 * 不要全部擠成一行純文字。
 * Header 高度保持精簡，不占用主要操作空間。
-* 避免畫面上方同時出現兩次「AI 影片語意搜尋」。
+* 避免畫面上方同時出現兩次「AI 影片搜尋」。
 
 # 四、「影片與分析」頁籤
 
