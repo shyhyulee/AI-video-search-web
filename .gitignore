@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# 執行期資料（下載的影片與本機資料庫，不進版控）
+/video/
+*.db
+*.db-journal
+
+# API 金鑰等敏感設定，不進版控
+.env
+
+# Windows/WSL 下載檔案殘留的 zone-identifier 中繼資料，非專案內容
+*:Zone.Identifier

@@ -1,0 +1,51 @@
+[project]
+name = "ai-video-search-web"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Rock Lee", email = "shyhyulee@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "av>=18.1.0",
+    "easyocr>=1.7.2",
+    "numpy>=2.4.6",
+    "openai>=3.2.0",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.3",
+    "scenedetect>=0.7.1",
+    "yt-dlp>=2026.7.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[project.scripts]
+ai-video-search-web = "ai_video_search_web:main"
+
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: 需要真實外部 API 呼叫（有極小額費用、需要網路），預設不執行，用 `pytest -m integration` 手動執行",
+]
+# 預設排除 integration 測試，避免一般 `pytest` 常態執行意外花錢或因為網路
+# 問題變得不穩定；要跑 integration 測試用 `uv run pytest -m integration`。
+addopts = "-m 'not integration'"
+
+[tool.uv]
+# Linux 上 uv 下載的 standalone Python 內建 Tk 缺少 Xft/fontconfig 支援，
+# 會導致 tkinter 完全無法顯示 CJK 文字；改用系統 Python 才有可用的中文字型。
+python-preference = "only-system"
+
+# 註：曾嘗試用 [tool.uv.sources] 把 torch/torchvision 導向官方 CPU-only wheel
+# （download.pytorch.org/whl/cpu），避免預設 PyPI wheel 帶入一堆用不到的
+# nvidia-cuda-* 套件，但排查後這個機器上 uv 0.12.1 沒有採用該設定（uv.lock
+# 仍解析回 pypi.org），原因未查明，先放棄這個最佳化。不影響功能：
+# pipeline/ocr_adapters.py 的 EasyOCR 是設定 gpu=False，那些 CUDA 套件只是
+# 裝著沒用到，純粹多佔一些硬碟空間，之後有需要再回頭排查。

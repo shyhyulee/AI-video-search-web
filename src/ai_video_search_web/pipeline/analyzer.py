@@ -1,0 +1,682 @@
+"""分析 pipeline orchestrator：串起場景切分→ASR→逐片段 VLM→建立向量→寫入索引，
+背景執行緒執行、透過 Queue 回報進度，不阻塞 Tk 主執行緒。
+
+只呼叫 asr/vlm/embedding 模組暴露的 provider 無關介面，不直接碰 OpenAI SDK，
+方便之後在各模組內部加入其他供應商實作。
+
+_analyze_worker() 是整支流程的 orchestrator，呼叫下面幾個具名的
+_run_*()／_write_segments() phase 函式，對應 Phase A~F 的邏輯區塊
+（B~F 原本就有對應註解，A／音訊轉錄步驟原本沒有獨立標記，這次一併補上），
+拆出來是為了每個階段的邏輯可以獨立閱讀，不是要改變流程本身。cost 累加用
+「傳入目前的 total_cost、回傳更新後的 total_cost」
+的方式在 phase 函式間傳遞，因為好幾個 phase 都需要讀取目前累積花費（檢查
+是否超出 BUDGET_USD）又會再花錢，這是最直接、不需要額外狀態物件的做法。
+
+其中三組互不依賴的 phase 改成同時起跑縮短耗時（Tier 1 平行化，不改變任何
+判斷邏輯／輸出結果，見 docs/analysis-pipeline-parallelization-plan.md）：
+場景切分＋音訊轉錄（_run_scene_detection_and_transcription()）、Phase C
+片段內三個 embedding（_embed_segment_texts()）、本地 OCR＋產生摘要
+（_run_local_ocr_and_summary()）。其餘 phase 仍然照順序一個一個處理。
+
+Phase B（VLM 逐場景畫面分析）另外做了 Tier 2 平行化：改成逐批次平行送出
+（見 _run_vlm_phase() 與 docs/analysis-pipeline-parallelization-plan.md「Tier 2」）。
+budget 檢查粒度從「每個場景後」放寬成「每個批次後」，是刻意接受的已知取捨；
+批次平行會提高短時間內撞到 OpenAI rate limit 的機率，_describe_segment_with_retry()
+補上重試機制，這是這次平行化的必要配套，不是額外功能。
+"""
+from __future__ import annotations
+
+import json
+import logging
+import queue
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+
+from openai import OpenAI, RateLimitError
+
+from .. import db
+from . import asr, embedding, ocr_service, scene_detect, vlm
+from . import summary as summary_pipeline
+from .openai_client import get_client
+
+logger = logging.getLogger(__name__)
+
+# 原本 $0.20，VLM 條件式多幀取樣上線後調高到 $0.30：用真實 7 支影片費用
+# 反推，溶接式排行榜內容（觸發率 88~98%）換算後單支費用最高約 $0.2015，
+# 超過原本上限；$0.30 讓這類影片留有餘裕，見
+# docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
+BUDGET_USD = 0.30
+MAX_DURATION_SEC = 20 * 60
+
+# source_raw_duration（scene_detect.NormalizedScene，這個場景所屬、切分前
+# 的原始長度）超過這個秒數，代表場景偵測器在這段長度裡完全沒抓到任何切點，
+# 觸發多幀 VLM 取樣（見下方 MULTI_FRAME_FRACTIONS）而不是預設中點單幀。
+# 校準過程：全 corpus 537 個既有場景重跑一次原始場景偵測比較 12s／20s 兩個
+# 門檻，20s 對連續動作型內容（NBA／BMW／動物／棒球）有實質過濾效果（觸發率
+# 18.5%→7.7%），對溶接式排行榜內容幾乎沒差（原始場景長度本來就遠超過
+# 20 秒）。只用這批 7 支影片校準過，不是嚴謹調校的結果，見
+# docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
+MULTI_FRAME_TRIGGER_SEC = 20.0
+
+# 觸發後取兩幀，分別在片段 30%／70% 時間點——不是中點單幀，讓兩幀盡量分散
+# 到片段前後段，各自代表性更高。幀數與位置沒有掃過其他選項（例如 3 幀／
+# 25%-50%-75%），已知在最極端案例（一個場景塞了 4 張快速切換的名卡）只能
+# 抓到其中 2 張，不保證完全覆蓋，見 docs/02-technical-decisions.md 已知限制。
+MULTI_FRAME_FRACTIONS = (0.3, 0.7)
+
+# Phase B 批次平行的批次大小。原本 =5 的推導依據（見下方保留的舊註解）
+# 其實用錯了 gpt-4o-mini「low」解析度圖片的 token 成本——假設固定 85
+# tokens（一般 gpt-4o 的公式），但實測單幀呼叫真實 prompt tokens 是 2960
+# （圖片本身就佔了約 2880 tokens，比假設值高了一個數量級），比原本估的
+# 「單次呼叫最差情況約 550 tokens」高出約 5.4 倍。這個落差沒有造成實際問題
+# （Tier 2 上線後的 20 場景測試 0 次撞 rate limit），研判是因為真實 API
+# 呼叫的延遲本身就有節流效果，不是 token 預算公式在把關。條件式多幀上線後
+# 觸發場景的 call 用量再乘上約 1.9 倍（2 幀），同一批次如果剛好混到多個
+# 觸發場景，風險又更高一階；沒有足夠把握重新推導一個精確數字，保守把批次
+# 大小降到 3（原本的約 60%），實際會不會撞 429 要等真的重新分析 video 1
+# 才能驗證，見 docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
+#
+# 舊註解（batch_size=5 時的推導依據，已知有誤，保留供對照）：用帳號實測
+# 撞過的 gpt-4o-mini TPM 上限（200,000/分鐘）回推：單次呼叫最差情況約
+# 550 tokens（含輸出上限），只讓 Phase B 自己的併發用量控制在上限的一半
+# 以內（~100,000 tokens/分鐘）換算出保守起點，見
+# docs/analysis-pipeline-parallelization-plan.md「Tier 2」。
+VLM_BATCH_SIZE = 3
+
+# 批次平行後同一批內同時打多個請求，撞到 429 的機率比循序執行時更高；
+# 帳號已經實測撞過 TPM 上限，這裡的等待秒數／重試次數是合理預設，不是
+# 實測校準值。
+VLM_RATE_LIMIT_MAX_RETRIES = 2
+VLM_RATE_LIMIT_RETRY_WAIT_SEC = 8.0
+
+
+@dataclass
+class AnalysisProgress:
+    stage: str
+    detail: str = ""
+
+
+@dataclass
+class AnalysisResult:
+    video_id: int
+    segment_count: int
+    cost_usd: float
+    partial: bool
+    vlm_failed_count: int = 0
+
+
+@dataclass
+class AnalysisError:
+    video_id: int
+    message: str
+
+
+@dataclass
+class _SceneAnalysisRow:
+    """Phase B（VLM 逐片段畫面分析）單一場景的輸出，Phase C（建立向量）逐筆
+    處理。用具名 dataclass、一個場景一筆，不是好幾個平行陣列——避免「新增一
+    個欄位要同步改宣告／Phase B 的 append／Phase C 的 zip 解構三處，任一處
+    漏改都是不會報錯但資料錯位」的風險，跟 _SegmentRow 採用同一個理由。
+    """
+    start_sec: float
+    end_sec: float
+    transcript_text: str
+    description: str
+    ocr_text: str | None
+    scores: asr.SegmentScores
+    frame_count: int  # 這個片段的畫面描述用了幾張畫面（1=單幀，2=條件式多幀）
+
+
+@dataclass
+class _SegmentRow:
+    """Phase C（建立向量）的輸出，Phase D（`_write_segments()`，寫入 segments 表）
+    與 Phase E（`_run_local_ocr()`，判斷哪些場景還缺 OCR 文字）逐一讀取；用
+    具名 dataclass 取代先前的無型別 9-tuple，避免位置索引（例如本地 OCR 用來
+    判斷要不要複掃的欄位）失去意義、欄位順序一改就悄悄壞掉不會有型別檢查提醒。
+    """
+    start_sec: float
+    end_sec: float
+    transcript_text: str
+    description: str
+    ocr_text: str | None
+    transcript_embedding: bytes | None
+    visual_embedding: bytes | None
+    ocr_embedding: bytes | None
+    scores: asr.SegmentScores
+    frame_count: int
+
+
+def is_within_duration_limit(duration_sec: int | None) -> bool:
+    return duration_sec is not None and duration_sec <= MAX_DURATION_SEC
+
+
+def start_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> threading.Thread:
+    thread = threading.Thread(target=_analyze_worker, args=(video_id, progress_queue), daemon=True)
+    thread.start()
+    return thread
+
+
+def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> None:
+    video = db.get_video(video_id)
+    if video is None:
+        progress_queue.put(AnalysisError(video_id=video_id, message="找不到這支影片的紀錄"))
+        return
+
+    video_path = Path(video.file_path)
+    if not video_path.exists():
+        db.update_video_status(video_id, db.STATUS_FAILED, "找不到影片檔案")
+        progress_queue.put(AnalysisError(video_id=video_id, message="找不到影片檔案"))
+        return
+
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "場景切分中")
+    progress_queue.put(AnalysisProgress(stage="場景切分中"))
+
+    client = get_client()
+    total_cost = 0.0
+
+    try:
+        duration_sec = float(video.duration_sec or 0)
+
+        scenes, transcribe_result, total_cost = _run_scene_detection_and_transcription(
+            client, video_id, video_path, duration_sec, progress_queue, total_cost
+        )
+
+        scene_rows, total_cost, vlm_failed_count = _run_vlm_phase(
+            client, video_id, video_path, scenes, transcribe_result, progress_queue, total_cost
+        )
+
+        segment_rows, total_cost = _run_embedding_phase(client, video_id, scene_rows, progress_queue, total_cost)
+
+        segment_ids = _write_segments(video_id, segment_rows, progress_queue)
+
+        segment_count = len(segment_rows)
+        partial = segment_count < len(scenes)
+        # 預算截斷跟「單一場景 VLM 失敗」是兩件互相獨立的事，各自有各自的訊息，
+        # 可能同時發生，用「；」串起來——不能共用同一個 partial 判斷或同一句
+        # 文字，不然使用者會看到誤導的原因（例如明明是內容審查拒絕，卻顯示
+        # 「已達預算上限」），見 docs/analysis-pipeline-flow.md。
+        stage_notes = []
+        if partial:
+            stage_notes.append(f"已達預算上限（US${BUDGET_USD:.2f}），完成 {segment_count}/{len(scenes)} 片段")
+        if vlm_failed_count:
+            stage_notes.append(f"{vlm_failed_count} 個場景畫面分析失敗，已略過（保留字幕，無畫面描述）")
+        pipeline_stage = "；".join(stage_notes) or None
+
+        # Phase E（本地 OCR）／Phase F（產生摘要）互不依賴，同時起跑縮短耗時，
+        # 見 docs/analysis-pipeline-parallelization-plan.md。本地 OCR 整段失敗
+        # 只記 log、不能讓已經成功的分析結果被判定為失敗，見
+        # docs/ocr-local-engine-plan.md 設計決策 5。
+        summary_text, total_cost = _run_local_ocr_and_summary(
+            client, video_id, video_path, segment_rows, segment_ids, total_cost, progress_queue
+        )
+
+        db.mark_video_analyzed(
+            video_id=video_id,
+            segment_count=segment_count,
+            cost_usd=total_cost,
+            asr_model=asr.MODEL_NAME,
+            vlm_model=vlm.MODEL_NAME,
+            embedding_model=embedding.MODEL_NAME,
+            pipeline_stage=pipeline_stage,
+            summary=summary_text,
+            summary_model=summary_pipeline.MODEL_NAME if summary_text else None,
+        )
+        progress_queue.put(
+            AnalysisResult(
+                video_id=video_id, segment_count=segment_count, cost_usd=total_cost, partial=partial,
+                vlm_failed_count=vlm_failed_count,
+            )
+        )
+
+    except Exception as exc:  # 分析過程各種例外統一攔截，避免背景執行緒讓整支程式崩潰
+        current = db.get_video(video_id)  # 必須在下面 STATUS_FAILED 覆蓋 pipeline_stage 之前先讀
+        stage_label = (current.pipeline_stage if current else None) or "分析"
+        logger.error(
+            f"「{video.title}」分析失敗：{exc}",
+            exc_info=True,
+            extra={"video_title": video.title, "pipeline_stage": stage_label},
+        )
+        db.update_video_status(video_id, db.STATUS_FAILED, f"分析失敗：{exc}")
+        progress_queue.put(AnalysisError(video_id=video_id, message=str(exc)))
+
+
+def _run_scene_detection(
+    video_path: Path, duration_sec: float, progress_queue: "queue.Queue[object]"
+) -> list[scene_detect.NormalizedScene]:
+    """Phase A：場景切分。"""
+
+    def _on_scene_progress(percent: int) -> None:
+        progress_queue.put(AnalysisProgress(stage="場景切分中", detail=f"{percent}%（預估）"))
+
+    return scene_detect.detect_scenes_with_progress(video_path, duration_sec, on_progress=_on_scene_progress)
+
+
+def _run_transcription(
+    client: OpenAI,
+    video_id: int,
+    video_path: Path,
+    duration_sec: float,
+    progress_queue: "queue.Queue[object]",
+    total_cost: float,
+) -> tuple[asr.TranscribeResult, float]:
+    """整支影片的音訊轉錄（原本無獨立 Phase 字母，緊接在 Phase A 場景切分之後、
+    Phase B 逐片段畫面分析之前），回傳 (轉錄結果, 累加後的 total_cost)。"""
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "音訊轉錄中")
+    progress_queue.put(AnalysisProgress(stage="音訊轉錄中"))
+
+    def _on_transcribe_progress(percent: int) -> None:
+        progress_queue.put(AnalysisProgress(stage="音訊轉錄中", detail=f"{percent}%（預估）"))
+
+    transcribe_result = asr.transcribe_with_progress(
+        client, video_path, duration_sec, on_progress=_on_transcribe_progress
+    )
+    total_cost += transcribe_result.cost_usd
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "音訊轉錄完成")
+    progress_queue.put(AnalysisProgress(stage="音訊轉錄完成"))
+
+    return transcribe_result, total_cost
+
+
+def _run_scene_detection_and_transcription(
+    client: OpenAI,
+    video_id: int,
+    video_path: Path,
+    duration_sec: float,
+    progress_queue: "queue.Queue[object]",
+    total_cost: float,
+) -> tuple[list[scene_detect.NormalizedScene], asr.TranscribeResult, float]:
+    """Phase A（場景切分）跟音訊轉錄互不依賴——一個看畫面、一個聽聲音，改成
+    同時起跑縮短總耗時；`_run_scene_detection()`／`_run_transcription()` 本身
+    不動，只是呼叫順序從循序改成併發，見
+    docs/analysis-pipeline-parallelization-plan.md。
+    """
+    transcribe_holder: dict[str, object] = {}
+
+    def _do_transcription() -> None:
+        try:
+            transcribe_holder["result"] = _run_transcription(
+                client, video_id, video_path, duration_sec, progress_queue, total_cost
+            )
+        except Exception as exc:  # 子執行緒的例外不會自動傳給主執行緒，join 後手動重拋
+            transcribe_holder["error"] = exc
+
+    transcribe_thread = threading.Thread(target=_do_transcription)
+    transcribe_thread.start()
+
+    try:
+        scenes = _run_scene_detection(video_path, duration_sec, progress_queue)
+    finally:
+        # 場景切分萬一拋例外，也要等轉錄執行緒做完才能離開這個函式——不然
+        # 轉錄那個已經開始的 API 呼叫會在背景繼續跑，脫離這個函式的生命週期，
+        # 花的錢也不會被算進 total_cost。
+        transcribe_thread.join()
+
+    if "error" in transcribe_holder:
+        raise transcribe_holder["error"]  # type: ignore[misc]
+
+    transcribe_result, updated_cost = transcribe_holder["result"]  # type: ignore[misc]
+    return scenes, transcribe_result, updated_cost
+
+
+def _frame_fractions_for(scene: scene_detect.NormalizedScene) -> tuple[float, ...]:
+    """依 NormalizedScene.source_raw_duration 決定這個場景要用單幀還是條件式
+    多幀取樣，見 MULTI_FRAME_TRIGGER_SEC／MULTI_FRAME_FRACTIONS 旁的說明。
+    拆成獨立函式方便不用真的跑 VLM／場景偵測就能測門檻判斷本身。
+    """
+    if scene.source_raw_duration > MULTI_FRAME_TRIGGER_SEC:
+        return MULTI_FRAME_FRACTIONS
+    return vlm.DEFAULT_FRAME_FRACTIONS
+
+
+def _run_vlm_phase(
+    client: OpenAI,
+    video_id: int,
+    video_path: Path,
+    scenes: list[scene_detect.NormalizedScene],
+    transcribe_result: asr.TranscribeResult,
+    progress_queue: "queue.Queue[object]",
+    total_cost: float,
+) -> tuple[list[_SceneAnalysisRow], float, int]:
+    """Phase B：逐片段畫面分析（VLM，成本主要來源）。場景分批平行送出縮短耗時
+    （Tier 2 平行化，見 docs/analysis-pipeline-parallelization-plan.md）：同一批
+    內用 thread pool 並發呼叫，用「送出順序」收集結果（不是完成順序），確保
+    回傳的 list[_SceneAnalysisRow] 順序仍然精確對應 scenes 的順序；budget
+    檢查從「每個場景後」放寬成「每個批次後」。
+
+    每個場景先依 `_frame_fractions_for()` 判斷要不要觸發條件式多幀取樣（見
+    docs/02-technical-decisions.md「VLM 條件式多幀取樣」），再送進 VLM。
+
+    單一場景的 VLM 呼叫失敗（內容審查拒絕、API 錯誤等 rate limit 以外的例外）
+    只跳過那個場景的畫面描述／OCR，不讓整支分析失敗，比照 Phase E／F 的失敗
+    隔離原則；字幕不受影響，因為是從已經抓好的逐字稿本機切出來的，跟 VLM
+    呼叫成不成功無關。失敗場景數用回傳值 vlm_failed_count 往外傳，讓呼叫端
+    可以把這個原因獨立顯示給使用者，不能跟預算截斷共用同一個訊息（見
+    docs/analysis-pipeline-flow.md）。失敗場景的 cost_usd 一律算 0——內容審查
+    拒絕的呼叫實務上可能還是有算到一點輸入 token 費用，但例外是在讀到
+    response.usage 之前就被拋出，程式拿不到那個數字，這是已知、暫不處理的
+    誤差；失敗場景的 frame_count 記 0（沒有任何畫面真的產生描述）。
+    """
+    scene_rows: list[_SceneAnalysisRow] = []
+    vlm_failed_count = 0
+
+    completed = 0
+
+    def _report_progress() -> None:
+        nonlocal completed
+        completed += 1
+        percent = round(completed / len(scenes) * 100)
+        db.update_video_status(video_id, db.STATUS_ANALYZING, f"畫面分析 {percent}%")
+        progress_queue.put(AnalysisProgress(stage="畫面分析", detail=f"{percent}%"))
+
+    with ThreadPoolExecutor(max_workers=VLM_BATCH_SIZE) as pool:
+        for batch_start in range(0, len(scenes), VLM_BATCH_SIZE):
+            batch = scenes[batch_start : batch_start + VLM_BATCH_SIZE]
+            futures = [
+                pool.submit(
+                    _describe_segment_with_retry,
+                    client, video_path, scene.start_sec, scene.end_sec, _frame_fractions_for(scene),
+                )
+                for scene in batch
+            ]
+
+            for scene, future in zip(batch, futures):
+                start_sec, end_sec = scene.start_sec, scene.end_sec
+                try:
+                    describe_result = future.result()
+                except Exception:
+                    logger.warning(
+                        "VLM 畫面分析失敗，跳過這個場景（%.1fs~%.1fs），保留字幕、不產生畫面描述",
+                        start_sec, end_sec, exc_info=True,
+                    )
+                    describe_result = None
+                    vlm_failed_count += 1
+
+                _report_progress()
+
+                if describe_result is not None:
+                    total_cost += describe_result.cost_usd
+                scene_rows.append(
+                    _SceneAnalysisRow(
+                        start_sec=start_sec,
+                        end_sec=end_sec,
+                        transcript_text=asr.text_for_range(transcribe_result.segments, start_sec, end_sec),
+                        description=describe_result.description if describe_result else "",
+                        ocr_text=describe_result.ocr_text if describe_result else None,
+                        scores=asr.scores_for_range(transcribe_result.segments, start_sec, end_sec),
+                        frame_count=describe_result.frame_count if describe_result else 0,
+                    )
+                )
+
+            if total_cost > BUDGET_USD:
+                break
+
+    return scene_rows, total_cost, vlm_failed_count
+
+
+def _describe_segment_with_retry(
+    client: OpenAI, video_path: Path, start_sec: float, end_sec: float, frame_fractions: tuple[float, ...]
+) -> vlm.DescribeResult:
+    """包一層 rate limit 重試。批次平行送出後，同一批內同時打多個請求，撞到
+    OpenAI 429（gpt-4o-mini TPM 上限）的機率比循序執行時更高——帳號實測撞過
+    這個上限（見 docs/analysis-pipeline-parallelization-plan.md「Tier 2」），
+    這裡補上重試，不然平行化反而會讓整支影片分析比現在更容易失敗。非
+    rate-limit 的例外不重試，直接往外拋，維持跟現有版本一樣的失敗語意。
+    """
+    attempt = 0
+    while True:
+        try:
+            return vlm.describe_segment(client, video_path, start_sec, end_sec, frame_fractions)
+        except RateLimitError:
+            attempt += 1
+            if attempt > VLM_RATE_LIMIT_MAX_RETRIES:
+                raise
+            logger.warning(
+                "VLM 呼叫撞到 rate limit，%.0f 秒後重試（第 %d/%d 次）",
+                VLM_RATE_LIMIT_RETRY_WAIT_SEC, attempt, VLM_RATE_LIMIT_MAX_RETRIES,
+            )
+            time.sleep(VLM_RATE_LIMIT_RETRY_WAIT_SEC)
+
+
+def _run_embedding_phase(
+    client: OpenAI,
+    video_id: int,
+    scene_rows: list[_SceneAnalysisRow],
+    progress_queue: "queue.Queue[object]",
+    total_cost: float,
+) -> tuple[list[_SegmentRow], float]:
+    """Phase C：建立向量（字幕、畫面描述、OCR 文字分開 embed）。同一片段內的三個
+    embedding 互相獨立，用 thread pool 平行送出縮短耗時；片段仍然照原順序一個一個
+    處理，budget 檢查時機（一個片段的三個 embedding 都做完才檢查一次）不變，見
+    docs/analysis-pipeline-parallelization-plan.md。
+
+    字幕疑似是幻覺時不建立字幕 embedding，避免污染搜尋；`segments.transcript`
+    仍然照實際 Whisper 輸出寫入，不隱藏原始內容，只是不讓它可被搜尋到，見
+    docs/whisper-hallucination-filter-plan.md。兩種互補的判斷：模式 A
+    （asr.is_hallucinated_transcript()，no_speech_prob 偏高）逐場景判斷；
+    模式 B（asr.find_repetitive_transcript_indices()，連續場景被同一個詞
+    主導）跨場景判斷，要先對整支影片的字幕算一次。
+    """
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "建立向量中")
+    progress_queue.put(AnalysisProgress(stage="建立向量中"))
+
+    repetitive_indices = asr.find_repetitive_transcript_indices(
+        [row.transcript_text for row in scene_rows]
+    )
+
+    segment_rows: list[_SegmentRow] = []
+    for index, row in enumerate(scene_rows):
+        is_hallucinated = asr.is_hallucinated_transcript(row.scores) or index in repetitive_indices
+        transcript_for_embedding = row.transcript_text if row.transcript_text and not is_hallucinated else None
+        embed_results = _embed_segment_texts(
+            client, transcript=transcript_for_embedding, visual=row.description, ocr=row.ocr_text
+        )
+
+        transcript_embedding = None
+        if "transcript" in embed_results:
+            total_cost += embed_results["transcript"].cost_usd
+            transcript_embedding = embedding.encode_embedding(embed_results["transcript"].vector)
+
+        visual_embedding = None
+        if "visual" in embed_results:
+            total_cost += embed_results["visual"].cost_usd
+            visual_embedding = embedding.encode_embedding(embed_results["visual"].vector)
+
+        ocr_embedding = None
+        if "ocr" in embed_results:
+            total_cost += embed_results["ocr"].cost_usd
+            ocr_embedding = embedding.encode_embedding(embed_results["ocr"].vector)
+
+        segment_rows.append(
+            _SegmentRow(
+                start_sec=row.start_sec,
+                end_sec=row.end_sec,
+                transcript_text=row.transcript_text,
+                description=row.description,
+                ocr_text=row.ocr_text,
+                transcript_embedding=transcript_embedding,
+                visual_embedding=visual_embedding,
+                ocr_embedding=ocr_embedding,
+                scores=row.scores,
+                frame_count=row.frame_count,
+            )
+        )
+
+        if total_cost > BUDGET_USD:
+            break
+
+    return segment_rows, total_cost
+
+
+def _embed_segment_texts(
+    client: OpenAI, *, transcript: str | None, visual: str | None, ocr: str | None
+) -> dict[str, embedding.EmbedResult]:
+    """把一個片段裡存在的文字（字幕／畫面描述／OCR）平行送出 embedding 呼叫，
+    回傳 {種類: EmbedResult}；呼叫端逐一累加花費，跟循序呼叫的結果完全一樣，
+    只是三個獨立的網路呼叫改成同時發生。"""
+    texts = {kind: text for kind, text in (("transcript", transcript), ("visual", visual), ("ocr", ocr)) if text}
+    if not texts:
+        return {}
+    if len(texts) == 1:
+        kind, text = next(iter(texts.items()))
+        return {kind: embedding.embed_text(client, text)}
+
+    with ThreadPoolExecutor(max_workers=len(texts)) as pool:
+        futures = {kind: pool.submit(embedding.embed_text, client, text) for kind, text in texts.items()}
+        return {kind: future.result() for kind, future in futures.items()}
+
+
+def _write_segments(
+    video_id: int, segment_rows: list[_SegmentRow], progress_queue: "queue.Queue[object]"
+) -> list[int]:
+    """Phase D：把所有片段一次寫入 segments 表，回傳依序對應的 segment_id 清單。"""
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "寫入索引")
+    progress_queue.put(AnalysisProgress(stage="寫入索引"))
+
+    segment_ids: list[int] = []
+    for row in segment_rows:
+        segment_id = db.insert_segment(
+            video_id=video_id,
+            start_sec=row.start_sec,
+            end_sec=row.end_sec,
+            transcript=row.transcript_text or None,
+            visual_description=row.description or None,
+            ocr_text=row.ocr_text,
+            transcript_embedding=row.transcript_embedding,
+            visual_embedding=row.visual_embedding,
+            ocr_embedding=row.ocr_embedding,
+            asr_model=asr.MODEL_NAME,
+            vlm_model=vlm.MODEL_NAME,
+            embedding_model=embedding.MODEL_NAME,
+            no_speech_prob=row.scores.no_speech_prob,
+            avg_logprob=row.scores.avg_logprob,
+            compression_ratio=row.scores.compression_ratio,
+            vlm_frame_count=row.frame_count,
+        )
+        segment_ids.append(segment_id)
+    return segment_ids
+
+
+def _run_local_ocr(
+    client: OpenAI,
+    video_id: int,
+    video_path: Path,
+    segment_rows: list[_SegmentRow],
+    segment_ids: list[int],
+    total_cost: float,
+    progress_queue: "queue.Queue[object]",
+) -> float:
+    """跑本地 OCR 掃描並把結果 embed、寫入 ocr_events；回傳累加後的 total_cost。
+    只掃描 VLM-OCR 沒抓到文字的場景（segment_rows 的 ocr_text 為空）——本地 OCR
+    的目的是補 VLM 單幀取樣漏掉的文字，不是重複掃描 VLM 已經找到文字的場景；
+    用真實影片校準過，多數影片 VLM 已覆蓋 98~100% 場景，全面依序掃描只會把
+    60 秒時間預算耗在早就有答案的前幾個場景上，反而讓真正需要補的場景完全
+    沒被掃到（見 docs/ocr-local-engine-plan.md「仍需確認的問題」）。
+    本地辨識本身免費，但 embedding 是真的 OpenAI 呼叫，一樣受 BUDGET_USD 節制，
+    避免本地 OCR 找到大量文字時不受控地把預算榨乾。
+    """
+    scenes_with_segment_id = [
+        (row.start_sec, row.end_sec, segment_id)
+        for row, segment_id in zip(segment_rows, segment_ids)
+        if not row.ocr_text  # VLM-OCR 已經有文字的場景不用本地 OCR 複掃
+    ]
+    if not scenes_with_segment_id:
+        return total_cost
+
+    def _on_ocr_progress(percent: int) -> None:
+        progress_queue.put(AnalysisProgress(stage="本地 OCR 掃描中", detail=f"{percent}%"))
+
+    ocr_events = ocr_service.scan_scenes(
+        video_id, video_path, scenes_with_segment_id, on_progress=_on_ocr_progress
+    )
+
+    for event in ocr_events:
+        if total_cost > BUDGET_USD:
+            break
+        embed_result = embedding.embed_text(client, event.resolved_text)
+        total_cost += embed_result.cost_usd
+        db.insert_ocr_event(
+            video_id=event.video_id,
+            segment_id=event.segment_id,
+            start_sec=event.start_sec,
+            end_sec=event.end_sec,
+            frame_sec=event.frame_sec,
+            raw_text=event.raw_text,
+            resolved_text=event.resolved_text,
+            confidence=event.confidence,
+            bbox=json.dumps(event.bbox) if event.bbox else None,
+            primary_engine=event.primary_engine,
+            ocr_pipeline_version=ocr_service.PIPELINE_VERSION,
+            embedding=embedding.encode_embedding(embed_result.vector),
+        )
+
+    return total_cost
+
+
+def _run_summary_phase(
+    client: OpenAI, video_id: int, total_cost: float, progress_queue: "queue.Queue[object]"
+) -> tuple[str | None, float]:
+    """Phase F：產生摘要（GPT-4o-mini，彙整全部片段字幕與畫面描述，約 100~200 字）。
+    budget 已經超支就跳過，不強求一定要有摘要；失敗只記 log，不影響其他分析
+    結果——跟本地 OCR 同樣的失敗隔離原則。這份摘要也是搜尋端影片篩選
+    （search.py 的 _video_relevance_score()）的主要依據，見
+    docs/scene-length-normalization-plan.md 之後的搜尋規劃討論。
+    """
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "產生摘要中")
+    progress_queue.put(AnalysisProgress(stage="產生摘要中"))
+
+    summary_text: str | None = None
+    try:
+        if total_cost <= BUDGET_USD:
+            fresh_segments = db.list_segments_for_video(video_id)
+            if fresh_segments:
+                summary_result = summary_pipeline.generate_summary(client, fresh_segments)
+                total_cost += summary_result.cost_usd
+                summary_text = summary_result.summary
+    except Exception:
+        logger.warning("自動產生摘要失敗，跳過（不影響其他分析結果）", exc_info=True)
+
+    return summary_text, total_cost
+
+
+def _run_local_ocr_and_summary(
+    client: OpenAI,
+    video_id: int,
+    video_path: Path,
+    segment_rows: list[_SegmentRow],
+    segment_ids: list[int],
+    total_cost: float,
+    progress_queue: "queue.Queue[object]",
+) -> tuple[str | None, float]:
+    """Phase E（本地 OCR）跟 Phase F（產生摘要）互不依賴——F 只讀 Phase D 寫入的
+    segments，不碰 Phase E 寫的 ocr_events 表——改成同時起跑縮短耗時。兩者都用
+    「進入這個函式那一刻」的 total_cost 當基準；`_run_local_ocr()` 本身完全不動，
+    `_run_summary_phase()` 判斷要不要花錢做摘要的依據原本是「本地 OCR 跑完後」的
+    金額，這裡改成「本地 OCR 開始前」的金額——極端情況下兩者合計可能讓總花費
+    比 BUDGET_USD 多出一點點，是刻意接受的已知取捨，見
+    docs/analysis-pipeline-parallelization-plan.md。
+    """
+    baseline_cost = total_cost
+    ocr_holder: dict[str, float] = {"cost": baseline_cost}
+
+    def _do_local_ocr() -> None:
+        db.update_video_status(video_id, db.STATUS_ANALYZING, "本地 OCR 掃描中")
+        progress_queue.put(AnalysisProgress(stage="本地 OCR 掃描中"))
+        try:
+            ocr_holder["cost"] = _run_local_ocr(
+                client, video_id, video_path, segment_rows, segment_ids, baseline_cost, progress_queue
+            )
+        except Exception:
+            logger.warning("本地 OCR 掃描階段失敗，跳過（不影響其他分析結果）", exc_info=True)
+
+    ocr_thread = threading.Thread(target=_do_local_ocr)
+    ocr_thread.start()
+
+    summary_text, summary_cost = _run_summary_phase(client, video_id, baseline_cost, progress_queue)
+
+    ocr_thread.join()
+
+    total_cost = ocr_holder["cost"] + summary_cost - baseline_cost
+    return summary_text, total_cost
