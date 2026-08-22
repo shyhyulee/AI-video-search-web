@@ -13,6 +13,8 @@ wheels/
 /video/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 
 # API 金鑰等敏感設定，不進版控
 .env

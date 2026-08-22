@@ -8,7 +8,7 @@
 
 本文件的目標是依照專案**目前程式與檔案的真實現況**（已用三個 Explore agent + 一個 Plan agent 完整盤點、且逐一親自讀過全部關鍵原始檔驗證行號與事實）重新推導一份可執行的計畫。技術選型大致沿用 `08-web-ui-migration-design.md`（React／FastAPI／Polling 這些主流選擇沒有爭議），但架構細節、Job 設計、檔案結構、分期順序都改成基於實測事實推導，多處明確偏離該文件。
 
-**目前狀態**：僅完成規劃（Phase 0），尚未開始任何程式碼改動。
+**目前狀態**：Phase 0（規劃）、Phase 1（Service 層）、Phase 2（FastAPI + Job Manager）已完成並通過驗收；Phase 3（React 前端）、Phase 4（切換與清理）尚未開始。實作細節與跟本文件原規劃的落差見 4.2／4.3 節「實作紀錄」。
 
 ## 2. 現況關鍵事實（決策依據）
 
@@ -72,6 +72,12 @@ tests/
 ├── test_*.py             # 既有 207 個測試不動
 ├── test_services_*.py    # Phase 1 新增
 └── api/                  # Phase 2 新增，pytest 自動遞迴發現，免改 pyproject
+    ├── conftest.py        #   共用 fixture：temp_db／client／make_video()
+    └── test_api_*.py      #   注意：命名前綴要跟 tests/ 根目錄不同（例如
+                            #   test_api_search.py 而非 test_search.py）——
+                            #   tests/ 沒有 __init__.py，pytest 預設 prepend
+                            #   import mode 下，同名檔案放在不同子目錄會撞名
+                            #   （import file mismatch），實測踩過這個坑。
 ```
 
 **僅兩處對既有檔案的修改**（其餘 pipeline 檔案零修改）：
@@ -165,7 +171,7 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 盤點＋設計，未改動任何程式碼。
 
-### 4.2 Phase 1 — 抽出 Service 層（只服務 Category B + CRUD，不含 Job Manager）
+### 4.2 Phase 1 — 抽出 Service 層（只服務 Category B + CRUD，不含 Job Manager）✅ 已完成
 
 新增：`services/video_service.py`（含 `probe_local_duration()`，從 `video_tab.py:39-48` 原樣搬過來）、`search_service.py`、`conversation_service.py`（此階段還不接 `conversations` 表，維持記憶體 state）、`stats_service.py`。
 
@@ -173,7 +179,9 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 **驗收**：`uv run pytest` 207 個既有測試全綠（service 層是透傳包裝，行為需位元級相同）；新增 `tests/test_services_*.py`。**已知缺口**：`ui/*_tab.py` 本身目前零自動化測試（`test_widgets.py` 只測 `ui/widgets.py` 格式化函式），pytest 全綠不代表 Tkinter 視窗沒壞，這階段須額外人工跑一次 `uv run ai-video-search-web`，五個頁籤主要操作各點過一輪。
 
-### 4.3 Phase 2 — FastAPI + Job Manager（API 完整，前端還沒開始）
+**實作紀錄**：程式碼與上述規劃一致，新增 21 個 service 測試，`uv run pytest` 227 通過（206 舊有 + 21 新增）+ 1 deselected。實作過程中發現規劃時漏列一處呼叫點：`library_tab.py` 的 `_on_regenerate_summary_clicked()` 除了 `_build_row()` 之外還有另一處獨立的 `db.list_segments_for_video()` 呼叫，已一併改成呼叫 `video_service`。**人工驗證待辦**：此開發環境無 GUI 顯示，無法啟動 Tkinter 視窗，五個頁籤的人工點測驗收項目尚未執行，需要你本機驗證。
+
+### 4.3 Phase 2 — FastAPI + Job Manager（API 完整，前端還沒開始）✅ 已完成
 
 新增：`db/jobs.py`、`db/conversations.py`（掛進 `db/__init__.py init_db()`）、`services/job_manager.py`、`schemas/*.py`、`api/main.py`＋五個 router、`tests/api/test_*.py`（FastAPI `TestClient`）。
 
@@ -187,6 +195,14 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - 併發測試：同一 `video_id` 連發兩次 `/analyze` 第二次回 409；兩個不同 `video_id` 連發，第二個停在 `queued` 直到第一個變終態（驗證 Semaphore(1) 真的生效）。
 - Startup reconciliation 有測試覆蓋。
 - `GET /docs`（Swagger）手動核對每個 endpoint 一次。
+
+**實作紀錄**：
+
+- `uv run pytest` 256 通過（227 + 29 新增 API 測試）+ 1 deselected；上述 5 項驗收條件各自有對應測試，實測皆通過。另外用真實 `uvicorn`（非 TestClient）啟動，確認 `/docs`／`/openapi.json`（18 條路徑）／`/api/v1/stats` 都正常運作，且正確讀到真實 `app.db`（7 支已分析影片、537 個片段）。
+- `pyproject.toml` 新增 `fastapi>=0.115`、`uvicorn[standard]>=0.32`、`python-multipart>=0.0.9`（實際解析到 fastapi 0.141.1／starlette 1.6.0／uvicorn 0.52.4），新增 `ai-video-search-web-api` script entry。
+- 比原規劃多實作兩個 service 函式（規劃時沒預先想到，實作 API 時才發現需要）：`video_service.generate_thumbnail()`（供 `/videos/{id}/thumbnail`，沿用 `library_tab.py._set_thumbnail()` 的 ffmpeg 邏輯，即時產生不快取，Phase 3 規劃的「分析完成時就產生並保存」還沒做）、`video_service.register_uploaded_video()`（跟 `register_local_video()` 的差別：Web 上傳時磁碟檔名是系統產生的 uuid，跟使用者看到的標題是兩件事，不能沿用 `path.stem` 當標題）。`db.jobs.list_jobs()` 額外支援 `job_type`／`status` 篩選（dispatcher 挑下一個排隊工作要用）。
+- **範圍內的取捨**：`08-web-ui-migration-design.md` API 設計列的 `GET /api/v1/search/recent`（最近搜尋）**沒有實作**——Tkinter 版本這個功能純粹存在 `SearchResultsTab` 記憶體、`db/search_log.py` 沒有對應的查詢函式，屬於錦上添花功能，不影響任何驗收條件，之後有需要再補。
+- **踩到的坑**：FastAPI 0.141.1 的 `app.routes` 在 `include_router()` 之後顯示的是內部 `_IncludedRouter` 物件、不是展開後的個別 endpoint 列表（跟舊版行為不同），直接數 `len(app.routes)` 會誤判成「路由沒掛上去」；正確驗證方式是打 `/openapi.json` 或直接用 `TestClient` 呼叫端點。另外測試 `test_second_analysis_job_waits_for_first_to_finish` 一度因為背景 pump thread 沒等它完全跑完（`mark_job_completed` + 鏈式派發下一個）測試函式就返回，導致 thread 殘留到下一個測試、撞上已經被 `monkeypatch` 換掉的 `db.DB_PATH`（`sqlite3.OperationalError: no such table: jobs`）；修法是讓測試明確 poll 到工作真的變成終態才返回，不能只 `set()` 事件就結束——這是背景執行緒測試常見的坑，記錄下來供之後寫 Phase 3 的非同步測試參考。
 
 ### 4.4 Phase 3 — React 前端（風險由低到高）
 

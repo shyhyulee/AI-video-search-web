@@ -47,15 +47,23 @@ class DownloadResult:
     duration_sec: int | None
 
 
-def start_download(url: str, progress_queue: "queue.Queue[object]") -> threading.Thread:
-    """啟動背景執行緒下載，立即回傳、不阻塞呼叫端。"""
-    thread = threading.Thread(target=_download_worker, args=(url, progress_queue), daemon=True)
+def start_download(
+    url: str, progress_queue: "queue.Queue[object]", dest_dir: Path | None = None
+) -> threading.Thread:
+    """啟動背景執行緒下載，立即回傳、不阻塞呼叫端。dest_dir 預設為 VIDEO_DIR；
+    Web 版 Job Manager 會傳入依 job_id 區隔的子目錄，避免不同 URL 剛好標題
+    相同時互相覆蓋檔案，見 docs/09-web-ui-migration-plan.md 3.1 節。
+    """
+    thread = threading.Thread(target=_download_worker, args=(url, progress_queue, dest_dir), daemon=True)
     thread.start()
     return thread
 
 
-def _download_worker(url: str, progress_queue: "queue.Queue[object]") -> None:
-    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+def _download_worker(
+    url: str, progress_queue: "queue.Queue[object]", dest_dir: Path | None = None
+) -> None:
+    target_dir = dest_dir if dest_dir is not None else VIDEO_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     def hook(status: dict) -> None:
         if status.get("status") != "downloading":
@@ -76,7 +84,7 @@ def _download_worker(url: str, progress_queue: "queue.Queue[object]") -> None:
     options = {
         "format": QUALITY_FORMAT,
         "merge_output_format": "mp4",
-        "outtmpl": str(VIDEO_DIR / "%(title)s.%(ext)s"),
+        "outtmpl": str(target_dir / "%(title)s.%(ext)s"),
         "progress_hooks": [hook],
         "noplaylist": True,
         "quiet": True,

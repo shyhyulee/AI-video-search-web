@@ -10,11 +10,14 @@ requires-python = ">=3.11"
 dependencies = [
     "av>=18.1.0",
     "easyocr>=1.7.2",
+    "fastapi>=0.115",
     "numpy>=2.4.6",
     "openai>=3.2.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.9",
     "scenedetect>=0.7.1",
+    "uvicorn[standard]>=0.32",
     "yt-dlp>=2026.7.4",
 ]
 
@@ -25,6 +28,7 @@ dev = [
 
 [project.scripts]
 ai-video-search-web = "ai_video_search_web:main"
+ai-video-search-web-api = "ai_video_search_web.api.main:run"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
