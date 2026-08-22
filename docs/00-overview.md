@@ -31,6 +31,8 @@
 
 全域 Header 顯示待分析／已分析／影片片段／累計成本四張統計卡。要求風格統一（集中管理顏色／間距／字型）、Responsive（1366×768 與 1920×1080 皆可用）。
 
+> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)（設計）與 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)（現有 UI 完整盤點，含此落差的記錄）。
+
 ### 2.2 OCR 功能需求（來自 `Claude_Code_OCR_影片搜尋開發規劃.md`）
 
 要求系統能辨識畫面上的文字、保存文字出現的時間區間，並支援文字與語意搜尋，**限定用本地開源引擎**（EasyOCR 為主辨識引擎，Tesseract 為條件式複核引擎，處理型號／比分／數字等規則化文字），明確**不得依賴 Google Cloud Vision、Azure AI Vision 等付費雲端 OCR API**。要求：
@@ -142,6 +144,12 @@ flowchart TD
 - 實測 4～7 支已分析影片（69～160 個場景）的實際花費落在 **US$0.0965～US$0.1885**，都在預算內，沒有觸發過部分完成。
 - 搜尋每次呼叫（翻譯＋embedding）都會寫入 `search_log` 表並在 UI 顯示花費，但目前沒有上限或警示機制。
 
+### 3.5 Web UI 遷移進度
+
+專案原本是純 Tkinter 桌面應用；目前正在進行 Web UI 遷移（React 前端 + FastAPI 後端），跟 Tkinter 版並存、共用同一套 `pipeline/`／`db/` 邏輯不重寫。詳細架構決策、Job Manager 設計、分階段驗收條件見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
+
+**目前進度**：Phase 0（規劃）／Phase 1（Service 層抽取）／Phase 2（FastAPI + Job Manager）／Phase 3（React 前端，四個頁面：影片與分析／影片庫／搜尋結果／對話搜尋）已完成並通過瀏覽器互動實測；Phase 4（移除 Tkinter 專用程式、套件命名收斂）**尚未開始**——計畫裡這一步的前提是「兩邊穩定運行一段時間、功能對等確認後」才進行，目前上傳、YouTube 下載、分析輪詢這三個流程還沒有在瀏覽器裡實際跑過，見 `09-web-ui-migration-plan.md` 第 9 節待辦。在 Phase 4 完成前，`ui/`／`app.py`／`theme.py`（Tkinter）與 `services/`／`schemas/`／`api/`（Web）會持續並存，`uv run ai-video-search-web` 啟動 Tkinter 版、`uv run ai-video-search-web-api` 啟動 Web 版後端 API。
+
 ## 4. 如何使用這個資料夾
 
 - 想知道「現在做到哪裡」→ 看 [`01-development-timeline.md`](01-development-timeline.md)。
@@ -149,3 +157,6 @@ flowchart TD
 - 想知道「已經試過但不要再試一次的做法」→ 看 [`03-excluded-approaches.md`](03-excluded-approaches.md)。
 - 想知道「測試怎麼跑、品質怎麼量」→ 看 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md)。
 - 想知道「還有什麼沒做完、哪些數字還不能全信」→ 看 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+- 想知道「對話搜尋怎麼設計的」→ 看 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)。
+- 想知道「現有 Tkinter UI 每個頁籤的功能與結構」→ 看 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)。
+- 想知道「Web UI 遷移進度、架構決策、Job Manager 設計」→ 看 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)（`08-web-ui-migration-design.md` 是尚未盤點現有程式碼前的原始參考稿，`09` 才是實際採用、持續更新的計畫）。
