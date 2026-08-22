@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+/* 對齊 src/ai_video_search_web/theme.py 的色彩／字型系統，見
+   docs/07-ui-structure-and-features.md 第 9 節與
+   docs/09-web-ui-migration-plan.md 第 5 節「Web 設計系統」。間距沿用
+   Tailwind 預設數值刻度（4px 基準），剛好對應 theme.py 的 8px 系統
+   （SPACE_4/8/16/24/32 = p-1/2/4/6/8），不需要另外定義。 */
+@theme {
+  --color-app-bg: #f5f7fa;
+  --color-card: #ffffff;
+  --color-text-primary: #172033;
+  --color-text-secondary: #667085;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-border: #d0d5dd;
+  --color-row-selected: #e8f1ff;
+
+  --color-badge-success-bg: #dcfce7;
+  --color-badge-warning-bg: #fef3c7;
+  --color-badge-error-bg: #fee2e2;
+  --color-badge-neutral-bg: #eef2f6;
+  --color-badge-primary-bg: #dbeafe;
+
+  --font-sans:
+    'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body {
+  background-color: var(--color-app-bg);
+  color: var(--color-text-primary);
+}

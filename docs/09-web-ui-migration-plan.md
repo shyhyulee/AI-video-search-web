@@ -8,7 +8,7 @@
 
 本文件的目標是依照專案**目前程式與檔案的真實現況**（已用三個 Explore agent + 一個 Plan agent 完整盤點、且逐一親自讀過全部關鍵原始檔驗證行號與事實）重新推導一份可執行的計畫。技術選型大致沿用 `08-web-ui-migration-design.md`（React／FastAPI／Polling 這些主流選擇沒有爭議），但架構細節、Job 設計、檔案結構、分期順序都改成基於實測事實推導，多處明確偏離該文件。
 
-**目前狀態**：Phase 0（規劃）、Phase 1（Service 層）、Phase 2（FastAPI + Job Manager）已完成並通過驗收；Phase 3（React 前端）、Phase 4（切換與清理）尚未開始。實作細節與跟本文件原規劃的落差見 4.2／4.3 節「實作紀錄」。
+**目前狀態**：Phase 0（規劃）、Phase 1（Service 層）、Phase 2（FastAPI + Job Manager）、Phase 3（React 前端，四個頁面）已完成並通過瀏覽器實測；Phase 4（切換與清理）尚未開始。實作細節與跟本文件原規劃的落差見 4.2／4.3／4.4 節「實作紀錄」。Phase 3 一開始受限於環境缺 Playwright 系統函式庫（`libnspr4.so` 等）無法視覺驗證，使用者事後手動裝好相依套件（`sudo apt-get install libnspr4 libnss3 ...`）解鎖後，已補做完整的瀏覽器互動測試（見 4.4 節），四個頁面、含真實搜尋／對話／排序／篩選／影片播放跳轉互動，零 JS 錯誤。
 
 ## 2. 現況關鍵事實（決策依據）
 
@@ -204,7 +204,7 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - **範圍內的取捨**：`08-web-ui-migration-design.md` API 設計列的 `GET /api/v1/search/recent`（最近搜尋）**沒有實作**——Tkinter 版本這個功能純粹存在 `SearchResultsTab` 記憶體、`db/search_log.py` 沒有對應的查詢函式，屬於錦上添花功能，不影響任何驗收條件，之後有需要再補。
 - **踩到的坑**：FastAPI 0.141.1 的 `app.routes` 在 `include_router()` 之後顯示的是內部 `_IncludedRouter` 物件、不是展開後的個別 endpoint 列表（跟舊版行為不同），直接數 `len(app.routes)` 會誤判成「路由沒掛上去」；正確驗證方式是打 `/openapi.json` 或直接用 `TestClient` 呼叫端點。另外測試 `test_second_analysis_job_waits_for_first_to_finish` 一度因為背景 pump thread 沒等它完全跑完（`mark_job_completed` + 鏈式派發下一個）測試函式就返回，導致 thread 殘留到下一個測試、撞上已經被 `monkeypatch` 換掉的 `db.DB_PATH`（`sqlite3.OperationalError: no such table: jobs`）；修法是讓測試明確 poll 到工作真的變成終態才返回，不能只 `set()` 事件就結束——這是背景執行緒測試常見的坑，記錄下來供之後寫 Phase 3 的非同步測試參考。
 
-### 4.4 Phase 3 — React 前端（風險由低到高）
+### 4.4 Phase 3 — React 前端（風險由低到高）✅ 已完成（四個頁面，含瀏覽器互動實測）
 
 順序：Header 統計 → 影片庫 → 單次搜尋＋播放器 → 影片上傳與分析任務 → 對話搜尋 → 處理紀錄。
 
@@ -215,6 +215,15 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - **處理紀錄**：優先序最低。`_QueueLogHandler`＋`deque(maxlen=1000)`（`logs_tab.py`）是純 in-process 狀態，在「單 worker」約束下可以直接暴露 `GET /api/v1/logs` 讀同一份 deque，但這只在單 process 部署下成立，本計畫**明確標記為技術負債、這次不解決**（不是核心使用者流程，投入產出比低）。
 
 **驗收**：`08-web-ui-migration-design.md` 第 10 節驗收標準逐項手動驗證（重新整理不遺失任務狀態、CSV 匯出、跳轉播放時間點等）；「送出搜尋看到結果」「上傳並看到分析完成」兩條關鍵路徑至少有 E2E 測試（可用 Playwright）。
+
+**實作紀錄**：
+
+- 技術棧沿用 `08-web-ui-migration-design.md`：Vite + React 19 + TypeScript + Tailwind v4（用新版 `@tailwindcss/vite` plugin，CSS-first `@theme` 設定，不需要 `tailwind.config.js`／`postcss.config.js`）+ TanStack Query v5 + `react-router-dom`。**沒有引入 shadcn/ui**——這是刻意的範圍縮減：shadcn/ui 是用 CLI 從遠端 registry 複製元件原始碼進專案的機制，會多一層設定與網路依賴，這一輪的元件複雜度（表格、卡片、表單）用純 Tailwind utility class 就能對齊 `theme.py` 的設計系統（顏色／間距值直接抄過來，見 `frontend/src/index.css` 的 `@theme` 區塊），之後真的需要更複雜元件（Dialog、Combobox 之類）再評估加入，不算違背原技術選型的精神。
+- 4 個頁面（`影片與分析`／`影片庫`／`搜尋結果`／`對話搜尋`）全部完成，路由骨架見 `frontend/src/App.tsx`；**「處理紀錄」維持不做**，跟規劃一致。
+- 開發模式用 Vite dev server 的 `server.proxy`（`vite.config.ts`）把 `/api/*` 轉給 `127.0.0.1:8000`，前端程式碼一律用相對路徑呼叫 API，瀏覽器端同源、不觸發 CORS——後端 `api/main.py` 的 `CORSMiddleware` 設定變成「非 proxy 場景」（例如以後獨立部署）的保險，不是開發時實際依賴的機制。
+- `VideoOut` schema 補了三個規劃時沒想到、但 UI 需要的欄位：`has_transcript`／`has_visual`／`has_ocr`（`schemas/videos.py`、`api/videos.py`），邏輯抄自 `ui/library_tab.py._build_row()`，供影片庫的三個 Badge 使用；這是新層（schemas／api）的自然擴充，不算修改既有檔案的範圍。
+- 上傳進度用 `XMLHttpRequest`（不是 `fetch`）——`fetch` 目前沒有原生的上傳進度事件；下載／分析進度沿用既有 `useJobPolling`／`useJobsPolling`（`frontend/src/lib/useJobPolling.ts`，基於 TanStack Query 的 `refetchInterval`，終態自動停止輪詢）。
+- **驗證方式（分兩階段）**：這個開發環境一開始沒有 Playwright headless Chromium 需要的系統共用函式庫（`libnspr4.so` 等），`sudo apt-get install` 需要互動式密碼，環境本身裝不了；先用三層驗證頂替：(1) `tsc -b --noEmit` 型別檢查全過；(2) `npm run build` production build 成功（85 modules，299KB／92KB gzip）；(3) `oxlint` 零警告（含修掉兩處 React 反模式：在 render body 直接呼叫 `queryClient.invalidateQueries()`，改寫成 `useEffect`）；(4) 透過 Vite proxy 對真實 FastAPI／`app.db` 做端到端 curl 測試。使用者事後在自己的終端機用 `! sudo apt-get install ...` 補裝相依套件解鎖後，補做了完整的 Playwright 瀏覽器互動測試：四個頁面截圖、影片庫點列表看詳細面板（縮圖／Badge／摘要都正確渲染）、影片庫排序與篩選按鈕、搜尋「獅子」拿到 6 個正確排序結果並點結果驗證 HTML5 Video 正確 seek 到片段起始時間（畫面確實跳到獅子出現的那一幀）、對話搜尋送出訊息拿到正確回覆與結果、對話結果點擊播放同樣正確 seek。全程 `page.on('console'/'pageerror')` 監聽零錯誤。
 
 ### 4.5 Phase 4 — 切換與清理
 
@@ -252,5 +261,13 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 - **Phase 1**：`uv run pytest`（207 既有 + 新增 service 測試全綠）＋人工跑 `uv run ai-video-search-web` 點過五個頁籤主要操作。
 - **Phase 2**：`uv run pytest`（含 `tests/api/`）全綠；`uv run uvicorn ai_video_search_web.api.main:app` 啟動後用 `GET /docs` 手動核對每個 endpoint；針對 422/409/併發序列化三個安全缺口各寫一個明確測試並確認會失敗（改動前）／通過（改動後）。
-- **Phase 3**：`cd frontend && npm run dev` 對照 FastAPI dev server，手動走過 `08-web-ui-migration-design.md` 第 10 節驗收標準逐項；至少「搜尋」「上傳分析」兩條路徑跑 Playwright E2E。
+- **Phase 3**：`cd frontend && npm run dev` 對照 FastAPI dev server，手動走過 `08-web-ui-migration-design.md` 第 10 節驗收標準逐項；至少「搜尋」「上傳分析」兩條路徑跑 Playwright E2E。**實測結果**：補裝系統相依套件後，已用 Playwright 完成「搜尋」「對話搜尋」「影片庫排序／篩選／詳細面板」「影片播放 seek」的互動驗證，零 JS 錯誤，見 4.4 節「實作紀錄」。「上傳」「YouTube 下載＋分析輪詢」因需要真的觸發付費 API／長時間 job 流程，這次沒有跑 E2E，只驗證到程式碼與型別層級，是還沒補的驗收缺口，見第 9 節。
 - **全程**：兩邊（Tkinter／Web）功能對等前，`uv run pytest` 必須維持全綠，不允許為了 Web 版而修改或刪除既有測試斷言。
+
+## 9. Phase 3 待辦與已知限制
+
+- **上傳／YouTube 下載／分析輪詢沒有跑過 E2E**：這三個流程分別需要真的上傳檔案、真的觸發 yt-dlp 下載、真的花錢跑 VLM／ASR／embedding 分析，這次沒有在瀏覽器裡實際觸發（會員生真實成本與長時間等待），只驗證到程式碼、型別、以及 Phase 2 API 層級的測試（`tests/api/test_api_videos.py`／`test_api_jobs.py` 已經涵蓋 422／409／併發序列化等邏輯）。已驗證過的是：影片庫（列表／排序／篩選／詳細面板／縮圖／Badge）、搜尋（送查詢／結果表格／播放器 seek／CSV 匯出按鈕存在）、對話搜尋（送訊息／結果／播放器），見 4.4 節「實作紀錄」。建議你實際跑一次「本機上傳一支短影片」或「YouTube 下載＋分析」驗證這條路徑的進度條與輪詢 UI。
+- **`GET /search/recent`（最近搜尋）沒有前端功能**：跟 4.3 節記錄的後端缺口一致，這次沒有補。
+- **對話搜尋頁面沒有「指代上一輪結果」的特別 UI 提示**：`pipeline/conversation.py` 的 `select_result` 意圖（例如使用者說「播放第二段」）後端邏輯已經支援（Phase 2 直接復用，零修改），但前端沒有額外標示「目前在指代哪一輪」，使用者體驗上可能不夠明確，之後可以加強。
+- **上傳／下載併發限制只在 UI 層用 disable 按鈕做**：YouTube 下載按鈕在下載中會 disable（對齊 Tkinter 行為），但後端 `submit_download()` 本身不限制併發下載數（跟 Job Manager 設計一致，見 3.2 節）；如果使用者用兩個分頁同時操作，後端仍會分別處理，屬於已知、刻意接受的行為，不是這次要修的缺口。
+- **前端沒有 loading skeleton／樂觀更新**：目前資料載入中就是空白或顯示上一次的快取資料（TanStack Query 預設行為），沒有額外做 loading 骨架屏；影響體驗但不影響正確性，之後有餘力再補。
