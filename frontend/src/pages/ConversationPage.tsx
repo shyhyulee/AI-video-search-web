@@ -35,11 +35,12 @@ interface Message {
   text: string
 }
 
-/** 「對話搜尋」頁面，對齊 ui/conversation_tab.py：訊息串 + 這一輪的相關
- * 片段，見 docs/07-ui-structure-and-features.md 6.4 節與
- * docs/10-web-ui-ux-warm-responsive-design.md §6.4。第一名結果用大版型
- * Evidence Card，其餘刻意不做 search_tab 那個完整分數面板（Tkinter 版
- * 本身也沒有），重用簡化版播放器。 */
+/** 「對話搜尋」頁面，對齊 docs/10-web-ui-ux-warm-responsive-design.md
+ * §6.4：桌機（≥900px）左右並排——左：對話訊息流；右：本輪結果與播放器
+ * （播放器在上、結果清單在下，清單自己捲動）。≤900px 改回上下排列（對話在
+ * 上、結果在下），對齊文件的響應式規則，也是這頁原本（Phase 1–4）的版面。
+ * 第一名結果用大版型 Evidence Card，其餘刻意不做 search_tab 那個完整分數
+ * 面板（Tkinter 版本身也沒有），重用簡化版播放器。 */
 export function ConversationPage() {
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([{ speaker: 'assistant', text: GREETING }])
@@ -104,8 +105,8 @@ export function ConversationPage() {
   const showSuggestions = messages.length === 1
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <Card className="flex max-h-[70vh] flex-col md:h-3/5 md:max-h-none">
+    <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row">
+      <Card className="flex w-full max-h-[70vh] flex-col md:min-h-0 md:w-3/5 md:max-h-none">
         <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
           {messages.map((m, i) => (
             <ChatBubble key={i} speaker={m.speaker} text={m.text} />
@@ -146,12 +147,20 @@ export function ConversationPage() {
         )}
       </Card>
 
-      <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
-        <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
+      <div className="flex w-full flex-col gap-4 md:min-h-0 md:w-2/5">
+        <Card className="w-full">
+          {selected ? (
+            <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />
+          ) : (
+            <EmptyState title="尚未選取片段" />
+          )}
+        </Card>
+
+        <Card className="flex w-full flex-col md:min-h-0 md:flex-1">
           <h2 className="mb-3 text-base font-bold text-text-primary">這一輪的相關片段</h2>
           <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
-              <EmptyState title="尚無結果" hints={['在上方輸入想找的內容開始對話']} />
+              <EmptyState title="尚無結果" hints={['開始對話以取得相關片段']} />
             ) : (
               results.map((r, index) => (
                 <SearchResultCard
@@ -165,14 +174,6 @@ export function ConversationPage() {
               ))
             )}
           </div>
-        </Card>
-
-        <Card className="w-full md:min-h-0 md:w-2/5 md:overflow-auto">
-          {selected ? (
-            <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />
-          ) : (
-            <EmptyState title="點選左方片段即可播放" />
-          )}
         </Card>
       </div>
     </div>
