@@ -105,7 +105,7 @@ export function ConversationPage() {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <Card className="flex h-3/5 flex-col">
+      <Card className="flex max-h-[70vh] flex-col md:h-3/5 md:max-h-none">
         <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
           {messages.map((m, i) => (
             <ChatBubble key={i} speaker={m.speaker} text={m.text} />
@@ -139,13 +139,17 @@ export function ConversationPage() {
             送出
           </Button>
         </form>
-        {statusText && <p className="mt-1 text-sm text-text-secondary">{statusText}</p>}
+        {statusText && (
+          <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
+            {statusText}
+          </p>
+        )}
       </Card>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <Card className="flex w-3/5 flex-col">
+      <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
+        <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
           <h2 className="mb-3 text-base font-bold text-text-primary">這一輪的相關片段</h2>
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
               <EmptyState title="尚無結果" hints={['在上方輸入想找的內容開始對話']} />
             ) : (
@@ -163,7 +167,7 @@ export function ConversationPage() {
           </div>
         </Card>
 
-        <Card className="w-2/5 overflow-auto">
+        <Card className="w-full md:min-h-0 md:w-2/5 md:overflow-auto">
           {selected ? (
             <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />
           ) : (

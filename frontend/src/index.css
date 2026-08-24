@@ -16,15 +16,18 @@
   --color-text-secondary: #796b63;
   --color-text-muted: #a39388;
 
-  /* 品牌與狀態 */
-  --color-primary: #bd5d42;
+  /* 品牌與狀態：色相沿用文件 10 §3.2，明度做了 WCAG AA 對比度微調（見下方
+     Phase 4 對比度稽核）。--color-primary 只用於「配白字的實心背景」（按鈕、
+     選取態 pill），任何要在淺色背景上直接當文字色用的地方一律改用
+     --color-primary-hover（更深，對比更足夠），不要直接用 text-primary。 */
+  --color-primary: #b95b41; /* 原 #bd5d42，微調至白字在上時達 AA 4.5:1（實測 4.52:1） */
   --color-primary-hover: #9d4630;
   --color-primary-soft: #f7e4dc;
   --color-accent: #dc9a3c;
-  --color-success: #617258;
+  --color-success: #607157; /* 原 #617258，微調至 badge 底色上達 AA 4.5:1（實測 4.51:1） */
   --color-success-soft: #e8f0e4;
-  --color-warning: #dc9a3c;
-  --color-error: #b6483b;
+  --color-warning: #91601a; /* 原 #dc9a3c；目前沒有任何 Badge 用 warning kind，先修正避免日後變成陷阱 */
+  --color-error: #ad4438; /* 原 #b6483b，微調至 badge 底色上達 AA 4.5:1（實測 4.52:1），同時改善表單錯誤文字的對比 */
   --color-border: #eadfd4;
   --color-row-selected: #f7e4dc;
 

@@ -79,7 +79,7 @@ export function SearchPage() {
         {scopeVideoId !== null && (
           <div className="mb-2 flex items-center gap-2 text-sm text-text-secondary">
             <span>目前作用中的篩選：只在《{scopeVideoTitle}》中搜尋</span>
-            <button onClick={clearScope} className="font-bold text-primary">
+            <button onClick={clearScope} className="font-bold text-primary-hover">
               清除範圍，改為全部影片
             </button>
           </div>
@@ -103,12 +103,14 @@ export function SearchPage() {
             匯出 CSV
           </Button>
         </form>
-        <p className="mt-2 text-sm text-text-secondary">{statusText}</p>
+        <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
+          {statusText}
+        </p>
       </Card>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <Card className="flex w-3/5 flex-col">
-          <div className="min-h-0 flex-1 overflow-auto">
+      <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
+        <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
+          <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
               <EmptyState title="輸入描述以搜尋影片內容" hints={['例如：找出工廠中有人出現的片段', '例如：找出全壘打畫面']} />
             ) : (
@@ -125,7 +127,7 @@ export function SearchPage() {
           </div>
         </Card>
 
-        <Card className="flex w-2/5 flex-col gap-3 overflow-auto">
+        <Card className="flex w-full flex-col gap-3 md:min-h-0 md:w-2/5 md:overflow-auto">
           {selected ? (
             <>
               <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />

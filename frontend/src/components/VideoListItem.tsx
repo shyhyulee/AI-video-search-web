@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import type { Video } from '../api/types'
 import { VideoPoster } from './VideoPoster'
 
@@ -13,7 +13,8 @@ interface VideoListItemProps {
 }
 
 /** 影片清單列：縮圖＋標題＋可插槽 meta／trailing，取代密集表格列；
- * 列與列之間用 border 分隔，不做每列一張卡片。 */
+ * 列與列之間用 border 分隔，不做每列一張卡片。可點擊時是鍵盤可操作的
+ * button 語意（Tab 可到、Enter／Space 觸發），並有可見 focus ring。 */
 export function VideoListItem({
   video,
   selected = false,
@@ -23,10 +24,21 @@ export function VideoListItem({
   meta,
   trailing,
 }: VideoListItemProps) {
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!onClick) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onClick()
+    }
+  }
+
   return (
     <div
       onClick={onClick}
-      className={`flex items-center gap-3 border-b border-l-4 border-border py-2.5 pl-2 pr-1 last:border-b-0 ${
+      onKeyDown={onKeyDown}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className={`flex items-center gap-3 border-b border-l-4 border-border py-2.5 pl-2 pr-1 last:border-b-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary ${
         onClick ? 'cursor-pointer' : ''
       } ${selected ? 'border-l-primary bg-primary-soft' : 'border-l-transparent hover:bg-sand'}`}
     >

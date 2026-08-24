@@ -8,7 +8,9 @@ import { Badge } from '../components/Badge'
 import { Button, IconButton } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
+import { ErrorState } from '../components/ErrorState'
 import { FilterChip } from '../components/FilterChip'
+import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SearchField } from '../components/SearchField'
 import { VideoListItem } from '../components/VideoListItem'
 import { VideoPoster } from '../components/VideoPoster'
@@ -46,7 +48,12 @@ export function LibraryPage() {
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
 
-  const { data: videos } = useQuery({ queryKey: ['videos', 'library'], queryFn: () => listVideos() })
+  const {
+    data: videos,
+    isLoading: videosLoading,
+    isError: videosError,
+    refetch: refetchVideos,
+  } = useQuery({ queryKey: ['videos', 'library'], queryFn: () => listVideos() })
 
   const rows = useMemo(() => {
     if (!videos) return []
@@ -97,8 +104,8 @@ export function LibraryPage() {
         </form>
       </Card>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <Card className="flex w-3/5 flex-col">
+      <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
+        <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-bold text-text-primary">影片庫（{rows.length}）</h2>
             <div className="flex items-center gap-2">
@@ -129,8 +136,12 @@ export function LibraryPage() {
               <FilterChip key={f.key} label={f.label} active={filter === f.key} onClick={() => setFilter(f.key)} />
             ))}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {rows.length === 0 ? (
+          <div className="md:min-h-0 md:flex-1 md:overflow-auto" aria-busy={videosLoading}>
+            {videosLoading ? (
+              <LoadingSkeleton variant="list-item" count={4} />
+            ) : videosError ? (
+              <ErrorState title="載入影片庫失敗" onRetry={() => refetchVideos()} />
+            ) : rows.length === 0 ? (
               <EmptyState
                 title={videos && videos.length > 0 ? '這個篩選條件下沒有影片' : '影片庫還沒有任何影片'}
                 hints={[videos && videos.length > 0 ? '試試其他篩選' : '先在「影片與分析」頁籤下載並分析影片']}
@@ -161,7 +172,7 @@ export function LibraryPage() {
           </div>
         </Card>
 
-        <Card className="w-2/5 overflow-auto">
+        <Card className="w-full md:min-h-0 md:w-2/5 md:overflow-auto">
           {selected ? (
             <VideoDetailPanel
               video={selected}
@@ -234,7 +245,11 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
           {video.summary ??
             (video.status === 'analyzed' ? '尚未產生摘要，按下方「重新產生摘要」產生。' : '這支影片分析失敗，沒有片段可以產生摘要。')}
         </p>
-        {summaryStatus && <p className="mt-1 text-sm text-text-secondary">{summaryStatus}</p>}
+        {summaryStatus && (
+          <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
+            {summaryStatus}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -258,7 +273,7 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
       </div>
 
       {job && (
-        <p className="text-sm text-text-secondary">
+        <p className="text-sm text-text-secondary" aria-live="polite">
           {job.status === 'completed'
             ? '✓ 重新分析完成'
             : job.status === 'failed'

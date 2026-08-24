@@ -10,6 +10,8 @@ import { Card } from '../components/Card'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Dropzone } from '../components/Dropzone'
 import { EmptyState } from '../components/EmptyState'
+import { ErrorState } from '../components/ErrorState'
+import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatDateTime, formatDuration, formatElapsed } from '../lib/format'
@@ -39,7 +41,12 @@ function jobStatusInfo(job: Job | undefined): { text: string; kind: 'success' | 
 export function VideosPage() {
   const queryClient = useQueryClient()
   const toast = useToast()
-  const { data: pending } = useQuery({ queryKey: ['videos', 'pending'], queryFn: () => listVideos('pending') })
+  const {
+    data: pending,
+    isLoading: pendingLoading,
+    isError: pendingError,
+    refetch: refetchPending,
+  } = useQuery({ queryKey: ['videos', 'pending'], queryFn: () => listVideos('pending') })
 
   const [sourceMode, setSourceMode] = useState<'youtube' | 'local'>('youtube')
   const [url, setUrl] = useState('')
@@ -234,7 +241,7 @@ export function VideosPage() {
         )}
 
         {(downloadError || uploadError || downloadJob || uploadPercent !== null) && (
-          <p className="mt-2 text-sm text-text-secondary">
+          <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
             {downloadError && <span className="text-error">{downloadError}</span>}
             {!downloadError && downloadJob && downloadJob.status === 'running' && (downloadJob.progress_message ?? '下載中…')}
             {!downloadError && downloadJob?.status === 'failed' && (
@@ -248,8 +255,12 @@ export function VideosPage() {
 
       <Card className="flex min-h-0 flex-1 flex-col">
         <h2 className="mb-1 text-base font-bold text-text-primary">待分析影片（{pending?.length ?? 0}）</h2>
-        <div className="min-h-0 flex-1 overflow-auto">
-          {!pending || pending.length === 0 ? (
+        <div className="min-h-0 flex-1 overflow-auto" aria-busy={pendingLoading}>
+          {pendingLoading ? (
+            <LoadingSkeleton variant="list-item" count={3} />
+          ) : pendingError ? (
+            <ErrorState title="載入待分析影片失敗" onRetry={() => refetchPending()} />
+          ) : !pending || pending.length === 0 ? (
             <EmptyState title="目前沒有待分析影片" hints={['可貼上 YouTube 網址或選擇本機影片']} />
           ) : (
             pending.map((v) => {
@@ -309,7 +320,11 @@ export function VideosPage() {
             移除
           </Button>
         </div>
-        {rejectedNote && <p className="mt-2 text-sm text-error">{rejectedNote}</p>}
+        {rejectedNote && (
+          <p className="mt-2 text-sm text-error" aria-live="polite">
+            {rejectedNote}
+          </p>
+        )}
       </Card>
 
       <ConfirmDialog

@@ -18,7 +18,7 @@ export function MobileBottomNav() {
           to={to}
           className={({ isActive }) =>
             `flex flex-1 flex-col items-center gap-1 py-2 text-xs font-bold ${
-              isActive ? 'text-primary' : 'text-text-secondary'
+              isActive ? 'text-primary-hover' : 'text-text-secondary'
             }`
           }
         >

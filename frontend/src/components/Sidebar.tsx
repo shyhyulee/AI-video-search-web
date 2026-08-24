@@ -20,7 +20,7 @@ export function Sidebar() {
           title={label}
           className={({ isActive }) =>
             `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold ${
-              isActive ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-sand'
+              isActive ? 'bg-primary-soft text-primary-hover' : 'text-text-secondary hover:bg-sand'
             }`
           }
         >

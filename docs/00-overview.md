@@ -160,11 +160,11 @@ flowchart TD
 ### 3.6 UI 暖色改版（進行中）
 
 Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色響應式設計規格，對同一套四頁面
-進行純視覺／互動層美化（不動 API、資料庫、搜尋邏輯）。分階段執行、目前進度、技術選型決策見
-`11-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1（Design Token＋共用元件庫＋響應式外殼）、
-Phase 2（影片與分析、影片庫頁面重構）、Phase 3a（抽取 `VideoPlayer`／`SearchResultCard` 共用元件）、
-Phase 3b（搜尋結果、對話搜尋視覺設計）皆已完成，四個頁面都已套用新設計；只剩 Phase 4（響應式主從
-版面收合＋鍵盤／焦點的整體品質驗收）待辦。
+進行純視覺／互動層美化（不動 API、資料庫、搜尋邏輯）。分階段執行、技術選型決策、逐項驗收結果見
+`11-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1～Phase 4 全部完成——Design Token＋共用
+元件庫＋響應式外殼、影片與分析／影片庫頁面重構、`VideoPlayer`／`SearchResultCard` 共用元件、搜尋
+結果／對話搜尋視覺設計、響應式主從版面收合＋鍵盤／對比度品質稽核，四個頁面都已套用新設計並通過
+`tsc`／`oxlint`／`build`與 Playwright 瀏覽器驗證。
 
 ## 4. 如何使用這個資料夾
 

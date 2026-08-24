@@ -147,13 +147,97 @@ CSS 檔案內部順序、不是 class 字串裡的先後順序，是已知的不
 `featured` 大版卡片呈現、內容包含完整描述與相似度條；「已檢索：字幕、OCR」正確彙整自真實回應的
 `hit_source`。全程零 console error。
 
-### Phase 4 — 響應式收合＋整體品質驗收 ⏳ 待辦
+### Phase 4 — 響應式收合＋整體品質驗收 ✅ 完成
 
-Library／Search／Conversation 的主從版面（`w-3/5`/`w-2/5`）改 `flex-col md:flex-row` 純 CSS reflow
-收合，不做條件式掛載／卸載（避免縮放視窗跨越斷點時把播放中的 `<video>` 整個 remount、播放中斷）。收尾
-驗收寬度：1920／1536／1366×768／1180／900／560px。
+**響應式收合**：`LibraryPage.tsx`／`SearchPage.tsx`／`ConversationPage.tsx` 的主從版面
+（`w-3/5`/`w-2/5`）改成 `flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row`（≥900px 恢復現有的
+固定高度＋左右並排＋各自 `overflow-auto` 獨立捲動；<900px 拿掉高度限制與 `overflow-auto`，兩塊直接
+上下排列、跟著整頁走），純 CSS reflow、不做條件式掛載／卸載——這點特別重要，因為 React 元件樹不因
+斷點改變，`<VideoPlayer>` 不會在縮放視窗跨越 900px 時被 remount，播放不會中斷。`ConversationPage`
+的聊天面板另外加 `max-h-[70vh] md:h-3/5 md:max-h-none`，讓它在窄螢幕維持自己的獨立捲動（避免無限
+長高把 Composer 推到很下面），跟主從版面的「跟著整頁捲動」策略不同，是刻意的差異化設計。
+`SearchResultCard` 緊湊列表版型在 `sm`（560px）以下用 `hidden sm:inline` 隱藏相似度％與融合分數，
+保留時間、來源、描述與可播放（選取）。
 
-## 6. 明確排除、不在這次處理
+**跨元件品質稽核**（Phase 1–3 元件的補洞，不是重新設計）：
+- `VideoListItem`／`SearchResultCard` 原本是純滑鼠 `onClick` 的 `<div>`，鍵盤完全無法操作——補上
+  `role="button"`、`tabIndex={0}`、Enter／Space 觸發、可見 focus ring。
+- `SegmentedControl` 原本用 `role="tablist"`/`"tab"`，但沒有對應的 `tabpanel`，語意不正確；改成
+  `role="radiogroup"`/`"radio"` + `aria-checked`，更貼近實際「單選一個來源」的行為。
+- `LoadingSkeleton`／`ErrorState` 是 Phase 1 就建好、但一直沒有接進任何頁面的元件——`VideosPage`／
+  `LibraryPage` 的影片清單在資料載入中會落入 `!data || data.length===0` 這個判斷式，跟「真的沒有
+  資料」共用同一個 `EmptyState`，導致每次進頁面都會先閃一下「目前沒有待分析影片／影片庫還沒有任何
+  影片」再變成真正的清單。改用 `useQuery` 的 `isLoading`／`isError`／`refetch` 三個欄位，分開處理
+  Loading（`LoadingSkeleton`）／Error（`ErrorState`＋重試）／Empty／有資料四種狀態。
+- 所有頁面的狀態文字段落（下載／上傳狀態、搜尋狀態、對話狀態、摘要／重新分析狀態）補上
+  `aria-live="polite"`。
+
+**WCAG AA 對比度稽核**（實測發現的真實問題，不是預防性檢查）：Phase 1 規劃時對兩個 Badge 底色是
+自行推導、當時只承諾「肉眼確認」，這次改用實際算法（WCAG 相對亮度公式）逐一算過所有「有色文字＋淺色
+底」的組合，發現多處**低於** AA 一般文字門檻 4.5:1（Badge 文字本身是 12px 粗體，未達 WCAG 「大字」
+定義的 14pt/18.66px 粗體門檻，所以套用的是 4.5:1 而非 3:1）：
+
+| 組合 | 修正前 | 修正後 |
+|---|---:|---:|
+| 成功 Badge 文字 | 4.44:1 | 4.51:1 |
+| 錯誤 Badge 文字（同時也是表單錯誤文字色） | 4.17:1 | 4.52:1 |
+| 警告 Badge 文字（目前無呼叫點） | 2.00:1 | 4.51:1 |
+| 白字在 Primary 按鈕／FilterChip／對話泡泡底色上 | 4.37:1 | 4.52:1 |
+| 陶土色文字在淺色底上（Sidebar 選取態、Badge primary、SegmentedControl 選取態、對話搜尋第一名結果標籤、底部導覽選取態、「清除範圍」連結） | 3.55:1 | 5.10–6.17:1 |
+
+修法：`--color-success`／`--color-error`／`--color-warning` 三個 token 各自小幅調暗（1–5%，`error`
+以外肉眼幾乎看不出差異，`warning` 因為目前完全沒有呼叫點所以調整幅度較大也不影響任何畫面）；
+`--color-primary` 調暗 2% 讓白字使用情境達標。**核心規則**：`--color-primary` 現在只用在「配白字的
+實心背景」（按鈕、選取態 pill、對話泡泡），任何要在淺色背景上直接當文字色用的地方一律改用既有的
+`--color-primary-hover`（本來就是給 hover 用的深色，剛好也達標，不必新增 token）——全專案 grep 過，
+6 處這樣用 `text-primary` 的地方全部改掉。範圍**明確排除**：只做文字對比度，UI 元件邊框／圖示等
+「非文字對比」（WCAG 1.4.11，門檻 3:1）沒有逐項稽核，留待之後需要時再補。
+
+**驗證**：`tsc`／`oxlint`／`build` 全過。用 Playwright 掃描 6 個寬度（1920/1536/1366/1180/900/560）
+×4 個頁面共 24 種組合，全部零水平溢位；確認 Sidebar 三態（≥1180px 完整 240px／900–1180px icon rail
+64px／<900px 隱藏＋底部導覽）在各寬度正確對應；確認 560px 時三個主從頁面的兩塊面板真的垂直堆疊（用
+兩塊面板的 bounding box 上下關係量測，不是只看程式碼）；**關鍵回歸測試**：對真實搜尋結果選取播放後，
+把視窗從 1400px 縮到 700px 再放回 1400px（跨越 900px 斷點兩次），確認 `<video>` 的 `currentSrc`
+全程不變、`currentTime` 持續前進而非歸零——證實純 CSS reflow 沒有把播放中的元件 remount 掉；鍵盤
+Tab 到 `VideoListItem`、按 Enter 觸發選取，確認可行。對比度修正後另外截圖比對，色彩改動在正常瀏覽下
+無法用肉眼分辨差異，沒有視覺回歸。全程零 console error。
+
+## 6. 驗收結果
+
+對照 `docs/10-web-ui-ux-warm-responsive-design.md` §11 的驗收標準逐項回報，區分「已用工具實測確認」
+與「設計上已處理、但沒有做窮舉式量測」，不把後者寫成前者：
+
+**已實測確認**：
+- 四個頁面視覺與操作一致（統一 Design Token、共用元件庫）。
+- 1366×768、14 吋筆電首屏看得到主要操作與部分結果（截圖確認）。
+- ≤1180px Sidebar 正確收合成 icon rail，≤900px 隱藏改底部導覽（6 寬度 × 4 頁面量測）。
+- ≤900px 主從版面正確改為單欄（量測兩塊面板的 bounding box 上下關係）。
+- ≤560px 無水平溢位（24 種寬度×頁面組合全數確認）；搜尋結果卡片正確隱藏次要分數、保留時間/來源/
+  描述/可播放。
+- 影片上傳（XHR 進度）、YouTube 下載、分析（含新接上的重試）、刪除（`ConfirmDialog` 取消路徑不誤刪）
+  功能正常。
+- 影片庫篩選、排序（新排序控制）、摘要重新產生、重新分析功能正常。
+- 搜尋結果、三模態分數、時間點、CSV 功能保持一致；`EvidencePanel` 正確顯示真實資料。
+- 對話搜尋能保存多輪 context、播放正確片段、IME 組字狀態下 Enter 不誤送出（實際 dispatch
+  `CompositionEvent` 測試過）。
+- HTML5 Video 由 `start_sec` 正確播放；縮放跨斷點不中斷播放（真實搜尋結果實測）。
+- Loading／Empty／Error／Selected State 有實際串接（`LoadingSkeleton`／`ErrorState` 補接、
+  Selected 態用 border+底色雙重標示不只靠顏色）。
+- 鍵盤操作：新增的可點擊 `<div>`（`VideoListItem`／`SearchResultCard`）補上 Tab／Enter／Space；
+  文字對比度用 WCAG 公式逐一算過並修正到 AA 4.5:1（見 Phase 4 記錄的對照表）。
+- 原有 API、Pipeline、資料庫行為未被觸碰（這次規劃與實作全程沒有修改 `api/client.ts` 型別以外的
+  後端／資料庫程式碼）。
+
+**設計上已處理、未窮舉量測（誠實揭露，不算完整驗收）**：
+- WCAG AA 只做了文字對比度，UI 元件邊框／圖示等非文字對比（1.4.11，門檻 3:1）沒有逐項算過。
+- 沒有用真正的螢幕報讀軟體（NVDA／VoiceOver）走過一輪，`aria-live`／`role`／`aria-label` 是依規範
+  正確性檢查，不是端到端可用性測試。
+- Disabled／Processing 狀態視覺上都有處理（按鈕 `disabled:opacity-40`、忙碌態文字），但沒有像
+  Loading／Error 那樣做系統性盤點，可能有漏網的個案。
+- `prefers-reduced-motion` 只在 Phase 1 加了全域 CSS 規則，沒有針對每個有動畫的元件個別測試套用
+  效果。
+
+## 7. 明確排除、不在這次處理
 
 - 待分析清單「取消」（見上，後端無對應 API）。
 - 跨頁籤 job 追蹤狀態遺失（`docs/09` §9 已記錄的已知架構缺口，是狀態管理問題不是視覺問題）。

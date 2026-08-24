@@ -7,7 +7,7 @@ const BG: Record<BadgeKind, string> = {
   warning: 'bg-badge-warning-bg text-warning',
   error: 'bg-badge-error-bg text-error',
   neutral: 'bg-badge-neutral-bg text-text-secondary',
-  primary: 'bg-badge-primary-bg text-primary',
+  primary: 'bg-badge-primary-bg text-primary-hover',
 }
 
 interface BadgeProps {
