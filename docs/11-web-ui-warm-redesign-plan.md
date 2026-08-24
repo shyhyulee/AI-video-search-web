@@ -89,19 +89,63 @@ Elapsed Time（`lib/format.ts` 新增 `formatElapsed`）；**額外把後端本�
 方塊、點「移除」開出 `ConfirmDialog`、按「取消」後確認影片**沒有**被刪除（`videosPendingCountAfterCancelText`
 跟按前一致）；篩選 chip 與排序下拉切換正確；點列表項目正確開出詳細面板；全程零 console error。
 
-### Phase 3a — 抽取 VideoPlayer／SearchResultCard（先求行為不變）⏳ 待辦
+### Phase 3a — 抽取 VideoPlayer／SearchResultCard（先求行為不變）✅ 完成
 
-`SearchPage.tsx`／`ConversationPage.tsx` 目前各自內嵌一段幾乎一模一樣的 `<video>` 播放＋
-`onLoadedMetadata` seek 邏輯（依賴呼叫端記得寫 `key={video_id}` 才會在切換影片時正確 remount），以及
-結構相同、複製貼上的 7 欄結果表格。計畫把 seek 的 remount 邏輯內化進新的 `VideoPlayer` 元件本身（改用
-內部 `useEffect` 依賴 `videoId`），移除「呼叫端必須記得寫 `key=`」這個容易忘記的慣例。
+**新增元件**：`VideoPlayer`（把 `SearchPage.tsx`／`ConversationPage.tsx` 各自內嵌、幾乎一模一樣的
+`<video>`＋`onLoadedMetadata` seek 邏輯內化進元件本身：用 `useEffect` 依賴 `videoId`／`startSec`，
+搭配一個 `loadedVideoId` ref 記錄「目前 DOM 上這顆 `<video>` 實際載入完成的是哪支影片」——同一支影片
+內切換片段時直接 `currentTime` seek，不重新載入；換成不同影片時讓 `src` 變更觸發瀏覽器原生重新載入，
+交給 `onLoadedMetadata` 處理。移除了「呼叫端必須記得寫 `key={video_id}`」這個兩頁都在用、容易忘記的
+慣例）、`SearchResultCard`（取代兩頁複製貼上的 7 欄結果表格，這一步視覺維持接近原本的表格式排版，
+只確保資訊與互動行為對等）。
 
-### Phase 3b — 搜尋結果、對話搜尋視覺設計 ⏳ 待辦
+**修改**：`SearchPage.tsx`／`ConversationPage.tsx` 套用這兩個新元件；因為 seek 邏輯搬進
+`VideoPlayer`，`SearchPage` 原本的 `videoRef`／`selectResult` 手動判斷邏輯整個移除，改成單純
+`setSelectedIndex`。
 
-新增 `EvidencePanel`（Search 頁專用，Conversation 頁刻意不用，沿用專案既有「對話搜尋不做完整分數面板」
-的設計選擇）、`ChatBubble`。**已知風險**：對話輸入框改成 Enter 送出時，必須用
-`e.nativeEvent.isComposing` 判斷是否仍在注音／拼音組字狀態，避免選字用的 Enter 被誤判成送出——這是全
-繁中介面容易踩到的 bug。
+**驗證**：`tsc`／`oxlint`／`build` 全過。用真實搜尋（查詢「動物」）與真實對話搜尋測試最高風險的部分：
+截取 `/api/v1/search` 的真實回應找出哪些結果共用同一支影片，點擊同影片的另一段時確認 `<video>` 的
+`currentSrc` **沒有改變**（`srcUnchanged: true`）、只是直接 seek 到正確時間；初次點擊與換頁籤後重新
+選取都確認影片正確載入並播放（`paused: false`）。全程零 console error。
+
+### Phase 3b — 搜尋結果、對話搜尋視覺設計 ✅ 完成
+
+**新增元件**：`EvidencePanel`（Search 頁專用；相似度＋字幕／畫面／OCR 三模態分數改成三欄格線，
+「主要命中來源」用 `hit_source` 直接呈現人話說明取代原本三行分開的技術分數文字；Conversation 頁刻意
+不用，沿用專案既有「對話搜尋不做完整分數面板」的設計選擇）、`ChatBubble`（使用者靠右陶土色底、助理
+靠左暖沙色底）。`SearchResultCard` 新增 `featured` 版型（大版 Evidence Card：完整描述、
+`SimilarityBar`、命中來源），供對話搜尋第一名結果使用，其餘結果與 Search 頁全部結果維持緊湊列表版型。
+`Button`／`SearchField` 都新增 `lg` 尺寸選項（用 prop 而非 `className` 覆寫控制大小——兩個 Tailwind
+utility 對同一個屬性〔例如 `h-10` 與 `h-12`〕同時出現在 class 字串裡，誰生效取決於 Tailwind 產生的
+CSS 檔案內部順序、不是 class 字串裡的先後順序，是已知的不可靠寫法，這次全面改用 prop-based size）。
+
+**修改**：`SearchPage.tsx`——查詢欄改用 `size="lg"` 的 `SearchField`＋`Button`；搜尋結果狀態列加上
+用前端量測的搜尋耗時（`Date.now()` 前後差）；CSV 匯出改為 secondary `Button`；右側面板＝
+`VideoPlayer`＋`EvidencePanel`；容器全面改用 `Card`。`ConversationPage.tsx`——訊息改用
+`ChatBubble`；輸入框從 `<input>` 換成 `<textarea>`，Enter 送出、Shift+Enter 換行；初始狀態顯示 3 個
+建議提示（重用 `FilterChip`，不傳 `active`，點擊直接送出訊息）；新增「已連接 N 支影片索引」狀態列
+（重用 Header 已經在查的 `['stats']`，同一個 query key、不會多打一次 API）；新增「已檢索：字幕、OCR」
+模態摘要（純前端從這一輪 `results[].hit_source` 字串〔例如「字幕＋畫面」「綜合」〕反推聯集，不需要
+後端新欄位）；結果清單第一筆傳 `featured`。`lib/format.ts`——把 `SearchPage` 原本頁面內部的
+`formatScore`（N/A fallback）搬進來供 `EvidencePanel` 共用。
+
+**風險與踩到的坑**：
+- `SearchField` 新增的 `size` prop 跟 `<input>` 原生 `size` 屬性（HTML 規格是數字，代表可視字元寬度）
+  撞名，`tsc` 直接抓到型別錯誤，用 `Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>` 排除原生
+  屬性後解決。
+- **Enter 送出對繁體中文輸入法是真實風險**：實作上用 `e.nativeEvent.isComposing` 判斷是否仍在
+  注音／拼音組字狀態，組字中的 Enter（選字用）不能被誤判成送出。這次用 Playwright 手動 dispatch
+  `CompositionEvent('compositionstart'/'compositionend')` 搭配帶 `isComposing` 旗標的 `KeyboardEvent`
+  實測：組字中按 Enter 確認訊息數不變（被正確擋下），`compositionend` 後再按 Enter 才真的送出——不是
+  只看程式碼邏輯，是真的模擬組字情境驗證過。
+- 對話搜尋因為改用 `<textarea>`，`Shift+Enter` 換行行為也一併實測（`textarea.value` 確認含
+  `\n`）。
+
+**驗證**：`tsc`／`oxlint`／`build` 全過。實際搜尋＋對話測試：狀態列正確顯示「耗時 1.8 秒」；
+`EvidencePanel` 分數格線正常渲染；`SearchField` 與搜尋 `Button` 量到的實際高度都是 48px（`lg` 尺寸
+對齊，沒有前述的 class 覆寫順序問題）；建議提示點擊會直接送出且送出後從畫面消失；第一名結果確實用
+`featured` 大版卡片呈現、內容包含完整描述與相似度條；「已檢索：字幕、OCR」正確彙整自真實回應的
+`hit_source`。全程零 console error。
 
 ### Phase 4 — 響應式收合＋整體品質驗收 ⏳ 待辦
 

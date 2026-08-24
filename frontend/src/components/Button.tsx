@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
-type ButtonSize = 'md' | 'sm' | 'icon'
+type ButtonSize = 'md' | 'sm' | 'lg' | 'icon'
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
   primary: 'bg-primary text-white hover:bg-primary-hover',
@@ -13,6 +13,7 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
 const SIZE_CLASS: Record<ButtonSize, string> = {
   md: 'h-10 px-4 text-sm',
   sm: 'h-8 px-3 text-xs',
+  lg: 'h-12 px-5 text-base',
   icon: 'h-10 w-10 p-0',
 }
 
