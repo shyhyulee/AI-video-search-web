@@ -39,6 +39,16 @@ export function formatPercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }
 
+export function formatElapsed(startedAt: string | null): string {
+  if (!startedAt) return '0:00'
+  const startMs = new Date(startedAt).getTime()
+  if (Number.isNaN(startMs)) return '0:00'
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - startMs) / 1000))
+  const m = Math.floor(elapsedSec / 60)
+  const s = elapsedSec % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 export function truncate(text: string, limit: number): string {
   const flat = text.replace(/\n/g, ' ')
   if (flat.length <= limit) return flat

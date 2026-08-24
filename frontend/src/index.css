@@ -1,34 +1,69 @@
 @import "tailwindcss";
 
-/* 對齊 src/ai_video_search_web/theme.py 的色彩／字型系統，見
-   docs/07-ui-structure-and-features.md 第 9 節與
-   docs/09-web-ui-migration-plan.md 第 5 節「Web 設計系統」。間距沿用
-   Tailwind 預設數值刻度（4px 基準），剛好對應 theme.py 的 8px 系統
-   （SPACE_4/8/16/24/32 = p-1/2/4/6/8），不需要另外定義。 */
+/* 暖色系 Design Token，對齊 docs/10-web-ui-ux-warm-responsive-design.md 第 3 節。
+   間距沿用 Tailwind 預設 4px 刻度（doc 的 4/8/12/16/20/24/32px 已完整覆蓋），
+   不需要另外定義。 */
 @theme {
-  --color-app-bg: #f5f7fa;
-  --color-card: #ffffff;
-  --color-text-primary: #172033;
-  --color-text-secondary: #667085;
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-error: #dc2626;
-  --color-border: #d0d5dd;
-  --color-row-selected: #e8f1ff;
+  /* 版面底色 */
+  --color-app-bg: #f8f3ed;
+  --color-card: #fffdf9;
+  --color-surface-alt: #fbf6ef;
+  --color-sand: #f1e4d5;
+  --color-sand-strong: #e9d5c0;
 
-  --color-badge-success-bg: #dcfce7;
-  --color-badge-warning-bg: #fef3c7;
-  --color-badge-error-bg: #fee2e2;
-  --color-badge-neutral-bg: #eef2f6;
-  --color-badge-primary-bg: #dbeafe;
+  /* 文字 */
+  --color-text-primary: #34241d;
+  --color-text-secondary: #796b63;
+  --color-text-muted: #a39388;
+
+  /* 品牌與狀態 */
+  --color-primary: #bd5d42;
+  --color-primary-hover: #9d4630;
+  --color-primary-soft: #f7e4dc;
+  --color-accent: #dc9a3c;
+  --color-success: #617258;
+  --color-success-soft: #e8f0e4;
+  --color-warning: #dc9a3c;
+  --color-error: #b6483b;
+  --color-border: #eadfd4;
+  --color-row-selected: #f7e4dc;
+
+  /* Badge 底色 */
+  --color-badge-success-bg: #e8f0e4;
+  --color-badge-warning-bg: #f6e9d2;
+  --color-badge-error-bg: #f5e0dc;
+  --color-badge-neutral-bg: #f1e4d5;
+  --color-badge-primary-bg: #f7e4dc;
 
   --font-sans:
-    'Noto Sans TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
+
+  /* 卡片圓角 16–18px，落在 Tailwind 內建 2xl(16px) 與 3xl(24px) 中間，需要新值；
+     按鈕／輸入框的 10–12px、Badge 的 999px 已對應內建 rounded-xl／rounded-full，不需要新 token */
+  --radius-card: 1.125rem;
+
+  /* Tailwind 內建陰影是純黑色系，這裡改用低對比、帶暖色調的陰影，只用在 elevated 卡片 */
+  --shadow-card:
+    0 1px 2px rgba(52, 36, 29, 0.06), 0 8px 24px rgba(52, 36, 29, 0.08);
+
+  /* 響應式斷點：全專案目前零個響應式 class，重新定義安全、不影響任何既有畫面 */
+  --breakpoint-sm: 35rem; /* 560px */
+  --breakpoint-md: 56.25rem; /* 900px，Sidebar 收合為 icon rail */
+  --breakpoint-lg: 73.75rem; /* 1180px，完整 Sidebar */
 }
 
 body {
   background-color: var(--color-app-bg);
   color: var(--color-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

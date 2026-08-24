@@ -1,12 +1,35 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { analyzeVideo, deleteVideo, downloadYoutube, listVideos, uploadVideo } from '../api/client'
+import { Download } from 'lucide-react'
+import { analyzeVideo, deleteVideo, downloadYoutube, listVideos, retryJob, uploadVideo } from '../api/client'
 import { ApiError } from '../api/types'
+import type { Job } from '../api/types'
+import { Badge } from '../components/Badge'
+import { Button } from '../components/Button'
+import { Card } from '../components/Card'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { Dropzone } from '../components/Dropzone'
 import { EmptyState } from '../components/EmptyState'
-import { formatDateTime, formatDuration } from '../lib/format'
+import { SegmentedControl } from '../components/SegmentedControl'
+import { VideoListItem } from '../components/VideoListItem'
+import { formatDateTime, formatDuration, formatElapsed } from '../lib/format'
 import { useJobPolling, useJobsPolling } from '../lib/useJobPolling'
+import { useToast } from '../lib/useToast'
 
 const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本機' }
+
+const SOURCE_OPTIONS = [
+  { value: 'youtube' as const, label: 'YouTube 網址' },
+  { value: 'local' as const, label: '本機影片' },
+]
+
+function jobStatusInfo(job: Job | undefined): { text: string; kind: 'success' | 'error' | 'primary' | 'neutral' } {
+  if (!job) return { text: '等待分析', kind: 'neutral' }
+  if (job.status === 'completed') return { text: '✓ 分析完成', kind: 'success' }
+  if (job.status === 'failed') return { text: '分析失敗', kind: 'error' }
+  if (job.status === 'running') return { text: job.stage ?? '分析中', kind: 'primary' }
+  return { text: '排隊中', kind: 'neutral' }
+}
 
 /** 「影片與分析」頁面，對齊 ui/video_tab.py：新增影片（YouTube 下載／本機
  * 上傳）、待分析影片列表、開始分析，見
@@ -15,8 +38,10 @@ const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本�
  * 最高的一步：multipart 上傳進度 + job 輪詢兩個新模式）。 */
 export function VideosPage() {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const { data: pending } = useQuery({ queryKey: ['videos', 'pending'], queryFn: () => listVideos('pending') })
 
+  const [sourceMode, setSourceMode] = useState<'youtube' | 'local'>('youtube')
   const [url, setUrl] = useState('')
   const [downloadJobId, setDownloadJobId] = useState<number | null>(null)
   const [downloadError, setDownloadError] = useState('')
@@ -25,6 +50,7 @@ export function VideosPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [analysisJobs, setAnalysisJobs] = useState<Record<number, number>>({}) // video_id -> job_id
   const [rejectedNote, setRejectedNote] = useState('')
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   const invalidateAfterChange = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
@@ -43,7 +69,8 @@ export function VideosPage() {
   })
   const downloadJobQuery = useJobPolling(downloadJobId)
   const downloadJob = downloadJobQuery.data
-  const downloadActive = downloadMutation.isPending || (downloadJob ? downloadJob.status === 'running' || downloadJob.status === 'queued' : false)
+  const downloadActive =
+    downloadMutation.isPending || (downloadJob ? downloadJob.status === 'running' || downloadJob.status === 'queued' : false)
 
   useEffect(() => {
     if (downloadJob?.status === 'completed') {
@@ -124,7 +151,7 @@ export function VideosPage() {
 
   const trackedJobIds = Object.values(analysisJobs)
   const jobQueries = useJobsPolling(trackedJobIds)
-  const jobByVideoId = new Map<number, (typeof jobQueries)[number]['data']>()
+  const jobByVideoId = new Map<number, Job | undefined>()
   Object.entries(analysisJobs).forEach(([videoId, jobId], idx) => {
     void jobId
     jobByVideoId.set(Number(videoId), jobQueries[idx]?.data)
@@ -143,62 +170,57 @@ export function VideosPage() {
     }
   }, [anyAnalysisActive, allTrackedJobsSettled, invalidateAfterChange])
 
+  const retryMutation = useMutation({ mutationFn: (jobId: number) => retryJob(jobId) })
+  const onRetryClicked = async (videoId: number, jobId: number) => {
+    const newJob = await retryMutation.mutateAsync(jobId)
+    setAnalysisJobs((prev) => ({ ...prev, [videoId]: newJob.id }))
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteVideo(id),
     onSuccess: invalidateAfterChange,
   })
 
-  const onRemoveClicked = async () => {
-    const titles = [...selected].map((id) => pending?.find((v) => v.id === id)?.title ?? String(id))
-    const preview = titles.slice(0, 3).join('、') + (titles.length > 3 ? '…' : '')
-    if (!window.confirm(`確定要移除「${preview}」共 ${selected.size} 支影片，並刪除已下載的檔案嗎？`)) return
+  const selectedTitles = [...selected].map((id) => pending?.find((v) => v.id === id)?.title ?? String(id))
+  const deletePreview = selectedTitles.slice(0, 3).join('、') + (selectedTitles.length > 3 ? '…' : '')
+
+  const onConfirmRemove = async () => {
+    setConfirmDeleteOpen(false)
+    const count = selected.size
     for (const id of selected) {
       await deleteMutation.mutateAsync(id)
     }
     setSelected(new Set())
+    toast.show(`已移除 ${count} 支影片`, 'success')
   }
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h2 className="mb-3 text-base font-bold">新增影片</h2>
+      <Card>
+        <h2 className="mb-3 text-base font-bold text-text-primary">新增影片</h2>
+        <SegmentedControl options={SOURCE_OPTIONS} value={sourceMode} onChange={setSourceMode} />
 
-        <label className="mb-1 block text-sm text-text-secondary">YouTube 網址</label>
-        <form onSubmit={onDownloadSubmit} className="flex gap-2">
-          <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={downloadActive}
-            className="flex-1 rounded border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={downloadActive}
-            className="rounded bg-primary px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
-          >
-            下載影片
-          </button>
-        </form>
-
-        <div className="mt-4 flex items-center gap-3">
-          <label className="cursor-pointer rounded border border-border px-3 py-1.5 text-sm font-bold">
-            選擇本機影片
+        {sourceMode === 'youtube' ? (
+          <form onSubmit={onDownloadSubmit} className="mt-3 flex gap-2">
             <input
-              type="file"
-              accept=".mp4,.mov,.mkv,.webm"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) onFileSelected(file)
-                e.target.value = ''
-              }}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={downloadActive}
+              placeholder="貼上 YouTube 影片網址"
+              className="flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none disabled:opacity-60"
             />
-          </label>
-          <span className="text-sm text-text-secondary">支援格式：MP4、MOV、MKV、WebM</span>
-        </div>
+            <Button type="submit" variant="primary" disabled={downloadActive} icon={<Download className="h-4 w-4" />}>
+              下載影片
+            </Button>
+          </form>
+        ) : (
+          <div className="mt-3">
+            <Dropzone onFileSelected={onFileSelected} disabled={uploadPercent !== null} hint="支援格式：MP4、MOV、MKV、WebM" />
+          </div>
+        )}
 
         {(downloadActive || downloadJob) && (
-          <div className="mt-3 h-2 overflow-hidden rounded bg-[#E4E7EC]">
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-sand">
             <div
               className="h-full bg-primary transition-all"
               style={{ width: `${downloadJob?.progress_percent ?? 0}%` }}
@@ -206,86 +228,99 @@ export function VideosPage() {
           </div>
         )}
         {uploadPercent !== null && (
-          <div className="mt-3 h-2 overflow-hidden rounded bg-[#E4E7EC]">
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-sand">
             <div className="h-full bg-primary transition-all" style={{ width: `${uploadPercent}%` }} />
           </div>
         )}
 
-        <p className="mt-2 text-sm text-text-secondary">
-          {downloadError && <span className="text-error">{downloadError}</span>}
-          {!downloadError && downloadJob && downloadJob.status === 'running' && (downloadJob.progress_message ?? '下載中…')}
-          {!downloadError && downloadJob?.status === 'failed' && <span className="text-error">下載失敗：{downloadJob.error_message}</span>}
-          {uploadError && <span className="text-error">{uploadError}</span>}
-          {uploadPercent !== null && `上傳中… ${uploadPercent.toFixed(0)}%`}
-          {!downloadError && !downloadJob && uploadPercent === null && !uploadError && '尚未開始'}
-        </p>
-      </div>
+        {(downloadError || uploadError || downloadJob || uploadPercent !== null) && (
+          <p className="mt-2 text-sm text-text-secondary">
+            {downloadError && <span className="text-error">{downloadError}</span>}
+            {!downloadError && downloadJob && downloadJob.status === 'running' && (downloadJob.progress_message ?? '下載中…')}
+            {!downloadError && downloadJob?.status === 'failed' && (
+              <span className="text-error">下載失敗：{downloadJob.error_message}</span>
+            )}
+            {uploadError && <span className="text-error">{uploadError}</span>}
+            {uploadPercent !== null && `上傳中… ${uploadPercent.toFixed(0)}%`}
+          </p>
+        )}
+      </Card>
 
-      <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-card p-4">
-        <h2 className="mb-3 text-base font-bold">待分析影片（{pending?.length ?? 0}）</h2>
+      <Card className="flex min-h-0 flex-1 flex-col">
+        <h2 className="mb-1 text-base font-bold text-text-primary">待分析影片（{pending?.length ?? 0}）</h2>
         <div className="min-h-0 flex-1 overflow-auto">
           {!pending || pending.length === 0 ? (
             <EmptyState title="目前沒有待分析影片" hints={['可貼上 YouTube 網址或選擇本機影片']} />
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-[#F0F2F5] text-xs text-text-secondary">
-                <tr>
-                  <th className="w-8 px-2 py-2" />
-                  <th className="px-2 py-2">影片名稱</th>
-                  <th className="px-2 py-2">長度</th>
-                  <th className="px-2 py-2">來源</th>
-                  <th className="px-2 py-2">加入時間</th>
-                  <th className="px-2 py-2">狀態</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map((v) => {
-                  const job = jobByVideoId.get(v.id)
-                  const statusText = job
-                    ? job.status === 'completed'
-                      ? '✓ 分析完成'
-                      : job.status === 'failed'
-                        ? `分析失敗：${job.error_message}`
-                        : job.status === 'running'
-                          ? `${job.stage ?? '分析中'}…`
-                          : '排隊中…'
-                    : '等待分析'
-                  return (
-                    <tr key={v.id} className="border-b border-border last:border-0">
-                      <td className="px-2 py-2">
-                        <input type="checkbox" checked={selected.has(v.id)} onChange={() => toggleSelected(v.id)} />
-                      </td>
-                      <td className="px-2 py-2">{v.title}</td>
-                      <td className="px-2 py-2">{formatDuration(v.duration_sec)}</td>
-                      <td className="px-2 py-2">{SOURCE_LABEL[v.source] ?? v.source}</td>
-                      <td className="px-2 py-2">{formatDateTime(v.created_at)}</td>
-                      <td className="px-2 py-2">{statusText}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            pending.map((v) => {
+              const job = jobByVideoId.get(v.id)
+              const status = jobStatusInfo(job)
+              return (
+                <VideoListItem
+                  key={v.id}
+                  video={v}
+                  checked={selected.has(v.id)}
+                  onCheckedChange={() => toggleSelected(v.id)}
+                  meta={
+                    <>
+                      {SOURCE_LABEL[v.source] ?? v.source} ・ {formatDuration(v.duration_sec)} ・{' '}
+                      {formatDateTime(v.created_at)}
+                    </>
+                  }
+                  trailing={
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge text={status.text} kind={status.kind} />
+                      {job?.status === 'running' && (
+                        <span className="text-xs text-text-muted">
+                          {job.progress_percent !== null ? `${job.progress_percent}% ・ ` : ''}
+                          {formatElapsed(job.started_at)}
+                        </span>
+                      )}
+                      {job?.status === 'failed' && (
+                        <>
+                          {job.error_message && (
+                            <span className="max-w-[200px] truncate text-xs text-error" title={job.error_message}>
+                              {job.error_message}
+                            </span>
+                          )}
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={retryMutation.isPending}
+                            onClick={() => onRetryClicked(v.id, job.id)}
+                          >
+                            重試
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  }
+                />
+              )
+            })
           )}
         </div>
 
         <div className="mt-3 flex gap-2">
-          <button
-            disabled={selected.size === 0}
-            onClick={onAnalyzeClicked}
-            className="rounded border border-border px-3 py-1.5 text-sm font-bold disabled:opacity-40"
-          >
+          <Button variant="primary" disabled={selected.size === 0} onClick={onAnalyzeClicked}>
             開始分析
-          </button>
-          <button
-            disabled={selected.size === 0}
-            onClick={onRemoveClicked}
-            className="rounded border border-border px-3 py-1.5 text-sm font-bold disabled:opacity-40"
-          >
+          </Button>
+          <Button variant="secondary" disabled={selected.size === 0} onClick={() => setConfirmDeleteOpen(true)}>
             移除
-          </button>
+          </Button>
         </div>
         {rejectedNote && <p className="mt-2 text-sm text-error">{rejectedNote}</p>}
-      </div>
+      </Card>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="確認移除影片"
+        description={`確定要移除「${deletePreview}」共 ${selected.size} 支影片，並刪除已下載的檔案嗎？`}
+        destructive
+        confirmLabel="移除"
+        onConfirm={onConfirmRemove}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </div>
   )
 }

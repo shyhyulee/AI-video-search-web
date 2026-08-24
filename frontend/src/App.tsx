@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Header } from './components/Header'
 import { Sidebar } from './components/Sidebar'
+import { MobileBottomNav } from './components/MobileBottomNav'
+import { ToastProvider } from './components/Toast'
 import { VideosPage } from './pages/VideosPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SearchPage } from './pages/SearchPage'
@@ -8,21 +10,29 @@ import { ConversationPage } from './pages/ConversationPage'
 
 function App() {
   return (
-    <div className="flex h-screen flex-col">
-      <Header />
-      <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <main className="min-w-0 flex-1 overflow-auto p-6">
-          <Routes>
-            <Route path="/" element={<Navigate to="/videos" replace />} />
-            <Route path="/videos" element={<VideosPage />} />
-            <Route path="/library" element={<LibraryPage />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/conversation" element={<ConversationPage />} />
-          </Routes>
-        </main>
+    <ToastProvider>
+      <div className="flex h-dvh flex-col">
+        <Header />
+        <div className="flex min-h-0 flex-1">
+          <Sidebar />
+          <main className="min-w-0 flex-1 overflow-auto">
+            {/* h-full 讓每個頁面內部的 min-h-0/flex-1/overflow-auto 雙欄捲動邏輯
+                能正確拿到高度，這個 wrapper 一定要跟著給 h-full，不然頁面內容
+                會退化成撐開高度、整頁一起捲動。 */}
+            <div className="mx-auto h-full max-w-[1540px] p-4 lg:p-6">
+              <Routes>
+                <Route path="/" element={<Navigate to="/videos" replace />} />
+                <Route path="/videos" element={<VideosPage />} />
+                <Route path="/library" element={<LibraryPage />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/conversation" element={<ConversationPage />} />
+              </Routes>
+            </div>
+          </main>
+        </div>
+        <MobileBottomNav />
       </div>
-    </div>
+    </ToastProvider>
   )
 }
 

@@ -157,6 +157,14 @@ flowchart TD
 
 **已知限制**：分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，不是跨頁籤持續存在的全域狀態——分析中途切去別的頁籤，該支影片的進度顯示會遺失（分析本身在後端不受影響、持續進行），詳見 `09-web-ui-migration-plan.md` 第 9 節。
 
+### 3.6 UI 暖色改版（進行中）
+
+Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色響應式設計規格，對同一套四頁面
+進行純視覺／互動層美化（不動 API、資料庫、搜尋邏輯）。分階段執行、目前進度、技術選型決策見
+`11-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1（Design Token＋共用元件庫＋響應式外殼）與
+Phase 2（影片與分析、影片庫頁面重構）已完成；Phase 3（搜尋結果、對話搜尋）與 Phase 4（響應式收合＋
+整體驗收）待辦。
+
 ## 4. 如何使用這個資料夾
 
 - 想知道「現在做到哪裡」→ 看 [`01-development-timeline.md`](01-development-timeline.md)。
@@ -167,3 +175,4 @@ flowchart TD
 - 想知道「對話搜尋怎麼設計的」→ 看 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)。
 - 想知道「已移除的 Tkinter UI 每個頁籤的功能與結構（歷史記錄）」→ 看 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)。
 - 想知道「Web UI 遷移進度、架構決策、Job Manager 設計」→ 看 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)（`08-web-ui-migration-design.md` 是尚未盤點現有程式碼前的原始參考稿，`09` 才是實際採用、持續更新的計畫）。
+- 想知道「UI 暖色改版做到哪個階段、技術選型為什麼這樣決定」→ 看 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md)（`10-web-ui-ux-warm-responsive-design.md` 是設計規格原稿，`11` 才是依現況盤點後實際採用、持續更新的計畫，跟 `08`／`09` 是同樣的關係）。
