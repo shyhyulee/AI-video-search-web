@@ -15,7 +15,9 @@ const RESULT_LIMIT = 12
  * 後端還在回快取（或反過來）造成「重新搜尋卻沒有變化」的困惑。 */
 const CACHE_TTL_MS = 5 * 60 * 1000
 
-const GRID_CLASS = 'grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3'
+// 主導覽從左側 Sidebar 移到 Header 後內容區多出 240px 寬，超寬螢幕改 4 欄，
+// 不然每張卡片會寬到約 450px，對縮圖卡片來說太大。
+const GRID_CLASS = 'grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
 
 /** 「YouTube 搜尋」頁：輸入關鍵字查 YouTube，用卡片列出前 12 筆，點卡片
  * 上的按鈕就地展開網址與說明。這頁只讀 metadata，不下載也不分析影片——

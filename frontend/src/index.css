@@ -52,8 +52,8 @@
 
   /* 響應式斷點：全專案目前零個響應式 class，重新定義安全、不影響任何既有畫面 */
   --breakpoint-sm: 35rem; /* 560px */
-  --breakpoint-md: 56.25rem; /* 900px，Sidebar 收合為 icon rail */
-  --breakpoint-lg: 73.75rem; /* 1180px，完整 Sidebar */
+  --breakpoint-md: 56.25rem; /* 900px，TopNav 收合為僅圖示 */
+  --breakpoint-lg: 73.75rem; /* 1180px，TopNav 顯示圖示＋文字 */
 }
 
 body {

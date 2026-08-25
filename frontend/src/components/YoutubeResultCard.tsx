@@ -20,6 +20,14 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
   const toast = useToast()
   const detailId = useId()
 
+  // 拿不到觀看數（部分直播／下架中的影片）就整段省略，不要顯示「-- 次觀看」
+  const facts = [
+    formatDuration(item.duration_sec),
+    item.view_count === null ? '' : `${formatViewCount(item.view_count)}次觀看`,
+  ]
+    .filter(Boolean)
+    .join(' ・ ')
+
   const onCopy = async () => {
     try {
       await navigator.clipboard.writeText(item.url)
@@ -46,18 +54,22 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
       )}
 
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <h3 className="line-clamp-2 text-sm leading-snug font-bold text-text-primary" title={item.title}>
+        {/* 標題固定佔兩行高、meta 固定一行（truncate），讓同一列卡片的按鈕
+            對齊。grid 用 items-start 時卡片各自算高度，不這樣做的話標題一行
+            或兩行、meta 有沒有換行都會讓按鈕高低不一。 */}
+        <h3 className="line-clamp-2 min-h-[2.4rem] text-sm leading-snug font-bold text-text-primary" title={item.title}>
           {item.title}
         </h3>
-        <p className="text-xs text-text-secondary">
-          {[
-            item.channel,
-            formatDuration(item.duration_sec),
-            // 拿不到觀看數（部分直播／下架中的影片）就整段省略，不要顯示「-- 次觀看」
-            item.view_count === null ? '' : `${formatViewCount(item.view_count)}次觀看`,
-          ]
-            .filter(Boolean)
-            .join(' ・ ')}
+        {/* 只有頻道名長度不可控，所以只讓它 truncate；時長與觀看數固定短，
+            永遠完整顯示，否則長頻道名會把觀看數擠成「7....」。 */}
+        <p className="flex items-center text-xs text-text-secondary">
+          {item.channel && (
+            <>
+              <span className="truncate">{item.channel}</span>
+              <span className="shrink-0 px-1">・</span>
+            </>
+          )}
+          <span className="shrink-0">{facts}</span>
         </p>
         <Button
           variant="secondary"
