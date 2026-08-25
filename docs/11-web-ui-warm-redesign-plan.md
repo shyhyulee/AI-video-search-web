@@ -241,6 +241,7 @@ Tab 到 `VideoListItem`、按 Enter 觸發選取，確認可行。對比度修�
 
 - 待分析清單「取消」（見上，後端無對應 API）。
 - 跨頁籤 job 追蹤狀態遺失（`docs/09` §9 已記錄的已知架構缺口，是狀態管理問題不是視覺問題）。
+  ——**後續已在 8.3 用 keep-alive 處理掉根因**（頁籤不再卸載），這裡保留原判斷作為當時的範圍紀錄。
 - 「處理紀錄」頁籤、`GET /search/recent` 前端——原本 Web 遷移就刻意不做，文件 10 也沒要求恢復。
 - 前端自動化測試（Playwright）——這次每個階段都用 Playwright 手動跑過關鍵互動路徑，但沒有把測試腳本
   提交進 repo；值得做，但屬於測試基礎建設投資，不是這次美化的範圍。
@@ -271,3 +272,103 @@ Phase 1–4（上面章節）完成並驗收後，使用者陸續提出的小幅
 `currentTime` 前進、非暫停）；量測 `.rounded-card` 區塊的 bounding box 確認桌機下對話面板與右欄
 （播放器＋結果）左右並排、右欄內播放器在結果清單上方；確認頁面本身不整頁捲動（每欄各自捲動，高度鏈
 沒有壞掉）；700px 寬度下確認退回上下排列、無水平溢位；全程零 console error。截圖比對視覺符合預期。
+
+### 8.2 YouTube 搜尋移到第一個頁籤，卡片加「播放」與「開始分析」（2026-08-26）
+
+**需求**：使用者要求把「YouTube 搜尋」頁籤搬到主導覽最左邊的第一個位置，並在結果卡片上加兩顆按鈕
+——「播放」與「開始分析」。
+
+**修改**：
+
+- **頁籤順序**：`TopNav.tsx`／`MobileBottomNav.tsx` 的 `NAV_ITEMS` 把 `/youtube` 移到陣列第一個。
+  兩份清單本來就是各自維護（桌機用完整標籤「YouTube 搜尋」、手機版空間只有 64px 用縮寫
+  「YouTube」），所以要改兩處。`App.tsx` 的落地頁跟著改成 `/youtube`——第一個頁籤同時是入口，
+  否則開啟時停在第三個頁籤會不一致。
+- **「播放」**：就地把卡片的縮圖區換成 YouTube 內嵌播放器（`youtube-nocookie.com/embed/<id>`，
+  比 `www.youtube.com/embed` 少帶追蹤 cookie，行為相同），再按一次變「關閉播放」換回縮圖。刻意不
+  開新分頁也不用 Modal——這頁的用途是「快速確認這支影片是不是要的」，離開頁面或被 Modal 蓋住都會
+  打斷比較多支影片的流程。網址帶 `enablejsapi=1`，讓 8.3 的 keep-alive 能在切頁籤時 postMessage
+  叫它暫停。
+- **「開始分析」**：不是導去別的頁面，而是在卡片內直接跑完整條流程——`downloadYoutube(url)` 送出
+  下載 job → `useJobPolling` 輪詢到完成 → 用回傳的 `job.video_id` 接 `analyzeVideo(video_id)` →
+  再輪詢分析 job。等同使用者自己去「影片與分析」頁貼網址、下載完再勾選送分析，只是省掉換頁與複製
+  網址。卡片內用一條進度條＋一行狀態文字（`準備下載…`／下載 job 的 `progress_message`／
+  `排隊分析中…`／分析 job 的 `stage`／`✓ 分析完成`）顯示兩段 job 的進度，完成後 invalidate
+  `['videos','pending']`／`['videos','library']`／`['stats']` 讓 Header 統計卡跟著更新。
+  `DURATION_LIMIT_EXCEEDED` 比照 `VideosPage` 轉成中文訊息「影片長度超過分析上限」。
+- **兩段 job 的接續用 ref 擋重複**：`downloadJob`／`analysisJob` 來自輪詢查詢，同一個終態會被讀到
+  很多次，用 `handledDownload`／`handledAnalysis` 兩個 ref 記下已處理過的 job id，確保「接下一段」
+  與「收尾（invalidate＋toast）」各只做一次。這跟 `VideosPage` 用「所有 job 都到終態」當收尾條件
+  是不同寫法，因為卡片是一支影片對一組 job，不需要處理多選。
+- **`README.md`／`YoutubeSearchPage` 的說明同步更新**：原本寫「只讀 metadata，不下載也不分析影片
+  ——要下載分析請到『影片與分析』頁貼網址」已經不成立，改成「搜尋本身只讀 metadata，只有按下卡片
+  的『開始分析』才會真的下載影片」。
+
+**驗證**：`tsc -b`／`oxlint` 全過。Playwright 實跑：落地頁正確導到 `/youtube`；導覽列讀出
+`['YouTube 搜尋','影片與分析','影片庫','搜尋結果','對話搜尋']`；實際搜尋「python 教學」拿到 12 筆
+真實結果，12 張卡片各有一組「播放」「開始分析」；點「播放」確認 iframe `src` 正確、影片實際播放中；
+展開詳情正常；全程零 console error。
+
+**未驗證（誠實揭露）**：「開始分析」沒有實際點下去跑完一輪——它會真的下載影片並跑分析 pipeline、
+消耗 OpenAI 費用，未經使用者同意不主動觸發。串接的是與「影片與分析」頁完全相同的 API 與輪詢邏輯，
+但端到端沒有實跑過。
+
+### 8.3 頁籤切換不再清空狀態（keep-alive）（2026-08-26）
+
+**問題**：使用者在 YouTube 搜尋頁打了關鍵字、拿到結果後切去別的頁籤，切回來整頁被清空。根因是
+`App.tsx` 用 `<Routes>`／`<Route>`，同一時間只掛載當前路由，切頁籤等於整頁 unmount，所有
+`useState` 全部歸零。這不是 YouTube 頁專屬問題，**五個頁籤都有**，其中「對話搜尋」最嚴重：
+`ConversationPage` 在 mount effect 裡呼叫 `startConversation()`，所以每次切回去都會**重建一筆新的
+conversation、聊天記錄整個清空**。這同時也是 `docs/09` §9、`docs/00` §3.5 記錄多時的「分析中途切換
+頁籤，job 追蹤狀態會遺失」的同一個根因。
+
+**修改**：改用 keep-alive——造訪過的頁籤留在 DOM 裡，只是隱藏起來，不再卸載。
+
+- `App.tsx` 拿掉 `<Routes>`，改成一份 `PAGES` 清單（順序與 `TopNav` 一致）＋新的 `KeepAlivePage`
+  包裝元件；未知路徑（含 `/`）用 `<Navigate to="/youtube" replace />` 導走。
+- **隱藏方式用 `invisible absolute inset-0`（`visibility:hidden`）而不是 `hidden`
+  （`display:none`）**：`display:none` 會讓元素失去 box，內部捲動容器的 `scrollTop` 被瀏覽器重設成
+  0，切回來會跳回最上面；`visibility:hidden` 保留 box，捲動位置原封不動，而且一樣不會被鍵盤 focus
+  到、也不會進無障礙樹，不需要另外加 `inert`／`aria-hidden`。`relative` 的定位基準刻意放在「沒有
+  padding」的那一層 wrapper，這樣 `absolute inset-0` 的框跟作用中頁籤（in-flow 的 `h-full`）完全
+  一樣寬高，切回來時排版與捲動位置才不會位移。
+- **懶掛載**：只有造訪過的頁籤才進 `mountedPaths`，第一次點進去才付出初始化成本（避免一開 app 就
+  替沒人要看的「對話搜尋」建一筆 conversation）。`mountedPaths` 用「render 期間呼叫自己的
+  setState」這個 React 官方允許的寫法（有 `includes` 擋著不會無限迴圈），比放進 `useEffect` 少一次
+  閃爍；一開始寫成 render 期間寫 ref，被 oxlint 的 `react(refs)` 規則點出來後改掉。
+- **背景播放要主動暫停**：頁面看不見但還在 DOM 裡，不處理的話 YouTube 內嵌播放器與 `<video>` 會在
+  背景繼續出聲。`KeepAlivePage` 在 active 由 true 轉 false 時呼叫 `pauseMediaIn()`：`<video>` 直接
+  `pause()`；跨來源的 YouTube iframe 沒有 DOM API 可控，用 IFrame Player API 的 postMessage 指令
+  （所以 8.2 的 embed 網址要帶 `enablejsapi=1`）。暫停不會丟掉播放位置，切回來按播放就接著看。
+
+**連帶必須修的回歸（`SearchPage`）**：這頁原本只在 **mount 時**讀一次 `?q=`／`?video_id=`
+（`useState` 初始值＋一個空依賴的 effect）。頁面不再卸載之後，從「影片庫」點第二次搜尋就完全沒反應
+——這是 keep-alive 直接造成的回歸，不修不能上。改成每次 URL 參數變化都處理，消化完用
+`setSearchParams({}, { replace: true })` 清掉參數，並用 `consumedParams` ref 記下剛處理過的字串，
+避免 `setSearchParams` 自己造成的那次變化又被當成新請求；參數清空時把 ref 歸零，這樣連續帶同一組
+關鍵字進來也會重新搜尋。同時把搜尋範圍改成隨參數一起傳進 `mutate`，不從 closure 讀
+`scopeVideoId`——從影片庫按「只搜這支影片」進來時 `setScopeVideoId` 還沒生效，靠 closure 會搜成
+全部影片（這是原本就潛伏、只是沒被觸發到的 bug）。
+
+**驗證**：`tsc -b`／`oxlint` 全過。Playwright 實跑，在 YouTube 頁做出一組狀態後繞過「影片與分析／
+對話搜尋／影片庫」再切回來，逐項比對：
+
+| 項目 | 切走前 | 切回後 |
+| --- | --- | --- |
+| 關鍵字 | `python 教學` | `python 教學` |
+| 結果卡片 | 12 張 | 12 張 |
+| 展開中的卡片 | 1 張 | 1 張 |
+| 內嵌播放器 | 1 個 | 1 個 |
+| 捲動位置 | 320px | 320px |
+
+另外確認：對話搜尋頁未送出的草稿（`打到一半切走的字`）切走再切回來還在；影片庫→搜尋結果**連續兩次**
+都正確觸發搜尋（3.4 秒／1.5 秒，各找到 2 個片段），證明上面那個回歸確實修掉；390px 窄螢幕版面正常、
+無橫向溢位、切回 YouTube 頁關鍵字仍在；全程零 console error。
+
+**未驗證（誠實揭露）**：沒有實跑一輪真實分析來確認「分析中途切頁籤，進度顯示不再遺失」。就機制而言
+根因（元件卸載）已經移除、輪詢在隱藏頁面持續進行，但端到端沒有實測過，`docs/09` §9 的那條限制先標記
+為「應已解決、待實測確認」而不是直接劃掉。
+
+**已知、刻意不處理**：手機版 `<main>` 是所有頁籤共用的捲動容器，**它的**捲動位置不是分頁籤記憶的
+（桌機版頁面內部各自的捲動容器則有記憶）。要做的話得在 `KeepAlivePage` 額外存取 `<main>.scrollTop`，
+這次先不做。

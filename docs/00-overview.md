@@ -155,7 +155,7 @@ flowchart TD
 
 **目前進度**：Phase 0～Phase 4 全部完成。`uv run ai-video-search-web` 啟動 FastAPI／uvicorn 後端；`cd frontend && npm run dev` 啟動 React 前端。`ui/`／`app.py`／`theme.py`（Tkinter）已刪除，`07-ui-structure-and-features.md` 保留其設計記錄作為歷史參考。
 
-**已知限制**：分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，不是跨頁籤持續存在的全域狀態——分析中途切去別的頁籤，該支影片的進度顯示會遺失（分析本身在後端不受影響、持續進行），詳見 `09-web-ui-migration-plan.md` 第 9 節。
+**~~已知限制~~（2026-08-26 應已解決、待實測確認）**：原本分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，分析中途切去別的頁籤進度顯示就會遺失。`App.tsx` 改用 keep-alive（造訪過的頁籤留在 DOM 裡不卸載，只是隱藏）之後，五個頁籤切走再切回來狀態都不變，這個限制的根因已經移除；但沒有實跑一輪真實分析確認過，詳見 `11-web-ui-warm-redesign-plan.md` §8.3 與 `09-web-ui-migration-plan.md` 第 9 節。
 
 ### 3.6 UI 暖色改版（進行中）
 
@@ -164,7 +164,9 @@ Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色�
 `11-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1～Phase 4 全部完成——Design Token＋共用
 元件庫＋響應式外殼、影片與分析／影片庫頁面重構、`VideoPlayer`／`SearchResultCard` 共用元件、搜尋
 結果／對話搜尋視覺設計、響應式主從版面收合＋鍵盤／對比度品質稽核，四個頁面都已套用新設計並通過
-`tsc`／`oxlint`／`build`與 Playwright 瀏覽器驗證。
+`tsc`／`oxlint`／`build`與 Playwright 瀏覽器驗證。Phase 1–4 之後使用者陸續提出的調整（對話搜尋改
+左右並排、YouTube 搜尋移到第一個頁籤並加「播放」／「開始分析」、頁籤切換不再清空狀態）記錄在同一份
+文件的第 8 節。
 
 ## 4. 如何使用這個資料夾
 

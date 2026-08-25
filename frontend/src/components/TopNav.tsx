@@ -1,13 +1,15 @@
 import { NavLink } from 'react-router-dom'
 import { Film, Library, Search, MessageCircle, MonitorPlay } from 'lucide-react'
 
+// YouTube 搜尋放第一個：它是整條流程的入口（搜尋 → 播放確認 → 開始分析），
+// 後面四個頁籤都是分析完成後才會用到。
 const NAV_ITEMS = [
+  // lucide 這個版本已移除品牌圖示（沒有 Youtube icon），用 MonitorPlay 代替。
+  { to: '/youtube', label: 'YouTube 搜尋', icon: MonitorPlay },
   { to: '/videos', label: '影片與分析', icon: Film },
   { to: '/library', label: '影片庫', icon: Library },
   { to: '/search', label: '搜尋結果', icon: Search },
   { to: '/conversation', label: '對話搜尋', icon: MessageCircle },
-  // lucide 這個版本已移除品牌圖示（沒有 Youtube icon），用 MonitorPlay 代替。
-  { to: '/youtube', label: 'YouTube 搜尋', icon: MonitorPlay },
 ]
 
 /** Header 中段的主導覽：≥1180px 顯示圖示＋文字（實測五個頁籤含 padding 約

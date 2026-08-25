@@ -19,9 +19,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 // 不然每張卡片會寬到約 450px，對縮圖卡片來說太大。
 const GRID_CLASS = 'grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
 
-/** 「YouTube 搜尋」頁：輸入關鍵字查 YouTube，用卡片列出前 12 筆，點卡片
- * 上的按鈕就地展開網址與說明。這頁只讀 metadata，不下載也不分析影片——
- * 要把影片抓下來分析請到「影片與分析」頁貼網址。 */
+/** 「YouTube 搜尋」頁（主導覽第一個頁籤）：輸入關鍵字查 YouTube，用卡片列出
+ * 前 12 筆，可以就地播放確認內容、按「開始分析」直接跑下載＋分析，或展開
+ * 網址與說明。搜尋本身只讀 metadata，只有按下卡片的「開始分析」才會真的下載
+ * 影片（等同在「影片與分析」頁貼網址下載再勾選分析）。 */
 export function YoutubeSearchPage() {
   const [input, setInput] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
@@ -76,7 +77,11 @@ export function YoutubeSearchPage() {
         {submittedQuery === '' ? (
           <EmptyState
             title="搜尋 YouTube 影片"
-            hints={['輸入關鍵字後會列出前 12 筆結果', '點卡片上的「查看詳情」可以看到網址與說明']}
+            hints={[
+              '輸入關鍵字後會列出前 12 筆結果',
+              '卡片上可以直接「播放」預覽，或按「開始分析」下載並分析這支影片',
+              '點「查看詳情」可以看到網址與說明',
+            ]}
             icon={<MonitorPlay className="h-8 w-8" aria-hidden="true" />}
           />
         ) : isFetching && !items ? (

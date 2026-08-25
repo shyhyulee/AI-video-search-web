@@ -16,18 +16,18 @@ import { VideoPlayer } from '../components/VideoPlayer'
  * 節與 docs/10-web-ui-ux-warm-responsive-design.md §6.3。 */
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [queryText, setQueryText] = useState(searchParams.get('q') ?? '')
-  const [scopeVideoId, setScopeVideoId] = useState<number | null>(
-    searchParams.has('video_id') ? Number(searchParams.get('video_id')) : null,
-  )
-  const [scopeVideoTitle, setScopeVideoTitle] = useState<string | null>(searchParams.get('video_title'))
+  const [queryText, setQueryText] = useState('')
+  const [scopeVideoId, setScopeVideoId] = useState<number | null>(null)
+  const [scopeVideoTitle, setScopeVideoTitle] = useState<string | null>(null)
   const [results, setResults] = useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [statusText, setStatusText] = useState('描述想尋找的事件、人物、動作或教學內容')
   const searchStartedAt = useRef(0)
 
+  // 搜尋範圍隨參數一起帶進 mutate，不從 closure 讀 state：從影片庫「只搜這支
+  // 影片」進來時 setScopeVideoId 還沒生效，靠 closure 會搜成全部影片。
   const searchMutation = useMutation({
-    mutationFn: (q: string) => search({ query: q, video_id: scopeVideoId }),
+    mutationFn: ({ q, videoId }: { q: string; videoId: number | null }) => search({ query: q, video_id: videoId }),
     onSuccess: (resp) => {
       setResults(resp.results)
       setSelectedIndex(null)
@@ -41,19 +41,41 @@ export function SearchPage() {
     onError: (err: Error) => setStatusText(`搜尋失敗：${err.message}`),
   })
 
-  // URL 帶查詢字串進來（例如從影片庫頁面的搜尋列）時自動觸發一次搜尋。
+  // 影片庫頁會用 /search?q=… 或 /search?video_id=…&video_title=… 帶條件過來。
+  // 這頁在頁籤之間切換時不會卸載（見 App.tsx 的 KeepAlivePage），所以不能只在
+  // mount 時看一次 URL，每次參數變化都要處理，否則從影片庫點第二次就沒反應。
+  // 消化完把參數清掉，並記下剛處理過的字串，避免 setSearchParams 自己造成的
+  // 那次變化又被當成新請求。
+  const consumedParams = useRef('')
   useEffect(() => {
+    const raw = searchParams.toString()
+    if (raw === '') {
+      // 參數已清空，解除封鎖：下次即使帶一模一樣的關鍵字進來也會重新搜尋。
+      consumedParams.current = ''
+      return
+    }
+    if (raw === consumedParams.current) return
+    consumedParams.current = raw
+
+    const videoIdParam = searchParams.get('video_id')
+    const nextScopeId = videoIdParam !== null ? Number(videoIdParam) : scopeVideoId
+    if (videoIdParam !== null) {
+      setScopeVideoId(nextScopeId)
+      setScopeVideoTitle(searchParams.get('video_title'))
+    }
+
     const q = searchParams.get('q')
     if (q) {
+      setQueryText(q)
+      setStatusText('搜尋中…')
       searchStartedAt.current = Date.now()
-      searchMutation.mutate(q)
-      setSearchParams((prev) => {
-        prev.delete('q')
-        return prev
-      })
+      searchMutation.mutate({ q, videoId: nextScopeId })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在掛載時看一次 URL，之後的搜尋改由使用者操作觸發
-  }, [])
+    setSearchParams({}, { replace: true })
+    // searchMutation 每次 render 都是新物件，放進 deps 會讓 effect 每輪都跑；
+    // 真正的觸發條件只有 URL 參數變化。
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -63,7 +85,7 @@ export function SearchPage() {
     }
     setStatusText('搜尋中…')
     searchStartedAt.current = Date.now()
-    searchMutation.mutate(queryText.trim())
+    searchMutation.mutate({ q: queryText.trim(), videoId: scopeVideoId })
   }
 
   const clearScope = () => {
