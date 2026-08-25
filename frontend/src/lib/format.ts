@@ -55,6 +55,16 @@ export function formatElapsed(startedAt: string | null): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+/** 觀看數用中文的萬／億進位（對齊 YouTube 中文介面：9,876 / 1.2萬 / 728萬）。 */
+export function formatViewCount(count: number | null): string {
+  if (count === null) return '--'
+  const scale = (value: number, unit: string) =>
+    `${value < 10 ? value.toFixed(1) : String(Math.round(value))}${unit}`
+  if (count >= 100_000_000) return scale(count / 100_000_000, '億')
+  if (count >= 10_000) return scale(count / 10_000, '萬')
+  return count.toLocaleString('en-US')
+}
+
 export function truncate(text: string, limit: number): string {
   const flat = text.replace(/\n/g, ' ')
   if (flat.length <= limit) return flat

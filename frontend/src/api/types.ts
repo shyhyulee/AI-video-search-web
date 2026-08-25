@@ -70,6 +70,24 @@ export interface SearchResponse {
   is_confident: boolean
 }
 
+export interface YoutubeSearchItem {
+  video_id: string
+  title: string
+  url: string
+  /** YouTube 搜尋結果自帶的說明摘要，約 100 字後由 YouTube 自己截斷成 `...`，
+   * 不是完整說明；要完整說明得對單支影片再打一次 yt-dlp（約 3.6 秒），
+   * 目前刻意不做。 */
+  description: string
+  duration_sec: number | null
+  channel: string
+  view_count: number | null
+  thumbnail_url: string | null
+}
+
+export interface YoutubeSearchResponse {
+  items: YoutubeSearchItem[]
+}
+
 export interface ConversationTurn {
   reply_text: string
   results: SearchResult[]

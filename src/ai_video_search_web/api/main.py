@@ -24,6 +24,7 @@ from .jobs import router as jobs_router
 from .search import router as search_router
 from .stats import router as stats_router
 from .videos import router as videos_router
+from .youtube import router as youtube_router
 
 
 @asynccontextmanager
@@ -49,6 +50,7 @@ app.include_router(videos_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
+app.include_router(youtube_router, prefix="/api/v1")
 
 
 def run() -> None:

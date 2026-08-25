@@ -7,6 +7,7 @@ import { VideosPage } from './pages/VideosPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SearchPage } from './pages/SearchPage'
 import { ConversationPage } from './pages/ConversationPage'
+import { YoutubeSearchPage } from './pages/YoutubeSearchPage'
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
                 <Route path="/library" element={<LibraryPage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/conversation" element={<ConversationPage />} />
+                <Route path="/youtube" element={<YoutubeSearchPage />} />
               </Routes>
             </div>
           </main>

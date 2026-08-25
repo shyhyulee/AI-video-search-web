@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from ..services import job_manager
 from ..services.conversation_service import ConversationNotFoundError
+from ..services.youtube_search_service import YoutubeSearchError
 
 _ERROR_MAP: dict[type[Exception], tuple[int, str]] = {
     job_manager.VideoNotFoundError: (404, "VIDEO_NOT_FOUND"),
@@ -18,6 +19,8 @@ _ERROR_MAP: dict[type[Exception], tuple[int, str]] = {
     job_manager.JobNotFoundError: (404, "JOB_NOT_FOUND"),
     job_manager.InvalidJobStateError: (409, "INVALID_JOB_STATE"),
     ConversationNotFoundError: (404, "CONVERSATION_NOT_FOUND"),
+    # 502：失敗的是上游的 YouTube／yt-dlp，不是使用者的請求有問題。
+    YoutubeSearchError: (502, "YOUTUBE_SEARCH_FAILED"),
 }
 
 

@@ -5,6 +5,7 @@ import type {
   Job,
   SearchResponse,
   Video,
+  YoutubeSearchResponse,
 } from './types'
 import { ApiError } from './types'
 
@@ -142,6 +143,13 @@ export async function exportSearchCsv(params: SearchParams): Promise<void> {
   a.download = '搜尋結果.csv'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** 搜尋 YouTube 影片（只查 metadata，不會下載任何東西）。 */
+export function searchYoutube(query: string, limit?: number): Promise<YoutubeSearchResponse> {
+  const params = new URLSearchParams({ q: query })
+  if (limit !== undefined) params.set('limit', String(limit))
+  return request<YoutubeSearchResponse>(`/youtube/search?${params}`)
 }
 
 export function startConversation(): Promise<{ id: number }> {

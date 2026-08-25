@@ -9,6 +9,7 @@ const PAGE_TITLE: Record<string, string> = {
   '/library': '影片庫',
   '/search': '搜尋結果',
   '/conversation': '對話搜尋',
+  '/youtube': 'YouTube 搜尋',
 }
 
 /** 全域 Header：左側品牌名＋當前頁面標題，右側精簡統計卡（窄螢幕漸進隱藏次要項目，

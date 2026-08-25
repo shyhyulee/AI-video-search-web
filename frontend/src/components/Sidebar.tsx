@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom'
-import { Film, Library, Search, MessageCircle } from 'lucide-react'
+import { Film, Library, Search, MessageCircle, MonitorPlay } from 'lucide-react'
 
 const NAV_ITEMS = [
   { to: '/videos', label: '影片與分析', icon: Film },
   { to: '/library', label: '影片庫', icon: Library },
   { to: '/search', label: '搜尋結果', icon: Search },
   { to: '/conversation', label: '對話搜尋', icon: MessageCircle },
+  // lucide 這個版本已移除品牌圖示（沒有 Youtube icon），用 MonitorPlay 代替。
+  { to: '/youtube', label: 'YouTube 搜尋', icon: MonitorPlay },
 ]
 
 /** 桌機／筆電 Sidebar：≥1180px 完整寬度＋文字，900–1180px 收合成僅圖示的 rail，
