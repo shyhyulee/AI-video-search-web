@@ -219,8 +219,8 @@
     <h1>重構任務看板</h1>
     <p class="sub">AI 影片搜尋 · 第三輪重構（Web 化之後）· 依 <code>.claude/skills/refactor/SKILL.md</code> 進行</p>
     <div class="stats">
-      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">11 <small>/ 16</small></span></div>
-      <div class="stat"><span class="k">提交數</span><span class="v">8 <small>（全部已提交）</small></span></div>
+      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">12 <small>/ 16</small></span></div>
+      <div class="stat"><span class="k">提交數</span><span class="v">9 <small>（全部已提交）</small></span></div>
       <div class="stat"><span class="k">測試</span><span class="v">326 <small>← 266</small></span></div>
       <div class="stat"><span class="k">新增測試</span><span class="v">+60</span></div>
       <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（C0 缺陷）</small></span></div>
@@ -287,19 +287,8 @@
 
   <!-- ============ 待進行 ============ -->
   <section class="col" data-col="todo">
-    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">1</span></div>
+    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">0</span></div>
     <div class="cards">
-
-      <article class="card" data-kind="docs">
-        <div class="card-top"><span class="id">DOC</span><span class="tag">文件</span></div>
-        <h3>重構記錄寫進開發時間軸</h3>
-        <p>前兩輪重構都記在 <code>docs/01-development-timeline.md</code>，這一輪（第三輪）還沒寫。</p>
-        <details><summary>細節</summary><ul>
-          <li>格式現成：前兩輪的條目就在同一節，照同樣的粒度寫</li>
-          <li>內容：11 個步驟、架構差異、主要改善與設計取捨</li>
-        </ul></details>
-        <div class="commit">尚未排程</div>
-      </article>
 
     </div>
   </section>
@@ -314,8 +303,20 @@
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">11</span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">12</span></div>
     <div class="cards">
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">DOC</span><span class="tag">文件</span></div>
+        <h3>重構記錄寫進開發時間軸</h3>
+        <p>前兩輪重構都記在 <code>docs/01-development-timeline.md</code>，這一輪照同樣格式補上。</p>
+        <details><summary>細節</summary><ul>
+          <li>三波 8 個 commit、C0 缺陷、驗證方式與刻意不做的理由各一段</li>
+          <li>時間軸原本停在 2026-08-20，新章節開頭註明 Web 化與 UI 改版記在 docs/09／docs/11，
+              不留下沒有交代的五天空白</li>
+        </ul></details>
+        <div class="commit"><code>e176886</code></div>
+      </article>
 
       <article class="card" data-kind="docs">
         <div class="card-top"><span class="id">C4</span><span class="tag">文件</span></div>
