@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>重構任務看板 — AI 影片搜尋</title>
+<style>
+  /* Design Token 沿用 frontend/src/index.css 的暖色系，讓這份看板跟 app 同一套視覺語言 */
+  :root {
+    --app-bg: #f8f3ed;
+    --card: #fffdf9;
+    --surface-alt: #fbf6ef;
+    --sand: #f1e4d5;
+    --sand-strong: #e9d5c0;
+    --text-primary: #34241d;
+    --text-secondary: #796b63;
+    --text-muted: #a39388;
+    --primary: #b95b41;
+    --primary-hover: #9d4630;
+    --primary-soft: #f7e4dc;
+    --accent: #dc9a3c;
+    --success: #607157;
+    --success-soft: #e8f0e4;
+    --warning: #91601a;
+    --warning-soft: #f6e9d2;
+    --error: #ad4438;
+    --error-soft: #f5e0dc;
+    --border: #eadfd4;
+    --radius-card: 1.125rem;
+    --shadow-card: 0 1px 2px rgba(52, 36, 29, .06), 0 8px 24px rgba(52, 36, 29, .08);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --app-bg: #1a1512;
+      --card: #241d19;
+      --surface-alt: #2b221d;
+      --sand: #3a2e26;
+      --sand-strong: #4a3a30;
+      --text-primary: #f2e9e1;
+      --text-secondary: #c3b3a7;
+      --text-muted: #94847a;
+      --primary: #d97a5e;
+      --primary-hover: #e89377;
+      --primary-soft: #40261e;
+      --accent: #e5aa54;
+      --success: #8fa383;
+      --success-soft: #2b3427;
+      --warning: #d1a25c;
+      --warning-soft: #382c17;
+      --error: #d97b6d;
+      --error-soft: #3d2320;
+      --border: #3a2e26;
+      --shadow-card: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0 0 3rem;
+    background: var(--app-bg);
+    color: var(--text-primary);
+    font-family: 'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1560px; margin: 0 auto; padding: 0 1rem; }
+
+  /* ---------- 頁首 ---------- */
+  header {
+    background: linear-gradient(180deg, var(--surface-alt), var(--app-bg));
+    border-bottom: 1px solid var(--border);
+    padding: 2rem 0 1.5rem;
+    margin-bottom: 1.75rem;
+  }
+  h1 { margin: 0 0 .35rem; font-size: 1.6rem; letter-spacing: .01em; }
+  .sub { margin: 0; color: var(--text-secondary); font-size: .95rem; }
+
+  .stats {
+    display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.25rem;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--border); border-radius: .9rem;
+    padding: .55rem .9rem; min-width: 7.5rem;
+  }
+  .stat .k { display: block; font-size: .72rem; color: var(--text-muted); letter-spacing: .04em; }
+  .stat .v { display: block; font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: .78rem; font-weight: 400; color: var(--text-secondary); }
+
+  /* ---------- 看板 ---------- */
+  .board {
+    display: grid; gap: 1rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
+  }
+  @media (max-width: 1180px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px)  { .board { grid-template-columns: minmax(0, 1fr); } }
+
+  .col { min-width: 0; }
+  .col-head {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .5rem .25rem .7rem; border-bottom: 2px solid var(--border); margin-bottom: .85rem;
+  }
+  .col-head h2 { margin: 0; font-size: .95rem; letter-spacing: .02em; }
+  .col-head .dot { width: .55rem; height: .55rem; border-radius: 50%; flex: none; }
+  .count {
+    margin-left: auto; background: var(--sand); color: var(--text-secondary);
+    border-radius: 999px; padding: .05rem .55rem; font-size: .78rem; font-variant-numeric: tabular-nums;
+  }
+  .col[data-col="planned"]  .dot { background: var(--text-muted); }
+  .col[data-col="todo"]     .dot { background: var(--accent); }
+  .col[data-col="doing"]    .dot { background: var(--primary); }
+  .col[data-col="done"]     .dot { background: var(--success); }
+
+  .cards { display: flex; flex-direction: column; gap: .8rem; }
+
+  /* ---------- 卡片 ---------- */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: .85rem .95rem; box-shadow: var(--shadow-card);
+    border-left: 4px solid var(--sand-strong);
+  }
+  .card[data-kind="test"]      { border-left-color: var(--success); }
+  .card[data-kind="perf"]      { border-left-color: var(--accent); }
+  .card[data-kind="structure"] { border-left-color: var(--primary); }
+  .card[data-kind="bug"]       { border-left-color: var(--error); }
+  .card[data-kind="docs"]      { border-left-color: var(--text-muted); }
+
+  .card-top { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-bottom: .4rem; }
+  .id {
+    font: 700 .72rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--sand); color: var(--text-secondary);
+    border-radius: .4rem; padding: .05rem .4rem; letter-spacing: .03em;
+  }
+  .tag {
+    font-size: .68rem; border-radius: 999px; padding: .08rem .5rem; letter-spacing: .02em;
+    background: var(--sand); color: var(--text-secondary);
+  }
+  .tag.test { background: var(--success-soft); color: var(--success); }
+  .tag.perf { background: var(--warning-soft); color: var(--warning); }
+  .tag.structure { background: var(--primary-soft); color: var(--primary-hover); }
+  .tag.bug { background: var(--error-soft); color: var(--error); }
+
+  .card h3 { margin: 0 0 .35rem; font-size: .95rem; line-height: 1.45; }
+  .card p { margin: 0 0 .5rem; font-size: .85rem; color: var(--text-secondary); }
+
+  .metric {
+    display: inline-flex; align-items: baseline; gap: .35rem;
+    background: var(--surface-alt); border: 1px solid var(--border); border-radius: .55rem;
+    padding: .2rem .5rem; font-size: .78rem; margin: 0 .3rem .35rem 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric b { font-weight: 700; color: var(--text-primary); }
+
+  details { margin-top: .45rem; }
+  summary {
+    cursor: pointer; font-size: .78rem; color: var(--primary-hover);
+    list-style: none; padding: .15rem 0; user-select: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  details ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+  details li { font-size: .8rem; color: var(--text-secondary); margin-bottom: .25rem; }
+  details li code, .commit code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .93em; background: var(--surface-alt); border-radius: .25rem; padding: 0 .25em;
+  }
+
+  .commit {
+    margin-top: .55rem; padding-top: .5rem; border-top: 1px dashed var(--border);
+    font-size: .76rem; color: var(--text-muted);
+  }
+  .blocked { color: var(--warning); font-weight: 700; }
+
+  .empty {
+    border: 1px dashed var(--border); border-radius: var(--radius-card);
+    padding: 1.5rem 1rem; text-align: center; color: var(--text-muted); font-size: .84rem;
+    background: transparent;
+  }
+
+  /* ---------- 刻意不做 ---------- */
+  .section-title {
+    margin: 2.5rem 0 .9rem; font-size: 1.05rem;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .section-title span.hint { font-size: .8rem; font-weight: 400; color: var(--text-muted); }
+  .nogo { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .nogo .card { border-left-color: var(--border); box-shadow: none; background: var(--surface-alt); }
+  .nogo h3 { color: var(--text-secondary); }
+
+  footer {
+    margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border);
+    font-size: .78rem; color: var(--text-muted);
+  }
+  footer code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--surface-alt); border-radius: .25rem; padding: 0 .25em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>重構任務看板</h1>
+    <p class="sub">AI 影片搜尋 · 第三輪重構（Web 化之後）· 依 <code>.claude/skills/refactor/SKILL.md</code> 進行</p>
+    <div class="stats">
+      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">11 <small>/ 17</small></span></div>
+      <div class="stat"><span class="k">已提交 / 待提交</span><span class="v">6 <small>/ 5</small></span></div>
+      <div class="stat"><span class="k">測試</span><span class="v">326 <small>← 266</small></span></div>
+      <div class="stat"><span class="k">新增測試</span><span class="v">+60</span></div>
+      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（C0 缺陷）</small></span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="board">
+
+  <!-- ============ 有規劃 ============ -->
+  <section class="col" data-col="planned">
+    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">4</span></div>
+    <div class="cards">
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">D1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>前端字面值常數化</h3>
+        <p>react-query 的 query key 與 job 終態判斷散在 4 個檔案。</p>
+        <span class="metric">query key <b>7 處</b></span>
+        <span class="metric">終態判斷 <b>15 處</b></span>
+        <details><summary>細節</summary><ul>
+          <li>新增 <code>api/queryKeys.ts</code> 與 <code>isTerminalJob()</code> helper</li>
+          <li>涉及 <code>LibraryPage</code>／<code>VideosPage</code>／<code>YoutubeResultCard</code>／<code>useJobPolling</code></li>
+        </ul></details>
+        <div class="commit">波 D · 尚未排程</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">D2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>抽出 <code>useAnalysisJobs</code> hook</h3>
+        <p>VideosPage 的批次分析追蹤（job map ＋ 兩個衍生布林 ＋ 收尾 effect）目前全寫在頁面元件裡。</p>
+        <details><summary>細節</summary><ul>
+          <li>純前端重構，不影響 API</li>
+          <li>前端目前沒有測試，需先確認驗證方式（實際操作或補測試）</li>
+        </ul></details>
+        <div class="commit">波 D · 尚未排程</div>
+      </article>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">Q1</span><span class="tag">待決策</span></div>
+        <h3>三個模態旗標是否保留</h3>
+        <p><code>has_transcript</code>／<code>has_visual</code>／<code>has_ocr</code> 在 §8.7 移除模態篩選後，前端已完全沒有使用。</p>
+        <details><summary>細節</summary><ul>
+          <li>移除可連 B1 的聚合查詢一起省掉</li>
+          <li>但這是<strong>對外契約變更</strong>，不屬於重構範圍，需要你決定</li>
+        </ul></details>
+        <div class="commit">需要決策</div>
+      </article>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">Q2</span><span class="tag">待決策</span></div>
+        <h3><code>POST /videos/upload</code> 端點去留</h3>
+        <p>前端在 §8.5 移除本機上傳後就不再呼叫，但後端端點與測試都還在。</p>
+        <details><summary>細節</summary><ul>
+          <li>刪除是行為變更（對外少一個端點），刻意不在重構中處理</li>
+          <li>連帶影響 <code>video_service.register_uploaded_video()</code>／<code>probe_local_duration()</code></li>
+        </ul></details>
+        <div class="commit">需要決策</div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ 待進行 ============ -->
+  <section class="col" data-col="todo">
+    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">2</span></div>
+    <div class="cards">
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">GIT</span><span class="tag">流程</span></div>
+        <h3>提交 C0 與波 C</h3>
+        <p>5 個步驟改動散在 22 個檔案，尚未提交。C0 是行為變更、C1–C4 是重構，不該混在同一個 commit。</p>
+        <span class="metric">待提交 <b>5 步 / 22 檔</b></span>
+        <details><summary>細節</summary><ul>
+          <li>建議切法：① C0 單獨（缺陷修正）② C1+C2（分層）③ C3+C4（日誌與文件）</li>
+          <li>提交後這張卡片與各卡的 commit 欄位要一起更新</li>
+        </ul></details>
+        <div class="commit"><span class="blocked">等待決定切法</span></div>
+      </article>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">DOC</span><span class="tag">文件</span></div>
+        <h3>重構記錄寫進開發時間軸</h3>
+        <p>前兩輪重構都記在 <code>docs/01-development-timeline.md</code>，這一輪（第三輪）還沒寫。</p>
+        <details><summary>細節</summary><ul>
+          <li>格式現成：前兩輪的條目就在同一節，照同樣的粒度寫</li>
+          <li>內容：11 個步驟、架構差異、主要改善與設計取捨</li>
+        </ul></details>
+        <div class="commit">尚未排程</div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ 進行中 ============ -->
+  <section class="col" data-col="doing">
+    <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
+    <div class="cards">
+      <div class="empty">目前沒有進行中的任務<br>波 A + B 已全數完成並提交</div>
+    </div>
+  </section>
+
+  <!-- ============ 已完成 ============ -->
+  <section class="col" data-col="done">
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">11</span></div>
+    <div class="cards">
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">C4</span><span class="tag">文件</span></div>
+        <h3>文件與註解同步</h3>
+        <p>把「說的」跟「做的」對齊：20 處引用早已移除的 Tkinter UI，README 有 6 處與程式碼不符。</p>
+        <span class="metric">Tkinter 殘留 <b>20 → 0</b></span>
+        <span class="metric">README <b>6 處</b></span>
+        <details><summary>細節</summary><ul>
+          <li>不是刪掉了事：每處改寫成目前實際成立的說明。例如 <code>pipeline/conversation.py</code>
+              原本寫「不需要 conversation_id」（早已不成立），改成指向 conversation_service 的實際持久化方式</li>
+          <li><strong>README 有一處是實質錯誤</strong>：預算上限仍寫 US$0.30，實際已是 $0.80</li>
+          <li><code>docs/08</code> 的 API 清單改用註記處理（曾實作後移除／從未實作／實際多出的端點），
+              而不是直接改動設計階段的歷史紀錄</li>
+          <li>移除死碼 <code>cancel_job()</code> 與它的 3 支測試；剩餘 4 個 <code>assert</code> 改成明確 raise</li>
+        </ul></details>
+        <div class="commit"><span class="blocked">未提交</span></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">C3</span><span class="tag structure">結構</span><span class="tag">日誌</span></div>
+        <h3>統一日誌設定與風格</h3>
+        <p>全專案原本<strong>沒有任何 logging 設定</strong>，所有訊息只能靠 lastResort handler 印出——沒有時間、沒有模組名，INFO 級別根本看不到。</p>
+        <span class="metric">f-string <b>5 → 0</b></span>
+        <span class="metric">無用的 extra <b>3 → 0</b></span>
+        <details><summary>細節</summary><ul>
+          <li>設定放在 lifespan：import 無副作用，且 <code>uv run</code> 與直接 <code>uvicorn</code> 兩種啟動方式都會經過</li>
+          <li>eager f-string 一律改成 lazy <code>%</code>；沒有 formatter 消費的 <code>extra={…}</code> 移除，
+              其中 analyzer 的 <code>pipeline_stage</code> 折進訊息本文，避免丟資訊</li>
+          <li><strong>實測</strong>：設定前是裸訊息、INFO 完全不出現；設定後有時間戳／級別／模組名</li>
+        </ul></details>
+        <div class="commit"><span class="blocked">未提交</span></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">C2</span><span class="tag structure">結構</span></div>
+        <h3>API 不再繞過 service 直呼 db</h3>
+        <p>6 處直接呼叫 <code>db.get_job()</code>／<code>db.list_jobs()</code>，其餘都走 service——同一層有兩種依賴方式。</p>
+        <span class="metric">直呼 db <b>6 → 0</b></span>
+        <span class="metric">assert <b>4 → 0</b></span>
+        <details><summary>細節</summary><ul>
+          <li>其中 4 處是「submit 完再把 job 讀回來」；新增 <code>get_job_or_raise()</code> 一併消掉
+              「找不到就 404」的重複判斷與 <code>assert job is not None</code></li>
+          <li>沒有為了收斂而加無意義的透傳：只加了真正有邏輯的查詢入口</li>
+        </ul></details>
+        <div class="commit"><span class="blocked">未提交</span></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">C1</span><span class="tag structure">結構</span></div>
+        <h3>例外型別集中到 <code>services/errors.py</code></h3>
+        <p>API 有 5 處拿 <code>job_manager.VideoNotFoundError</code> 表達「影片找不到」——跟 job 完全無關的語意。</p>
+        <span class="metric">api/errors 的 import <b>3 → 1</b></span>
+        <details><summary>細節</summary><ul>
+          <li>階層只有兩層：<code>ServiceError</code> →（<code>JobManagerError</code> →6 個 job 例外）、
+              <code>ConversationNotFoundError</code>、<code>YoutubeSearchError</code></li>
+          <li>順帶讓 <code>api/errors.py</code> 不再為了一張對映表就把 job_manager 連同 analyzer／downloader 相依拉進來</li>
+        </ul></details>
+        <div class="commit"><span class="blocked">未提交</span></div>
+      </article>
+
+      <article class="card" data-kind="bug">
+        <div class="card-top"><span class="id">C0</span><span class="tag bug">缺陷</span><span class="tag">可用性</span></div>
+        <h3>修好分析 slot 永久洩漏</h3>
+        <p>worker 在 <code>try</code> 之外拋例外時不送終端事件 → pump 永久阻塞 → <strong>之後所有分析卡在 queued，只能重啟伺服器</strong>。</p>
+        <span class="metric"><b>+7</b> 支回歸測試</span>
+        <span class="metric">突變測試 <b>3 輪</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>_analyze_worker()</code> 拆兩層：外層唯一職責是保證送出剛好一個終端事件，
+              連「標記失敗」也寫不進 DB 時仍然會送</li>
+          <li><code>_pump_analysis()</code> 把釋放 slot 移進 <code>finally</code>，並在自己的寫入失敗時標記工作失敗</li>
+          <li>整合回歸測試用<strong>真的</strong> <code>start_analysis()</code>：模擬缺 API 金鑰，
+              驗證第一個 job 失敗、影片狀態變 failed、<strong>排隊中的第二個 job 照常被派發</strong></li>
+          <li>這是<strong>行為變更</strong>（失敗路徑）不是重構，所以獨立處理、獨立提交</li>
+        </ul></details>
+        <div class="commit"><span class="blocked">未提交</span> · 分析中發現，非原計畫項目</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">B4</span><span class="tag structure">結構</span></div>
+        <h3><code>search.py</code> 拆成套件</h3>
+        <p>522 行單檔、<code>search()</code> 一個函式做六件事 → 7 個模組，每個一種責任。對外 import 路徑完全不變。</p>
+        <span class="metric">單檔 <b>522 行</b> → 套件 <b>7 檔</b></span>
+        <span class="metric">重複查詢 <b>2 → 1</b> 次</span>
+        <details><summary>細節</summary><ul>
+          <li><code>query</code>／<code>results</code>（葉）→ <code>sparse</code> → <code>fusion</code> → <code>service</code>，單向無環</li>
+          <li>順手修：全域搜尋重複讀 <code>list_analyzed_videos()</code>、<code>_relevant_video_ids()</code> 的隱藏 <code>get_client()</code></li>
+          <li><strong>驗證</strong>：9 組查詢（含否定句／泛用詞／指定影片／top_k 截斷）在新舊實作上逐欄位比對 → 完全相同</li>
+        </ul></details>
+        <div class="commit"><code>a322c73</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">B3</span><span class="tag structure">結構</span></div>
+        <h3>併發樣板統一成 executor</h3>
+        <p>兩處手工「Thread ＋ holder dict ＋ 手動重拋」改用 <code>ThreadPoolExecutor</code>，整個 analyzer 只剩一種併發寫法。</p>
+        <span class="metric">併發樣板 <b>2 種 → 1 種</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>progress_estimation</code> <strong>刻意不改</strong>：它是 daemon 執行緒，改用 executor 會讓 Ctrl-C 要等 ffmpeg／Whisper 跑完</li>
+          <li>補上「兩邊同時失敗時哪個例外往外傳」的測試——原本無覆蓋</li>
+          <li><strong>驗證</strong>：worker 事件流比對相同；突變測試（改放 <code>finally</code>）如預期轉紅</li>
+        </ul></details>
+        <div class="commit"><code>60bd954</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">B2</span><span class="tag structure">結構</span><span class="tag">最高價值</span></div>
+        <h3>進度與成本收進 <code>_AnalysisContext</code></h3>
+        <p>三個橫切關注點原本靠參數手工穿過每個 phase，漏掉任何一個都不會報錯、只會安靜少一筆錢或少一個進度。</p>
+        <span class="metric"><code>total_cost</code> <b>43 → 7</b> 處</span>
+        <span class="metric">進度雙寫 <b>23 處</b>收斂</span>
+        <span class="metric"><code>_run_vlm_phase</code> <b>7 → 3</b> 參數</span>
+        <details><summary>細節</summary><ul>
+          <li><code>enter_stage()</code>／<code>report_progress(persist_as=…)</code>：把 Phase B 的不對稱寫法變成明講的機制</li>
+          <li><code>budget_branch()</code>／<code>merge_branch()</code>：平行的 Phase E／F 各自判斷預算，保留既有取捨</li>
+          <li>刻意保留一個既有小瑕疵（本地 OCR 失敗時已花費用被丟棄），並在該處註解寫明</li>
+          <li><strong>驗證</strong>：新舊版重播完整 worker，事件序列／狀態寫入／DB 呼叫／總花費逐項相同（正常＋預算截斷兩條路徑）</li>
+        </ul></details>
+        <div class="commit"><code>19b8204</code></div>
+      </article>
+
+      <article class="card" data-kind="perf">
+        <div class="card-top"><span class="id">B1</span><span class="tag perf">效能</span></div>
+        <h3>模態旗標改聚合查詢</h3>
+        <p><code>GET /api/v1/videos</code> 原本為了算三個布林值，載入每支影片的全部 segment（含 embedding BLOB）。</p>
+        <span class="metric"><b>47.5ms → 0.7ms</b></span>
+        <span class="metric">省下 <b>約 4.5MB</b>／次</span>
+        <details><summary>細節</summary><ul>
+          <li>新增 <code>db.modality_flags_by_video()</code>，<code>COALESCE(col,'') != ''</code> 精確對應原本的 Python truthiness</li>
+          <li>成本原本隨影片數線性成長，且前端每次分析完都會 invalidate 重打</li>
+          <li><strong>驗證</strong>：旗標測試先在舊實作跑綠，再改碼；真實 app.db 上新舊輸出 10/10 支影片一致</li>
+        </ul></details>
+        <div class="commit"><code>584cbc9</code></div>
+      </article>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">A2</span><span class="tag test">測試</span><span class="tag">安全網</span></div>
+        <h3><code>search()</code> 端到端特徵測試</h3>
+        <p>helper 全都有測試，但「串起來之後」的行為沒有。這是 B4 拆檔的安全網。</p>
+        <span class="metric"><b>+17</b> 支</span>
+        <details><summary>細節</summary><ul>
+          <li>真實臨時 SQLite（含 FTS5 bm25），只把兩個 OpenAI 呼叫換掉</li>
+          <li>向量用 4 維而非 1024 維，cosine 值可人工推算</li>
+          <li>特別鎖住：<code>is_confident</code> 用的是品質門檻<strong>之前</strong>的 top1，所以 results 空的時候它仍可能是 true</li>
+          <li><strong>驗證</strong>：兩輪突變測試，第二輪精準只有那一支轉紅</li>
+        </ul></details>
+        <div class="commit"><code>8a5bd32</code></div>
+      </article>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">A1</span><span class="tag test">測試</span><span class="tag">安全網</span></div>
+        <h3><code>job_manager</code> 特徵測試</h3>
+        <p>全專案唯一有 process 級共享狀態與 pump thread 的模組，原本只有 HTTP 層的間接測試。</p>
+        <span class="metric"><b>+27</b> 支</span>
+        <details><summary>細節</summary><ul>
+          <li>假的 <code>start_analysis</code>／<code>start_download</code> 把 queue 交還給測試，事件時序完全可控</li>
+          <li>鎖住：queue 事件→jobs 欄位對映、<strong>失敗路徑也要釋放 slot</strong>、每個 job 各自的下載目錄、retry／cancel 狀態機</li>
+          <li><strong>驗證</strong>：突變 3 處行為 → 5 支對應測試轉紅</li>
+        </ul></details>
+        <div class="commit"><code>8a5bd32</code></div>
+      </article>
+
+    </div>
+  </section>
+
+</div><!-- /board -->
+
+<h2 class="section-title">刻意不做 <span class="hint">評估過、決定不動的項目</span></h2>
+<div class="nogo">
+
+  <article class="card">
+    <div class="card-top"><span class="id">N1</span></div>
+    <h3>不引入 Repository／DI container／CQRS</h3>
+    <p>以目前規模，15 個 <code>db.*</code> 函式直呼比多一層抽象更好讀。不為尚未確認的需求預先建立架構。</p>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">N2</span></div>
+    <h3>不移除 <code>video_service</code> 的 11 個透傳</h3>
+    <p>它們是 Tkinter 時代雙 UI 共用留下的。但刪掉會讓 API 層直接依賴 db，是往壞的方向走。</p>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">N3</span></div>
+    <h3><code>progress_estimation</code> 不改用 executor</h3>
+    <p>它的 worker 是 <code>daemon=True</code>，executor worker 是 non-daemon 且會在直譯器結束時被 join——為省 6 行而改掉關閉行為不划算。</p>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">N4</span></div>
+    <h3>不修正本地 OCR 失敗時的費用低估</h3>
+    <p>舊版把累加金額放在區域變數，例外一拋就整個丟掉。這是<strong>行為</strong>不是結構債，已在程式碼註解標記。</p>
+  </article>
+
+</div>
+
+<footer>
+  <p>
+    卡片內容對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> → <code>60bd954</code> → <code>a322c73</code>。
+    每一步都遵守「先分析、確認後才動手、一次只做一步、每步都跑測試驗證」。
+  </p>
+  <p>
+    驗收標準已全數達成：C3 補上日誌／設定管理的一致性，C4 讓文件與程式碼對齊。
+    C0 是分析中發現的缺陷，屬於<strong>刻意的行為變更</strong>，與重構分開處理。
+  </p>
+  <p>
+    C0 與 C1–C4 共 5 個步驟尚未提交（22 個檔案）。全套測試 326 passed；
+    另外用真的 server 驗過 <code>/stats</code>、<code>/videos</code> 旗標與錯誤格式。
+  </p>
+</footer>
+
+</div><!-- /wrap -->
+</body>
+</html>

@@ -9,11 +9,10 @@ DB_PATH／get_connection() 刻意只定義在這裡（不是某個子模組）�
 `monkeypatch.setattr(db, "DB_PATH", ...)` 導向臨時檔案都會正確生效。
 子模組一律透過 `from . import get_connection` 呼叫，不直接讀 DB_PATH。
 
-get_connection() 開 WAL mode＋較長的 busy_timeout：Web 版（見
-docs/09-web-ui-migration-plan.md）比 Tkinter 桌面版有更高頻的並發讀寫
-（多個 HTTP request 同時讀、Job Manager 的 pump thread 偶爾寫），WAL 讓
-讀者不擋寫者、寫者不擋讀者，對症下藥這個比 Tkinter 更高頻的並發模式；
-對 Tkinter 呼叫端完全透明，不影響既有行為。
+get_connection() 開 WAL mode＋較長的 busy_timeout：這個 app 的並發模式是
+「多個 HTTP request 同時讀、Job Manager 的 pump thread 與分析流程偶爾寫」
+（見 docs/09-web-ui-migration-plan.md），WAL 讓讀者不擋寫者、寫者不擋讀者，
+正好對症下藥。
 """
 from __future__ import annotations
 

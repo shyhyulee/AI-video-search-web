@@ -241,7 +241,6 @@ POST   /api/v1/jobs/{job_id}/retry
 
 POST   /api/v1/search
 GET    /api/v1/search/recent
-POST   /api/v1/search/export
 
 POST   /api/v1/conversations
 GET    /api/v1/conversations/{conversation_id}
@@ -250,6 +249,13 @@ POST   /api/v1/conversations/{conversation_id}/messages
 GET    /api/v1/logs
 GET    /api/v1/logs/export
 ```
+
+> **這是遷移設計階段的規劃清單，不是現況。** 實際出貨與這份清單的差異：
+> `POST /api/v1/search/export`（CSV 匯出）曾經實作、之後隨前端功能一起移除
+> （見 `11-web-ui-warm-redesign-plan.md` §8.13）；`GET /api/v1/search/recent`
+> 與 `GET /api/v1/logs`、`GET /api/v1/logs/export` 從未實作。另外實際多了
+> `GET /api/v1/youtube/search`（YouTube 搜尋頁）。現況以程式碼與
+> `http://127.0.0.1:8000/docs` 的 OpenAPI 為準。
 
 API 統一回傳穩定的 Error Schema：
 

@@ -1,7 +1,7 @@
 """YouTube 影片下載：包裝 yt-dlp，在背景執行緒下載並透過 Queue 回報進度。
 
-呼叫端（UI）負責在 Tkinter 主執行緒用 after() 輪詢 Queue，
-本模組不直接碰任何 Tk 物件，維持執行緒安全。
+呼叫端（services/job_manager.py）負責讀走 Queue 事件並寫進 jobs 表；
+本模組不碰資料庫、也不知道 job 的存在，維持執行緒安全。
 """
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def _download_worker(
             )
         progress_queue.put(result)
     except Exception as exc:  # yt-dlp 例外種類很多，統一攔截並回報給畫面
-        logger.error(f"下載失敗：{url}｜{exc}", exc_info=True, extra={"pipeline_stage": "下載"})
+        logger.error("下載失敗：%s｜%s", url, exc, exc_info=True)
         progress_queue.put(DownloadProgress(status="error", error_message=str(exc)))
 
 

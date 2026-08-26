@@ -4,11 +4,10 @@
 的責任區分——LLM 只負責判斷意圖與改寫查詢，實際搜尋一律經過 search.search()，
 不允許 LLM 直接產生影片 ID、時間點或搜尋分數。
 
-ConversationState 刻意只存在記憶體（跟著呼叫端物件的生命週期，例如
-ui/conversation_tab.py 的頁籤實例），不落地資料庫：這是本機單人 Tkinter
-桌面 App，沒有多 session 併發或跨裝置同步需求，跟 search.py 的
-_title_summary_embedding_cache 是同一種「行程存活期記憶體狀態」的先例。
-不需要 conversation_id：一個頁籤實例就是一個對話。
+這個模組本身不碰資料庫：`handle_turn()` 是純函式，永遠回傳全新的
+ConversationState，由呼叫端決定要存到哪裡。實際的持久化在
+services/conversation_service.py——序列化成 JSON 存進 conversations 表，
+讓多輪對話能跨 HTTP request 延續。
 
 Phase 1 只支援 intent.ACTIONS 四種意圖；expand_time_range／
 summarize_results（doc 的 Phase 2 範圍）與依 modalities 動態選擇搜尋方式

@@ -72,7 +72,7 @@ def search(query: str, limit: int = DEFAULT_LIMIT) -> list[YoutubeSearchItem]:
         with yt_dlp.YoutubeDL(_SEARCH_OPTIONS) as ydl:
             info = ydl.extract_info(f"ytsearch{limit}:{normalized}", download=False)
     except Exception as exc:  # yt-dlp 例外種類很多，統一收斂成一種對外錯誤
-        logger.error(f"YouTube 搜尋失敗：{normalized}｜{exc}", exc_info=True)
+        logger.error("YouTube 搜尋失敗：%s｜%s", normalized, exc, exc_info=True)
         raise YoutubeSearchError(f"YouTube 搜尋失敗：{exc}") from exc
 
     entries = (info or {}).get("entries") or []

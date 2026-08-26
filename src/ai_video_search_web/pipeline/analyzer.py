@@ -1,5 +1,6 @@
 """分析 pipeline orchestrator：串起場景切分→ASR→逐片段 VLM→建立向量→寫入索引，
-背景執行緒執行、透過 Queue 回報進度，不阻塞 Tk 主執行緒。
+背景執行緒執行、透過 Queue 回報進度（由 services/job_manager.py 的 pump
+thread 讀走、寫進 jobs 表）。
 
 只呼叫 asr/vlm/embedding 模組暴露的 provider 無關介面，不直接碰 OpenAI SDK，
 方便之後在各模組內部加入其他供應商實作。
@@ -368,11 +369,7 @@ def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
     except Exception as exc:  # 分析過程各種例外統一攔截，避免背景執行緒讓整支程式崩潰
         current = db.get_video(video_id)  # 必須在下面 STATUS_FAILED 覆蓋 pipeline_stage 之前先讀
         stage_label = (current.pipeline_stage if current else None) or "分析"
-        logger.error(
-            f"「{video.title}」分析失敗：{exc}",
-            exc_info=True,
-            extra={"video_title": video.title, "pipeline_stage": stage_label},
-        )
+        logger.error("「%s」在「%s」階段分析失敗：%s", video.title, stage_label, exc, exc_info=True)
         db.update_video_status(video_id, db.STATUS_FAILED, f"分析失敗：{exc}")
         progress_queue.put(AnalysisError(video_id=video_id, message=str(exc)))
 

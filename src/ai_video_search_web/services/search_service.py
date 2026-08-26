@@ -1,5 +1,7 @@
-"""搜尋 Application Service：薄包裝 pipeline.search.search()，供 Tkinter UI
-（Phase 1）與之後的 FastAPI（Phase 2）共用，見 docs/09-web-ui-migration-plan.md。
+"""搜尋 Application Service：薄包裝 pipeline.search.search()。
+
+存在的理由是讓 api/ 只依賴 services/，不直接依賴 pipeline/，
+見 docs/09-web-ui-migration-plan.md。
 """
 from __future__ import annotations
 

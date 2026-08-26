@@ -1,6 +1,6 @@
 """jobs 表：Category A（downloader／analyzer）背景工作的持久化進度紀錄，讓
-Web 版在多個 HTTP request 之間、甚至伺服器重啟後都能查詢工作狀態，取代
-Tkinter 版本「只存在記憶體 queue.Queue」的做法。見
+多個 HTTP request 之間、甚至伺服器重啟後都能查詢工作狀態——事件本身走的是
+記憶體 queue.Queue，跨不了 request，所以進度要落地到這張表。見
 docs/09-web-ui-migration-plan.md 3.2 節。
 
 狀態集合刻意只有 queued/running/completed/failed 四種：pipeline 完全沒有

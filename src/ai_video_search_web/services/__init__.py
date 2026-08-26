@@ -1,4 +1,5 @@
-"""Application Service 層：包裝 db／pipeline 呼叫，供 Tkinter UI 與之後的
-FastAPI（見 docs/09-web-ui-migration-plan.md）共用，避免兩邊各自重複實作
-同一段商業邏輯。
+"""Application Service 層：包裝 db／pipeline 呼叫，讓 api/ 不必直接依賴
+pipeline/ 與 db/，見 docs/09-web-ui-migration-plan.md。
+
+對外丟出的例外型別集中在 services/errors.py。
 """

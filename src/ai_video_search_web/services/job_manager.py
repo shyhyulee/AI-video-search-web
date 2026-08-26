@@ -203,7 +203,8 @@ def _pump_download(job_id: int, url: str, internal_queue: "queue.Queue[object]")
 
 
 # ----------------------------------------------------------------------
-# Retry／Cancel（範圍刻意縮小，見模組說明與 docs/09-web-ui-migration-plan.md）
+# Retry（Cancel 沒有實作：pipeline 沒有 checkpoint／取消 token，
+# 無法安全中途停止，見模組說明與 docs/09-web-ui-migration-plan.md）
 # ----------------------------------------------------------------------
 def retry_job(job_id: int) -> int:
     """對失敗的工作建立全新一筆重新 submit（舊列保留當歷史紀錄），回傳新
@@ -223,16 +224,6 @@ def retry_job(job_id: int) -> int:
     return submit_download(job.source_url)
 
 
-def cancel_job(job_id: int) -> None:
-    """只支援取消還沒開始跑的 queued 工作；running 不支援取消（pipeline 沒有
-    checkpoint／取消 token，無法安全中途停止）。"""
-    job = db.get_job(job_id)
-    if job is None:
-        raise JobNotFoundError(f"找不到工作 {job_id}")
-    if job.status != db.JOB_STATUS_QUEUED:
-        raise InvalidJobStateError(f"只有排隊中的工作可以取消（目前狀態：{job.status}）")
-    db.mark_job_failed(job_id, error_message="使用者取消")
-
 
 # ----------------------------------------------------------------------
 # 伺服器啟動時的 reconciliation
@@ -243,5 +234,5 @@ def reconcile_stale_jobs() -> int:
     """
     count = db.fail_all_running_jobs("伺服器重新啟動，任務中斷")
     if count:
-        logger.warning(f"啟動時發現 {count} 個卡在 running 的工作，已標記失敗")
+        logger.warning("啟動時發現 %d 個卡在 running 的工作，已標記失敗", count)
     return count

@@ -1,5 +1,5 @@
 """job_manager 的特徵測試（characterization tests）：鎖住 Job Manager 目前的
-驗證規則、序列化 dispatcher、pump thread 事件對映與 retry／cancel 狀態機，
+驗證規則、序列化 dispatcher、pump thread 事件對映與 retry 狀態機，
 做為之後重構 analyzer.py（進度／成本／執行緒抽象化）的安全網。
 
 跟 tests/api/test_api_jobs.py 的分工：那邊從 HTTP 層驗收「兩次 /analyze 回
@@ -454,7 +454,7 @@ def test_pump_download_result_registers_video_and_completes_job(temp_db, fake_do
 
 
 # ----------------------------------------------------------------------
-# retry_job() / cancel_job()
+# retry_job()
 # ----------------------------------------------------------------------
 def test_retry_job_rejects_unknown_job(temp_db):
     with pytest.raises(job_manager.JobNotFoundError):
@@ -509,30 +509,6 @@ def test_retry_download_job_without_source_url_raises(temp_db):
 
     with pytest.raises(job_manager.InvalidJobStateError):
         job_manager.retry_job(job_id)
-
-
-def test_cancel_queued_job_marks_it_failed_with_user_cancel_message(temp_db, fake_analysis):
-    job_manager.submit_analysis(_make_video())  # 佔住 slot
-    queued_job = job_manager.submit_analysis(_make_video())
-
-    job_manager.cancel_job(queued_job)
-
-    job = db.get_job(queued_job)
-    assert job.status == db.JOB_STATUS_FAILED
-    assert job.error_message == "使用者取消"
-
-
-def test_cancel_running_job_is_rejected(temp_db, fake_analysis):
-    """running 不支援取消：pipeline 沒有 checkpoint／取消 token，無法安全中止。"""
-    job_id = job_manager.submit_analysis(_make_video())
-
-    with pytest.raises(job_manager.InvalidJobStateError):
-        job_manager.cancel_job(job_id)
-
-
-def test_cancel_unknown_job_raises_not_found(temp_db):
-    with pytest.raises(job_manager.JobNotFoundError):
-        job_manager.cancel_job(999)
 
 
 # ----------------------------------------------------------------------

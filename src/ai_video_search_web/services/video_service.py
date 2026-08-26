@@ -1,9 +1,9 @@
 """影片相關的 Application Service：包裝 db.videos／downloader／analyzer 的呼叫，
-供 Tkinter UI（Phase 1）與之後的 FastAPI（Phase 2）共用，見
-docs/09-web-ui-migration-plan.md。這一層目前是純透傳包裝，不改變任何既有行為，
-只是把 ui/*_tab.py 原本直接呼叫 db.*／pipeline.* 的地方集中到這裡；下載／分析
-本身（downloader.start_download／analyzer.start_analysis）仍由呼叫端直接呼叫，
-不在這裡包裝，見計畫文件 4.2 節。
+讓 api/ 不必直接依賴 pipeline/ 與 db/，見 docs/09-web-ui-migration-plan.md。
+
+多數函式是一行委派，刻意保留：它們標記的是「api 只能經過這裡」這條邊界。
+下載／分析的實際觸發（downloader.start_download／analyzer.start_analysis）
+不在這裡，由 services/job_manager.py 負責，見計畫文件 4.2 節。
 """
 from __future__ import annotations
 
@@ -101,8 +101,8 @@ def max_duration_minutes() -> int:
 def delete_video(video_id: int) -> tuple[db.VideoRecord | None, str | None]:
     """刪除影片 DB 紀錄與磁碟檔案。回傳 (被刪除的紀錄或 None, 檔案刪除失敗時的
     錯誤訊息或 None)。檔案刪除失敗會記錄完整 log（含 traceback），但不影響 DB
-    紀錄已刪除的事實；錯誤訊息文字交給呼叫端決定如何呈現（Tkinter 用
-    messagebox，之後 API 版本可以轉成錯誤回應）。
+    紀錄已刪除的事實；錯誤訊息文字交給呼叫端決定如何呈現（目前 api/videos.py
+    選擇忽略它，只回報 DB 紀錄已刪除）。
     """
     record = db.delete_video(video_id)
     if record is None:
@@ -111,11 +111,7 @@ def delete_video(video_id: int) -> tuple[db.VideoRecord | None, str | None]:
     try:
         file_path.unlink(missing_ok=True)
     except OSError as exc:
-        logger.error(
-            f"「{record.title}」的檔案刪除失敗：{exc}",
-            exc_info=True,
-            extra={"video_title": record.title, "pipeline_stage": "刪除檔案"},
-        )
+        logger.error("「%s」的檔案刪除失敗：%s", record.title, exc, exc_info=True)
         return record, str(exc)
     return record, None
 
@@ -133,10 +129,8 @@ def regenerate_summary(video_id: int, segments: list[db.SegmentRecord]) -> summa
 
 def generate_thumbnail(video: db.VideoRecord, size: tuple[int, int] = _THUMBNAIL_SIZE) -> bytes | None:
     """在影片時間中點用 ffmpeg 擷取一張縮圖，回傳 PNG bytes；擷取失敗回傳
-    None。每次呼叫都重新產生（沿用桌面版 library_tab.py 目前的即時產生行為，
-    尚未做 docs/09-web-ui-migration-plan.md Phase 3 規劃的「分析完成時就
-    產生並保存」，那項是 Web 版 UI 上線時才需要的最佳化，這裡先提供 API
-    能力本身）。
+    None。每次呼叫都重新產生，尚未做 docs/09-web-ui-migration-plan.md Phase 3
+    規劃的「分析完成時就產生並保存」。
     """
     if not video.file_path or not Path(video.file_path).exists():
         return None

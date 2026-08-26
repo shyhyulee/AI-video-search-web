@@ -1,6 +1,6 @@
 """conversations 表：把 pipeline.conversation.ConversationState 序列化存到
-DB，讓 Web 版的多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續，取代
-Tkinter 版本「只存在 Tk widget 實例記憶體」的做法。見
+DB，讓多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續——狀態只放在記憶體
+的話，換一個 request 就不見了。見
 docs/09-web-ui-migration-plan.md 3.2 節。
 
 state_json 存整包序列化後的 ConversationState（見

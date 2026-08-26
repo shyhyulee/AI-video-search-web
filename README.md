@@ -7,7 +7,7 @@ Web 應用：從 YouTube 搜尋並下載影片後自動分析（場景切分、�
 - **YouTube 搜尋**：用關鍵字搜尋 YouTube，卡片式列出前 12 筆（縮圖／標題／頻道／時長／觀看數）。卡片上可直接「播放」預覽（頁內內嵌播放器），或按「加入待分析」把影片下載進來、排進「影片與分析」頁的待分析清單；展開卡片可看到網址與說明並一鍵複製。搜尋本身只讀 metadata，只有按下「加入待分析」才會真的下載影片；**分析一律在「影片與分析」頁勾選後送出，不在這頁觸發**。
 - **影片與分析**：待分析影片清單，勾選後開始分析（進度即時輪詢顯示）或移除。**這是全站唯一會觸發分析的地方**；影片本身一律從「YouTube 搜尋」頁加入，這頁沒有新增影片的入口。
 - **影片庫**：已分析影片列表（可依名稱／片段數／成本／日期排序與篩選）、自動摘要、縮圖、詳細資訊，以及「在此影片內搜尋」（帶著範圍跳到「搜尋影片」頁）。
-- **搜尋影片**：自然語言查詢、結果列表（時間範圍／相似度／融合分數／命中來源）、詳細分數面板、片段播放（跳轉至時間點）、CSV 匯出。**全站唯一能輸入自由文字搜尋的地方**（路由仍是 `/search`）。
+- **搜尋影片**：自然語言查詢、結果列表（時間範圍／相似度／融合分數／命中來源）、詳細分數面板、片段播放（跳轉至時間點）。**全站唯一能輸入自由文字搜尋的地方**（路由仍是 `/search`）。
 - **對話搜尋**：多輪對話式搜尋，可接續指代「播放第二段」「只看穿紅色衣服的人」等追問。
 
 > 頁籤之間切換不會清空狀態：搜尋關鍵字與結果、展開中的卡片、對話記錄、進行中的分析進度都會保留（切走的頁籤留在 DOM 裡不卸載，只是隱藏，並會自動暫停背景播放中的影片）。
@@ -88,8 +88,9 @@ src/ai_video_search_web/
     search_service.py  #   薄包裝 pipeline.search.search()
     conversation_service.py  # 對話狀態持久化
     stats_service.py   #   Header 統計
+    errors.py          #   services 層對外丟出的例外型別（API 層對映成 HTTP 狀態碼）
   schemas/         # API 對外 Pydantic 契約
-  api/             # FastAPI：main.py + 五個 router（videos／jobs／search／conversations／stats）
+  api/             # FastAPI：main.py + 六個 router（videos／jobs／search／conversations／stats／youtube）
   pipeline/        # 分析與搜尋 pipeline（以下列主要模組，其餘見原始碼）
     analyzer.py        #   orchestrator：串起場景切分→ASR→VLM→embedding→索引
     scene_detect.py     #   場景切分（PySceneDetect）
@@ -97,13 +98,14 @@ src/ai_video_search_web/
     vlm.py                #   畫面描述＋畫面文字（GPT-4o-mini）
     ocr_service.py        #   本地 OCR 掃描（EasyOCR，補 VLM 漏掉的文字）
     embedding.py           #   文字向量化
-    search.py               #   Hybrid（Dense+BM25）+ RRF 融合搜尋
+    search/                 #   Hybrid（Dense+BM25）+ RRF 融合搜尋，一個模組一種責任
+      query/sparse/dense/fusion/results/service
     conversation.py         #   多輪對話 orchestrator
     evaluation.py            #   Golden Set 評分
 frontend/          # React + TypeScript + Vite + Tailwind + TanStack Query
   src/api/           #   後端 API client 與型別
   src/components/    #   共用元件（Badge／StatCard／EmptyState...）
-  src/pages/         #   四個頁面（VideosPage／LibraryPage／SearchPage／ConversationPage）
+  src/pages/         #   五個頁面（YoutubeSearchPage／VideosPage／LibraryPage／SearchPage／ConversationPage）
 tests/             # pytest 測試（單元測試 + integration marker）
   api/               #   FastAPI TestClient 測試
 scripts/           # 手動執行的工具腳本（Golden Set 評測）
@@ -112,7 +114,7 @@ docs/              # 開發文件、規劃記錄與 Golden Set
 
 ## 成本與限制
 
-- 每支影片分析花費硬上限 **US$0.30**，只分析 **1 小時以內**的影片（超過會被 API 擋下回 422，不會嘗試分析後才中止）。長度限制擋的是「分析」不是「下載」——加入待分析時不檢查長度。注意兩者可能衝突：長影片很可能先撞到 US$0.30 的預算上限而變成部分完成（前面的片段仍可搜尋，後半段沒有索引）。
+- 每支影片分析花費硬上限 **US$0.80**，只分析 **1 小時以內**的影片（超過會被 API 擋下回 422，不會嘗試分析後才中止）。長度限制擋的是「分析」不是「下載」——加入待分析時不檢查長度。注意兩者可能衝突：長影片可能先撞到 US$0.80 的預算上限而變成部分完成（前面的片段仍可搜尋，後半段沒有索引）。
 - 目前只接 OpenAI（Whisper／GPT-4o-mini／`text-embedding-3-small`），供應商邏輯以介面隔離，之後可擴充其他供應商。
 - 搜尋每次呼叫都會記錄花費，但目前沒有上限或警示機制。
 - 同一時間只會有一支影片在跑分析（Job Manager 顯式序列化，其餘排隊），避免同時打多個 API；YouTube 下載不受此限制。
