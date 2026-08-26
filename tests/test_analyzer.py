@@ -321,6 +321,31 @@ def test_run_scene_detection_and_transcription_joins_thread_even_if_scene_detect
     assert transcription_completed["done"] is True
 
 
+def test_run_scene_detection_and_transcription_scene_error_wins_when_both_fail(monkeypatch):
+    """兩邊同時失敗時，往外傳的必須是場景切分的例外——轉錄的例外不能蓋掉它，
+    不然使用者看到的失敗原因會是錯的。轉錄執行緒一樣要等它跑完才離開。"""
+    transcription_completed = {"done": False}
+
+    def fake_run_scene_detection(ctx, duration_sec):
+        raise RuntimeError("場景切分失敗")
+
+    def fake_run_transcription(ctx, duration_sec):
+        time.sleep(0.05)
+        transcription_completed["done"] = True
+        raise RuntimeError("轉錄也失敗")
+
+    monkeypatch.setattr(analyzer, "_run_scene_detection", fake_run_scene_detection)
+    monkeypatch.setattr(analyzer, "_run_transcription", fake_run_transcription)
+
+    try:
+        analyzer._run_scene_detection_and_transcription(_context(), 10.0)
+        raise AssertionError("應該要拋出例外")
+    except RuntimeError as exc:
+        assert "場景切分失敗" in str(exc)
+
+    assert transcription_completed["done"] is True
+
+
 # ----------------------------------------------------------------------
 # _frame_fractions_for()：VLM 條件式多幀取樣的觸發判斷，純邏輯（不呼叫
 # API／不需要真的場景偵測結果），見 docs/02-technical-decisions.md

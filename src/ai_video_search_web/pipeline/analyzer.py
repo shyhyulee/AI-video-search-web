@@ -388,28 +388,18 @@ def _run_scene_detection_and_transcription(
     不動，只是呼叫順序從循序改成併發，見
     docs/analysis-pipeline-parallelization-plan.md。
     """
-    transcribe_holder: dict[str, object] = {}
-
-    def _do_transcription() -> None:
-        try:
-            transcribe_holder["result"] = _run_transcription(ctx, duration_sec)
-        except Exception as exc:  # 子執行緒的例外不會自動傳給主執行緒，join 後手動重拋
-            transcribe_holder["error"] = exc
-
-    transcribe_thread = threading.Thread(target=_do_transcription)
-    transcribe_thread.start()
-
-    try:
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        transcribe_future = pool.submit(_run_transcription, ctx, duration_sec)
+        # 場景切分萬一拋例外，離開這個 with 區塊時 executor 的
+        # shutdown(wait=True) 仍然會等轉錄跑完——不會留下一個脫離這個函式
+        # 生命週期、還在背景花錢的 API 呼叫。
         scenes = _run_scene_detection(ctx, duration_sec)
-    finally:
-        # 場景切分萬一拋例外，也要等轉錄執行緒做完才能離開這個函式——不然
-        # 轉錄那個已經開始的 API 呼叫會在背景繼續跑，脫離這個函式的生命週期。
-        transcribe_thread.join()
 
-    if "error" in transcribe_holder:
-        raise transcribe_holder["error"]  # type: ignore[misc]
-
-    return scenes, transcribe_holder["result"]  # type: ignore[return-value]
+    # 取轉錄結果刻意排在場景切分「之後」而且不放進 finally：場景切分失敗時
+    # 例外會在上一行就往外拋，根本不會走到這裡，往外傳的因此一定是場景切分
+    # 自己的例外。放進 finally 的話，轉錄如果也失敗就會反過來蓋掉它，使用者
+    # 看到的失敗原因會是錯的（有測試鎖住這個情況）。
+    return scenes, transcribe_future.result()
 
 
 def _frame_fractions_for(scene: scene_detect.NormalizedScene) -> tuple[float, ...]:
@@ -714,28 +704,27 @@ def _run_local_ocr_and_summary(
     """
     ocr_ctx = ctx.budget_branch()
     summary_ctx = ctx.budget_branch()
-    ocr_succeeded = False
 
-    def _do_local_ocr() -> None:
-        nonlocal ocr_succeeded
+    def _do_local_ocr() -> bool:
+        """回傳有沒有成功跑完。本地 OCR 整段失敗只記 log、不往外拋——已經成功的
+        分析結果不能因為它而被判定失敗，見 docs/ocr-local-engine-plan.md 設計
+        決策 5。"""
         ocr_ctx.enter_stage("本地 OCR 掃描中")
         try:
             _run_local_ocr(ocr_ctx, segment_rows, segment_ids)
-            ocr_succeeded = True
+            return True
         except Exception:
             logger.warning("本地 OCR 掃描階段失敗，跳過（不影響其他分析結果）", exc_info=True)
+            return False
 
-    ocr_thread = threading.Thread(target=_do_local_ocr)
-    ocr_thread.start()
-
-    summary_text = _run_summary_phase(summary_ctx)
-
-    ocr_thread.join()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        ocr_future = pool.submit(_do_local_ocr)
+        summary_text = _run_summary_phase(summary_ctx)
 
     # 本地 OCR 整段失敗時不併回它的花費：維持重構前的語意（舊版把累加中的
     # 金額放在區域變數裡，例外一拋就整個丟掉，已經花掉的 embedding 錢不會被
     # 算進總額）。這其實是個小小的低估，但屬於行為，不在這次重構的範圍內改。
-    if ocr_succeeded:
+    if ocr_future.result():
         ctx.merge_branch(ocr_ctx)
     ctx.merge_branch(summary_ctx)
     return summary_text
