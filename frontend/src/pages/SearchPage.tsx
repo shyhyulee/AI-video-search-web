@@ -26,6 +26,9 @@ export function SearchPage() {
   const [scopeVideoTitle, setScopeVideoTitle] = useState<string | null>(null)
   const [results, setResults] = useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  // 這次的選取是使用者點的（true，點了就想看）還是搜完自動帶出來的預設
+  // （false，只顯示不播）。
+  const [playOnSelect, setPlayOnSelect] = useState(false)
   const [statusText, setStatusText] = useState('描述想尋找的事件、人物、動作或教學內容')
   const searchStartedAt = useRef(0)
 
@@ -35,7 +38,10 @@ export function SearchPage() {
     mutationFn: ({ q, videoId }: { q: string; videoId: number | null }) => search({ query: q, video_id: videoId }),
     onSuccess: (resp) => {
       setResults(resp.results)
-      setSelectedIndex(null)
+      // 搜完自動選第一名，右側直接帶出播放器與證據面板，不用再手動點一下；
+      // 沒有結果才回到 null，讓右側顯示「沒有找到片段」的提示。
+      setSelectedIndex(resp.results.length > 0 ? 0 : null)
+      setPlayOnSelect(false)
       const elapsedSec = ((Date.now() - searchStartedAt.current) / 1000).toFixed(1)
       setStatusText(
         resp.results.length > 0
@@ -136,7 +142,9 @@ export function SearchPage() {
       </Card>
 
       <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
-        <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
+        {/* 主從版面一律左右各半（md:w-1/2）：影片庫／搜尋影片／對話搜尋三頁
+            共用同一個比例，切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。 */}
+        <Card className="flex w-full min-w-0 flex-col md:min-h-0 md:w-1/2">
           <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
               <EmptyState title="輸入描述以搜尋影片內容" hints={['例如：找出工廠中有人出現的片段', '例如：找出全壘打畫面']} />
@@ -147,21 +155,37 @@ export function SearchPage() {
                   result={r}
                   rank={index + 1}
                   selected={index === selectedIndex}
-                  onSelect={() => setSelectedIndex(index)}
+                  onSelect={() => {
+                    setSelectedIndex(index)
+                    setPlayOnSelect(true)
+                  }}
                 />
               ))
             )}
           </div>
         </Card>
 
-        <Card className="flex w-full flex-col gap-3 md:min-h-0 md:w-2/5 md:overflow-auto">
+        <Card className="flex w-full min-w-0 flex-col gap-3 md:min-h-0 md:w-1/2 md:overflow-auto">
+          {/* 有結果就一定有選取（搜完自動選第一名），所以這裡的空狀態只剩兩種
+              情況：還沒搜過，或搜過但沒找到。兩者要給不一樣的提示——「尚未選取
+              片段」在自動選取之後已經不可能是真的。 */}
           {selected ? (
             <>
-              <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />
+              <VideoPlayer
+                videoId={selected.video_id}
+                startSec={selected.start_sec}
+                title={selected.video_title}
+                autoPlay={playOnSelect}
+              />
               <EvidencePanel result={selected} />
             </>
+          ) : searchMutation.isSuccess ? (
+            <EmptyState
+              title="沒有找到相關片段"
+              hints={['試試較簡短的描述', '改用人物／動作／物件名稱', '或清除搜尋範圍改搜全部影片']}
+            />
           ) : (
-            <EmptyState title="尚未選取片段" />
+            <EmptyState title="搜尋後這裡會顯示片段與播放器" />
           )}
         </Card>
       </div>

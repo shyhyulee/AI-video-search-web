@@ -106,7 +106,9 @@ export function ConversationPage() {
 
   return (
     <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row">
-      <Card className="flex w-full max-h-[70vh] flex-col md:min-h-0 md:w-3/5 md:max-h-none">
+      {/* 主從版面一律左右各半（md:w-1/2），跟影片庫／搜尋影片同一個比例，
+          切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。 */}
+      <Card className="flex w-full min-w-0 max-h-[70vh] flex-col md:min-h-0 md:w-1/2 md:max-h-none">
         <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
           {messages.map((m, i) => (
             <ChatBubble key={i} speaker={m.speaker} text={m.text} />
@@ -147,7 +149,7 @@ export function ConversationPage() {
         )}
       </Card>
 
-      <div className="flex w-full flex-col gap-4 md:min-h-0 md:w-2/5">
+      <div className="flex w-full min-w-0 flex-col gap-4 md:min-h-0 md:w-1/2">
         <Card className="w-full">
           {selected ? (
             <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />

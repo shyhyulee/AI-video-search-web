@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowUpDown } from 'lucide-react'
 import { listVideos, reanalyzeVideo, regenerateSummary } from '../api/client'
 import type { Video } from '../api/types'
-import { Badge } from '../components/Badge'
 import { Button, IconButton } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
@@ -16,15 +15,15 @@ import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { useJobPolling } from '../lib/useJobPolling'
 
-type FilterKind = 'all' | 'analyzed' | 'failed' | 'no_subtitle' | 'visual_only'
+// 篩選只留分析狀態。原本還有「無字幕」（`!has_transcript`）與「純畫面」
+// （`!has_transcript && !has_ocr`）兩個模態篩選，已移除，見 docs/11 §8.7。
+type FilterKind = 'all' | 'analyzed' | 'failed'
 type SortColumn = 'title' | 'segment_count' | 'cost' | 'analyzed_at'
 
 const FILTERS: { key: FilterKind; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'analyzed', label: '分析完成' },
   { key: 'failed', label: '分析失敗' },
-  { key: 'no_subtitle', label: '無字幕' },
-  { key: 'visual_only', label: '純畫面' },
 ]
 
 const SORT_LABEL: Record<SortColumn, string> = {
@@ -60,11 +59,6 @@ export function LibraryPage() {
     let filtered = videos
     if (filter === 'analyzed') filtered = videos.filter((v) => v.status === 'analyzed')
     else if (filter === 'failed') filtered = videos.filter((v) => v.status === 'failed')
-    else if (filter === 'no_subtitle') {
-      filtered = videos.filter((v) => v.status === 'analyzed' && !v.has_transcript)
-    } else if (filter === 'visual_only') {
-      filtered = videos.filter((v) => v.status === 'analyzed' && !v.has_transcript && !v.has_ocr)
-    }
 
     const key = (v: Video): string | number => {
       if (sortColumn === 'title') return v.title
@@ -82,12 +76,17 @@ export function LibraryPage() {
     return sorted
   }, [videos, filter, sortColumn, sortReverse])
 
-  const selected = rows.find((v) => v.id === selectedId) ?? null
+  // 預設選第一支影片，右側詳細面板不會是空白。刻意用「推導」而不是 useEffect
+  // 去同步 selectedId：這樣切換篩選／排序後如果原本選的那支不在清單裡了，會
+  // 自動落回第一筆，不需要額外的 effect，也不會出現「面板空白一瞬間」。
+  const selected = rows.find((v) => v.id === selectedId) ?? rows[0] ?? null
 
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
-        <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
+        {/* 主從版面一律左右各半（md:w-1/2），跟搜尋影片／對話搜尋同一個比例，
+            切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。 */}
+        <Card className="flex w-full min-w-0 flex-col md:min-h-0 md:w-1/2">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-bold text-text-primary">影片庫（{rows.length}）</h2>
             <div className="flex items-center gap-2">
@@ -126,14 +125,21 @@ export function LibraryPage() {
             ) : rows.length === 0 ? (
               <EmptyState
                 title={videos && videos.length > 0 ? '這個篩選條件下沒有影片' : '影片庫還沒有任何影片'}
-                hints={[videos && videos.length > 0 ? '試試其他篩選' : '先在「影片與分析」頁籤下載並分析影片']}
+                hints={[
+                  videos && videos.length > 0
+                    ? '試試其他篩選'
+                    : '先到「YouTube 搜尋」頁加入影片，再到「影片與分析」頁分析',
+                ]}
               />
             ) : (
               rows.map((v) => (
                 <VideoListItem
                   key={v.id}
                   video={v}
-                  selected={v.id === selectedId}
+                  // 比對 selected?.id 而不是 selectedId：預設選中的第一筆
+                  // 還沒被點過，selectedId 仍是 null，用它會讓清單沒有任何
+                  // 一列反白、跟右側面板顯示的內容對不上。
+                  selected={v.id === selected?.id}
                   onClick={() => setSelectedId(v.id)}
                   meta={
                     <>
@@ -154,14 +160,18 @@ export function LibraryPage() {
           </div>
         </Card>
 
-        <Card className="w-full md:min-h-0 md:w-2/5 md:overflow-auto">
+        {/* overflow-hidden 而不是 overflow-auto：詳細面板自己排成固定高度的
+            flex column，只有最下面的摘要在真的太長時才內部捲動，整張卡片不捲。 */}
+        <Card className="w-full min-w-0 md:min-h-0 md:w-1/2 md:overflow-hidden">
           {selected ? (
             <VideoDetailPanel
               video={selected}
               onSearchInVideo={(v) => navigate(`/search?video_id=${v.id}&video_title=${encodeURIComponent(v.title)}`)}
             />
           ) : (
-            <EmptyState title="尚未選取影片" />
+            // 清單有東西時一定會有選取（預設第一筆），所以這個空狀態只在
+            // 清單本身是空的時候才會出現。
+            <EmptyState title="沒有可顯示的影片" />
           )}
         </Card>
       </div>
@@ -205,36 +215,24 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
     summaryMutation.isPending || reanalyzeMutation.isPending || (job ? job.status === 'running' || job.status === 'queued' : false)
 
   return (
-    <div key={video.id} className="flex flex-col gap-3">
-      <VideoPoster videoId={video.id} size="lg" />
+    <div key={video.id} className="flex flex-col gap-3 md:h-full">
+      {/* 縮圖回到滿版寬度（並排版把它壓到只剩約 256px，太小），改用 max-h 綁住
+          高度來換取「面板不捲動」：`aspect-video w-full` 決定寬度與比例，
+          `md:max-h-[34vh]` 在矮螢幕自動把它壓回來、`object-cover` 負責裁切。
+          高度跟著視窗長，摘要下方原本剩下的空白就被縮圖吃掉了。
+          ≤900px 不套 max-h——手機版面本來就整頁捲動，不需要限制。 */}
+      <VideoPoster videoId={video.id} size="fill" className="shrink-0 md:max-h-[42vh]" />
 
-      <h3 className="text-base font-bold text-text-primary">{video.title}</h3>
-      <p className="text-sm text-text-secondary">
-        {formatDuration(video.duration_sec)}
-        {video.segment_count !== null ? `｜${video.segment_count} 個片段` : ''}｜分析於 {formatDateTime(video.analyzed_at)}｜
-        {formatCost(video.cost_usd)}
-      </p>
-
-      <div className="flex flex-wrap gap-2">
-        <Badge text={video.has_transcript ? '有字幕' : '無字幕'} kind={video.has_transcript ? 'success' : 'neutral'} />
-        <Badge text={video.has_visual ? '有畫面描述' : '無畫面描述'} kind={video.has_visual ? 'success' : 'neutral'} />
-        <Badge text={video.has_ocr ? '有 OCR' : '無 OCR'} kind={video.has_ocr ? 'success' : 'neutral'} />
-      </div>
-
-      <div>
-        <h4 className="mb-2 text-sm font-bold text-text-primary">摘要</h4>
-        <p className="text-sm leading-relaxed text-text-primary">
-          {video.summary ??
-            (video.status === 'analyzed' ? '尚未產生摘要，按下方「重新產生摘要」產生。' : '這支影片分析失敗，沒有片段可以產生摘要。')}
+      <div className="shrink-0">
+        <h3 className="text-base font-bold text-text-primary">{video.title}</h3>
+        <p className="mt-1 text-sm text-text-secondary">
+          {formatDuration(video.duration_sec)}
+          {video.segment_count !== null ? `｜${video.segment_count} 個片段` : ''}
+          ｜分析於 {formatDateTime(video.analyzed_at)}｜{formatCost(video.cost_usd)}
         </p>
-        {summaryStatus && (
-          <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
-            {summaryStatus}
-          </p>
-        )}
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex shrink-0 flex-wrap gap-2">
         <Button variant="primary" size="sm" disabled={video.status !== 'analyzed' || busy} onClick={() => onSearchInVideo(video)}>
           在此影片內搜尋
         </Button>
@@ -255,7 +253,7 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
       </div>
 
       {job && (
-        <p className="text-sm text-text-secondary" aria-live="polite">
+        <p className="shrink-0 text-sm text-text-secondary" aria-live="polite">
           {job.status === 'completed'
             ? '✓ 重新分析完成'
             : job.status === 'failed'
@@ -263,6 +261,24 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
               : `重新分析中…${job.stage ?? ''}`}
         </p>
       )}
+
+      {/* 摘要放在最下面：長度不固定（幾行到一整段都有可能），擺在中間會把
+          按鈕推到不固定的位置，換一支影片按鈕就跳一次。放最後之後，上面的
+          縮圖／標題／標籤／按鈕在每支影片都固定在同樣的高度。
+          它同時是整個面板唯一會捲動的地方——上面全是 shrink-0，摘要吃掉剩下的
+          高度（md:flex-1），真的塞不下才在自己內部捲，卡片本身不捲。 */}
+      <div className="md:min-h-0 md:flex-1 md:overflow-auto">
+        <h4 className="mb-2 text-sm font-bold text-text-primary">摘要</h4>
+        <p className="text-sm leading-relaxed text-text-primary">
+          {video.summary ??
+            (video.status === 'analyzed' ? '尚未產生摘要，按上方「重新產生摘要」產生。' : '這支影片分析失敗，沒有片段可以產生摘要。')}
+        </p>
+        {summaryStatus && (
+          <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
+            {summaryStatus}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

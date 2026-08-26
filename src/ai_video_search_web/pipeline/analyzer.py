@@ -49,7 +49,11 @@ logger = logging.getLogger(__name__)
 # 超過原本上限；$0.30 讓這類影片留有餘裕，見
 # docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
 BUDGET_USD = 0.30
-MAX_DURATION_SEC = 20 * 60
+# 原本 20 分鐘，2026-08-26 依使用者要求放寬到 1 小時。注意 BUDGET_USD 沒有
+# 跟著調整：實測 4~7 支影片（最長約 18 分鐘）落在 $0.0965~$0.1885，往 60 分鐘
+# 外推很可能會先撞到 $0.30 的預算上限，屆時分析會「跑到哪算到哪」提前結束
+# （部分完成），而不是被這個長度限制擋下。見 docs/11 §8.8。
+MAX_DURATION_SEC = 60 * 60
 
 # source_raw_duration（scene_detect.NormalizedScene，這個場景所屬、切分前
 # 的原始長度）超過這個秒數，代表場景偵測器在這段長度裡完全沒抓到任何切點，

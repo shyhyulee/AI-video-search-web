@@ -6,6 +6,7 @@
 
 - **Provider 只用 OpenAI（V0 起）**：ASR＝Whisper、VLM＝GPT-4o-mini、Embedding＝`text-embedding-3-small`。三個模組（`asr.py`／`vlm.py`／`embedding.py`）對外只暴露跟供應商無關的函式簽名，orchestrator（`analyzer.py`）不直接呼叫 OpenAI SDK，之後要加 Gemini 只需要在模組內部加分支。`segments` 表記錄每筆資料用哪個模型版本產生。
 - **每支影片分析預算 US$0.20，只分析 20 分鐘以內的影片**：時長限制在 UI 層擋（`video_tab.py`），超過的影片不會呼叫 `start_analysis()`；預算是「跑到哪累加到哪」的即時金額，每處理完一個片段才檢查一次，超過就 `break`，已處理的片段不浪費。
+  - **現況（原始決策的兩處已變更）**：預算調高到 **US$0.30**（VLM 條件式多幀取樣上線後，見本文件「VLM 條件式多幀取樣」）；長度上限 2026-08-26 放寬到 **1 小時**（`analyzer.MAX_DURATION_SEC`，見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.11）。強制執行點也已從 UI 層搬到 API 層（`job_manager.submit_analysis()`，Tkinter 的 `video_tab.py` 已刪除）。**「跑到哪累加到哪」的預算機制本身沒變**——這正是為什麼放寬長度上限之後，60 分鐘的影片很可能先撞到 US$0.30 而變成部分完成。
 - **場景切分選 PySceneDetect，不用固定間隔抽幀**：本機運算免費，且技術評估認為是低風險選項。
 - **字幕／畫面描述／OCR 文字分開存、分開建 embedding**：不合併成一段文字只建一個向量——這是 `AI_Video_Search_搜尋準確率提升規劃.md` 明確要求的原則，V0 開始就遵守，之後所有搜尋相關改動都維持這個設計。
 

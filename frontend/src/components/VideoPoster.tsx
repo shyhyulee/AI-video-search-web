@@ -2,11 +2,14 @@ import { useState } from 'react'
 import { ImageOff } from 'lucide-react'
 import { getThumbnailUrl } from '../api/client'
 
-type PosterSize = 'sm' | 'lg'
+type PosterSize = 'sm' | 'lg' | 'fill'
 
 const SIZE_CLASS: Record<PosterSize, string> = {
   sm: 'h-12 w-20',
   lg: 'h-[180px] w-[320px]',
+  // 撐滿容器寬度、用 aspect-video 維持 16:9。給詳細面板這種「寬度由版面決定、
+  // 縮圖應該跟著長大」的位置用，不要再寫死 320px。
+  fill: 'aspect-video w-full',
 }
 
 interface VideoPosterProps {
