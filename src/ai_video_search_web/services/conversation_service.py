@@ -1,7 +1,5 @@
 """對話搜尋 Application Service：以 conversations 表持久化 ConversationState，
-讓 Web 版的多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續——這是刻意補上
-的，因為 pipeline/conversation.py 的模組說明明講原設計「本機單人 Tkinter
-桌面 App，不需要 conversation_id」，這個假設在 Web 化後不成立，見
+讓多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續，見
 docs/09-web-ui-migration-plan.md 2.2／3.2 節。
 
 `handle_turn()` 本身是純函式（永遠回傳全新 state，不原地修改），且
@@ -17,6 +15,7 @@ from .. import db
 from ..pipeline import conversation as conversation_pipeline
 from ..pipeline.conversation import ConversationState, ConversationTurnResult
 from ..pipeline.search import SearchResult
+from .errors import ConversationNotFoundError
 
 __all__ = [
     "ConversationState",
@@ -27,10 +26,6 @@ __all__ = [
     "get_conversation_state",
     "send_message_by_id",
 ]
-
-
-class ConversationNotFoundError(Exception):
-    """找不到指定的 conversation_id。"""
 
 
 def start_conversation() -> int:

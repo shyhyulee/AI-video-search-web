@@ -14,14 +14,26 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from .. import db, downloader
+from .. import downloader
+from ..db import videos as db_videos
 from ..schemas.jobs import JobOut
 from ..schemas.videos import VideoOut, YoutubeDownloadRequest
 from ..services import job_manager, video_service
+from ..services.errors import VideoNotFoundError
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
 _ALLOWED_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm"}
+
+
+def _get_video_or_raise(video_id: int) -> db_videos.VideoRecord:
+    """讀影片，找不到就丟 VideoNotFoundError（統一對映成 404）。原本每個端點
+    各自 `if video is None: raise ...`，或在「剛寫進去、理論上一定讀得到」的
+    地方用 assert——assert 在 `python -O` 下會整個消失。"""
+    video = video_service.get_video(video_id)
+    if video is None:
+        raise VideoNotFoundError(f"找不到影片 {video_id}")
+    return video
 
 
 @router.get("", response_model=list[VideoOut])
@@ -35,9 +47,7 @@ def list_videos(status: str | None = None) -> list[VideoOut]:
 
 @router.get("/{video_id}", response_model=VideoOut)
 def get_video(video_id: int) -> VideoOut:
-    video = video_service.get_video(video_id)
-    if video is None:
-        raise job_manager.VideoNotFoundError(f"找不到影片 {video_id}")
+    video = _get_video_or_raise(video_id)
     return VideoOut.from_record(video, video_service.modality_flags([video_id]).get(video_id))
 
 
@@ -45,7 +55,7 @@ def get_video(video_id: int) -> VideoOut:
 def delete_video(video_id: int) -> dict[str, bool]:
     record, _file_error = video_service.delete_video(video_id)
     if record is None:
-        raise job_manager.VideoNotFoundError(f"找不到影片 {video_id}")
+        raise VideoNotFoundError(f"找不到影片 {video_id}")
     return {"deleted": True}
 
 
@@ -66,37 +76,28 @@ def upload_video(file: UploadFile) -> VideoOut:
     duration_sec = video_service.probe_local_duration(dest_path)
     title = Path(file.filename or dest_path.name).stem
     video_id = video_service.register_uploaded_video(title, dest_path, duration_sec)
-    video = video_service.get_video(video_id)
-    assert video is not None
+    video = _get_video_or_raise(video_id)
     return VideoOut.from_record(video)
 
 
 @router.post("/youtube", response_model=JobOut, status_code=202)
 def download_youtube_video(payload: YoutubeDownloadRequest) -> JobOut:
     job_id = job_manager.submit_download(payload.url)
-    job = db.get_job(job_id)
-    assert job is not None
-    return JobOut.from_record(job)
+    return JobOut.from_record(job_manager.get_job_or_raise(job_id))
 
 
 @router.post("/{video_id}/analyze", response_model=JobOut, status_code=202)
 def analyze_video(video_id: int) -> JobOut:
     job_id = job_manager.submit_analysis(video_id)
-    job = db.get_job(job_id)
-    assert job is not None
-    return JobOut.from_record(job)
+    return JobOut.from_record(job_manager.get_job_or_raise(job_id))
 
 
 @router.post("/{video_id}/reanalyze", response_model=JobOut, status_code=202)
 def reanalyze_video(video_id: int) -> JobOut:
-    video = video_service.get_video(video_id)
-    if video is None:
-        raise job_manager.VideoNotFoundError(f"找不到影片 {video_id}")
+    video = _get_video_or_raise(video_id)
     video_service.reset_to_pending(video_id)
     job_id = job_manager.submit_analysis(video_id)
-    job = db.get_job(job_id)
-    assert job is not None
-    return JobOut.from_record(job)
+    return JobOut.from_record(job_manager.get_job_or_raise(job_id))
 
 
 @router.post("/{video_id}/summary", response_model=VideoOut)
@@ -105,24 +106,19 @@ def regenerate_summary(video_id: int) -> VideoOut:
     if not segments:
         raise HTTPException(status_code=422, detail="這支影片還沒有任何分析片段，無法產生摘要")
     video_service.regenerate_summary(video_id, segments)
-    video = video_service.get_video(video_id)
-    assert video is not None
+    video = _get_video_or_raise(video_id)
     return VideoOut.from_record(video, video_service.modality_flags([video_id]).get(video_id))
 
 
 @router.get("/{video_id}/stream")
 def stream_video(video_id: int) -> FileResponse:
-    video = video_service.get_video(video_id)
-    if video is None:
-        raise job_manager.VideoNotFoundError(f"找不到影片 {video_id}")
+    video = _get_video_or_raise(video_id)
     return FileResponse(video.file_path, media_type="video/mp4")
 
 
 @router.get("/{video_id}/thumbnail")
 def get_thumbnail(video_id: int) -> Response:
-    video = video_service.get_video(video_id)
-    if video is None:
-        raise job_manager.VideoNotFoundError(f"找不到影片 {video_id}")
+    video = _get_video_or_raise(video_id)
     thumbnail = video_service.generate_thumbnail(video)
     if thumbnail is None:
         return JSONResponse(

@@ -24,37 +24,35 @@ import threading
 from .. import db, downloader
 from ..pipeline import analyzer
 from . import video_service
+from .errors import (
+    DuplicateJobError,
+    DurationLimitExceededError,
+    InvalidJobStateError,
+    InvalidUrlError,
+    JobNotFoundError,
+    VideoNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
-
-class JobManagerError(Exception):
-    """job_manager 例外的共同基底類別，方便 API 層用一次 except 統一轉換
-    成錯誤回應。"""
-
-
-class VideoNotFoundError(JobManagerError):
-    """找不到指定的影片。"""
+# ----------------------------------------------------------------------
+# 查詢
+# ----------------------------------------------------------------------
+def list_jobs(video_id: int | None = None) -> list[db.JobRecord]:
+    return db.list_jobs(video_id=video_id)
 
 
-class DuplicateJobError(JobManagerError):
-    """同一支影片／同一個網址已經有排隊中或執行中的同類型工作。"""
+def get_job_or_raise(job_id: int) -> db.JobRecord:
+    """讀取工作，找不到就丟 JobNotFoundError（API 層對映成 404）。
 
-
-class DurationLimitExceededError(JobManagerError):
-    """影片長度超過 analyzer.MAX_DURATION_SEC。"""
-
-
-class InvalidUrlError(JobManagerError):
-    """不是有效的 YouTube 網址。"""
-
-
-class JobNotFoundError(JobManagerError):
-    """找不到指定的工作。"""
-
-
-class InvalidJobStateError(JobManagerError):
-    """工作目前狀態不允許這個操作（例如對非 failed 的工作呼叫 retry）。"""
+    API 端點原本各自 `db.get_job()` 之後再自己 `assert job is not None` 或
+    自己丟例外——assert 在 `python -O` 下會整個消失、變成 AttributeError，
+    而「找不到工作要回 404」本來就是服務層的規則，不是每個端點各自的判斷。
+    """
+    job = db.get_job(job_id)
+    if job is None:
+        raise JobNotFoundError(f"找不到工作 {job_id}")
+    return job
 
 
 # ----------------------------------------------------------------------
@@ -210,14 +208,13 @@ def _pump_download(job_id: int, url: str, internal_queue: "queue.Queue[object]")
 def retry_job(job_id: int) -> int:
     """對失敗的工作建立全新一筆重新 submit（舊列保留當歷史紀錄），回傳新
     job_id。"""
-    job = db.get_job(job_id)
-    if job is None:
-        raise JobNotFoundError(f"找不到工作 {job_id}")
+    job = get_job_or_raise(job_id)
     if job.status != db.JOB_STATUS_FAILED:
         raise InvalidJobStateError(f"只有失敗的工作可以重試（目前狀態：{job.status}）")
 
     if job.job_type == db.JOB_TYPE_ANALYSIS:
-        assert job.video_id is not None
+        if job.video_id is None:
+            raise InvalidJobStateError(f"分析工作 {job_id} 沒有記錄 video_id，無法重試")
         video_service.reset_to_pending(job.video_id)
         return submit_analysis(job.video_id)
 

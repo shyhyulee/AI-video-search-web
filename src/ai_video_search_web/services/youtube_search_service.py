@@ -19,6 +19,8 @@ from dataclasses import dataclass
 
 import yt_dlp
 
+from .errors import YoutubeSearchError
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 12
@@ -41,10 +43,6 @@ _cache: dict[tuple[str, int], tuple[float, list["YoutubeSearchItem"]]] = {}
 # API 的同步 endpoint 會被 FastAPI 丟到 threadpool 執行，同一時間可能有多個
 # request 在讀寫 _cache，這裡用鎖保護。
 _cache_lock = threading.Lock()
-
-
-class YoutubeSearchError(Exception):
-    """YouTube 搜尋失敗（yt-dlp 解析失敗、網路問題、YouTube 改版等）。"""
 
 
 @dataclass
