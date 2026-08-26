@@ -109,3 +109,25 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 
 - **第一輪（Step 1～9）**：刪除死碼（`mock_data.py`、未使用函式）、抽出共用的 `pipeline/progress_estimation.py`（場景切分與音訊轉錄的背景執行緒＋預估進度邏輯，原本逐字重複）、`db.py` 拆成 `db/` 套件（`connection`／`videos`／`segments`／`ocr_events`／`search_log`，對外 API 不變）、`analyzer.py` 的 `_analyze_worker()` 拆成具名 phase 函式、新增特徵測試（`test_db.py`／`test_analyzer_integration.py`）、`development-log.md`（原 35KB 單檔）依日期拆成 `changelog/`。UI 輪詢骨架抽取（原規劃的 Step 10）評估後判斷效益低於風險，**明確決定不做**。
 - **第二輪**：修正 3 處指向已搬移文件的殘留註解引用；補上 `search._hit_source()` 的測試；抽出 `openai_client.chat_completion_cost()` 共用 helper，取代 `vlm.py`／`summary.py`／`translation.py` 三處逐字重複的成本計算公式；`analyzer.py` 的 `segment_rows` 從無型別 9-tuple 改成具名 `_SegmentRow` dataclass。兩輪重構全程遵守「先分析、確認後才動手、一次只做一步、每步都跑測試驗證」的流程；第二輪結束時全專案 150 個測試（不含需要真實 API 的 `integration` 測試）全數通過。
+
+## 2026-08-26：第三輪重構
+
+> 2026-08-21～25 的 Web 化（Tkinter → FastAPI + React）與 UI 暖色改版記錄在
+> [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md) 與
+> [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md)，本檔未逐項收錄。
+
+### 重構（第三輪）
+
+依 `.claude/skills/refactor/SKILL.md` 進行第三輪不改變外部行為的重構。這一輪的範圍是**Web 化之後長出來的東西**：新增的 services／schemas／api 三層，以及在遷移期間成長到 697 行的 `analyzer.py`。分三波共 8 個 commit，測試從 266 增加到 **326**：
+
+- **波 A（安全網，先補測試不動正式碼）**：`job_manager` 是全專案唯一有 process 級共享狀態（分析 slot 旗標＋鎖）與 pump thread 的模組，卻只有 HTTP 層的間接測試；`search()` 的 helper 全都有測試，但「串起來之後」的行為沒有。補上 `test_job_manager.py`（27 支）與 `test_search_pipeline.py`（17 支），後者用真實臨時 SQLite（含 FTS5 bm25），只把兩個 OpenAI 呼叫換掉，向量刻意用 4 維讓 cosine 值可人工推算。兩支都做過突變測試確認不是空轉。
+- **波 B（結構）**：① `GET /api/v1/videos` 為了算三個布林旗標而載入每支影片的全部 segment（含 embedding BLOB），改成一句聚合查詢，實測 **47.5ms → 0.7ms**、省下每次請求約 4.5MB 的 BLOB 讀取；② `analyzer.py` 的進度回報、成本累加與預算判斷三個橫切關注點原本靠參數手工穿線（`total_cost` 出現 43 次、進度雙寫 23 處），收進 `_AnalysisContext`（**43 → 7**，`_run_vlm_phase` 參數 7 → 3）；③ 兩處手工「Thread ＋ holder dict ＋ 手動重拋」改用 `ThreadPoolExecutor`，全檔只剩一種併發寫法；④ `search.py`（522 行單檔、`search()` 一個函式做六件事）拆成 `pipeline/search/` 七個模組，依賴單向無環，對外 import 路徑完全不變。
+- **波 C（一致性）**：例外型別從 `job_manager` 搬到 `services/errors.py`（API 原本有 5 處拿 `job_manager.VideoNotFoundError` 表達「影片找不到」）；API 層 6 處繞過 service 直呼 `db` **收斂為 0**，順帶消掉 4 個 `assert`（`python -O` 下會整個消失）；補上全專案第一份 logging 設定（在這之前所有訊息只能靠 lastResort handler 印出，INFO 完全看不到），5 處 eager f-string 改 lazy `%`、3 處沒有 consumer 的 `extra={…}` 移除；20 處引用早已移除的 Tkinter UI 的註解（15 個檔案）全部改寫成目前實際成立的說明，README 修正 6 處與程式碼不符之處（其中預算上限仍寫 US$0.30，實際已是 $0.80）。
+
+**C0（缺陷修正，不算重構）**：分析中發現 `_analyze_worker()` 在自己的 try 之外做了五件可能拋例外的事（`get_client()` 在缺 API 金鑰時會直接拋），一旦拋出就不會送出終端事件，job_manager 的 pump thread 會永遠停在 `queue.get()`、分析 slot 永不釋放，**之後每一支影片都卡在 queued，只能重啟伺服器**。因為是行為變更所以獨立一個 commit：worker 拆成兩層保證一定送出剛好一個終端事件，pump 的釋放 slot 移進 `finally`。
+
+**驗證方式**：除了全套測試，每個結構性步驟都做了新舊實作的等價比對——`analyzer` 重播完整 worker 比對事件序列／狀態寫入／DB 呼叫／總花費（正常與預算截斷兩條路徑）；`search` 用 9 組查詢（含否定句、泛用詞、指定影片、top_k 截斷）逐欄位比對；模態旗標在真實 `app.db` 上比對 10 支影片。最後三個 commit 在提交前各自匯出成獨立副本跑過完整測試，確認**單獨 checkout 每個 commit 都是綠的**——這個做法也因此抓到兩個原本測試裡的錯誤（`monkeypatch.undo()` 連 fixture 的 `db.DB_PATH` 一起撤掉，因為主目錄剛好有 `app.db` 而一路綠燈）。
+
+**刻意不做**：不引入 Repository／DI container／CQRS（目前規模下 15 個 `db.*` 直呼更好讀）；不移除 `video_service` 的 11 個一行透傳（刪掉會讓 API 層直接依賴 db，方向更差）；`progress_estimation` 不改用 executor（它的 worker 是 `daemon=True`，換掉會讓分析途中 Ctrl-C 要等 ffmpeg／Whisper 跑完）；不修正本地 OCR 失敗時已花費用被丟棄的既有低估（那是行為不是結構債，已在程式碼註解標記）。
+
+完整的任務看板（含每張卡的驗證方式、刻意不做的理由，以及過程中做錯／走錯的記錄）見 [`refactor-board.html`](refactor-board.html)。
