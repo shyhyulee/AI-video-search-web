@@ -192,6 +192,16 @@
   .nogo .card { border-left-color: var(--border); box-shadow: none; background: var(--surface-alt); }
   .nogo h3 { color: var(--text-secondary); }
 
+  /* ---------- 過程記錄 ---------- */
+  .notes { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .notes .card { border-left-color: var(--accent); box-shadow: none; }
+  .notes .card p:last-child { margin-bottom: 0; }
+  .notes .lesson {
+    display: block; margin-top: .5rem; padding-top: .45rem; border-top: 1px dashed var(--border);
+    font-size: .8rem; color: var(--text-primary);
+  }
+  .notes .lesson b { color: var(--primary-hover); }
+
   footer {
     margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border);
     font-size: .78rem; color: var(--text-muted);
@@ -471,6 +481,56 @@
   </section>
 
 </div><!-- /board -->
+
+<h2 class="section-title">過程記錄 <span class="hint">做錯、走錯、以及沒做乾淨的地方</span></h2>
+<div class="notes">
+
+  <article class="card">
+    <div class="card-top"><span class="id">P1</span><span class="tag bug">我的 bug</span><span class="tag">B1</span></div>
+    <h3>突變測試還原時，把未提交的程式碼一起刪掉</h3>
+    <p>用 <code>git checkout --</code> 還原臨時改壞的檔案，但那個檔案的 B1 新程式碼<strong>還沒 commit</strong>，
+       於是連同一起被還原掉。重新補回後才發現。</p>
+    <span class="lesson"><b>之後的做法：</b>突變測試一律先 <code>cp</code> 備份，還原時用備份覆蓋，
+      並且用 <code>diff -q</code> 確認還原後的內容真的是改好的版本。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">P2</span><span class="tag">寫錯註解</span><span class="tag">B3</span></div>
+    <h3>註解宣稱了一個不存在的因果</h3>
+    <p>我寫「<code>result()</code> 放在 <code>with</code> 之外是為了不讓轉錄的例外蓋掉場景切分的例外」——
+       突變測試證明放進 <code>with</code> 內外<strong>沒有任何差別</strong>，因為場景切分的例外在前一行就往外拋了。</p>
+    <span class="lesson"><b>修正：</b>真正會破壞語意的是把它放進 <code>finally</code>。註解已改成講這件事，
+      並補上一支會因此轉紅的測試。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">P3</span><span class="tag bug">我的 bug</span><span class="tag">C0</span></div>
+    <h3>測試用 <code>monkeypatch.undo()</code>，連 fixture 的 patch 一起撤掉</h3>
+    <p>兩支測試在中途呼叫 <code>undo()</code> 想還原假的 db 函式，但它會撤銷該測試的<strong>全部</strong>
+       monkeypatch，包含 fixture 設的 <code>db.DB_PATH</code>——後半段其實在讀真正的 <code>app.db</code>。</p>
+    <span class="lesson"><b>為什麼一直沒發現：</b>主目錄剛好有 <code>app.db</code>，所以一路綠燈。
+      是把每個 commit 匯出成獨立副本驗證時才炸出 <code>no such table: jobs</code>。已改用旗標控制假實作。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">P4</span><span class="tag">走錯方向</span><span class="tag">C0</span></div>
+    <h3>為了修測試洩漏，讓全套測試從 6 秒變成 104 秒</h3>
+    <p>我在 fixture 收尾等「所有 pump thread 結束」，但很多測試<strong>刻意</strong>讓 pump 停在
+       <code>queue.get()</code> 不送終端事件——等它們只是純粹等到逾時，每支 3 秒。</p>
+    <span class="lesson"><b>修正：</b>改回有界等待。保留了 pump thread 命名這個副產物，
+      它對 production 追問題（traceback／py-spy）有實際價值。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">P5</span><span class="tag">沒做乾淨</span><span class="tag">切 commit</span></div>
+    <h3>三個 commit 的切分不是 100% 乾淨</h3>
+    <p><code>_start_analysis_job</code> 的 <code>assert → raise</code> 原本規劃在第二個 commit，
+       但它就在 thread 命名的上方兩行，被第一個 commit 的 hunk 吸收了。</p>
+    <span class="lesson"><b>沒有硬拆：</b>位置本來就合理（同一個函式），而且三個 commit 都各自
+      獨立驗證過是綠的。為了帳面整齊去拆會增加風險而不是降低。</span>
+  </article>
+
+</div>
 
 <h2 class="section-title">刻意不做 <span class="hint">評估過、決定不動的項目</span></h2>
 <div class="nogo">
