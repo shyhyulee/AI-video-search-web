@@ -20,9 +20,12 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 const GRID_CLASS = 'grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
 
 /** 「YouTube 搜尋」頁（主導覽第一個頁籤）：輸入關鍵字查 YouTube，用卡片列出
- * 前 12 筆，可以就地播放確認內容、按「開始分析」直接跑下載＋分析，或展開
- * 網址與說明。搜尋本身只讀 metadata，只有按下卡片的「開始分析」才會真的下載
- * 影片（等同在「影片與分析」頁貼網址下載再勾選分析）。 */
+ * 前 12 筆，可以就地播放確認內容、按「加入待分析」把影片下載進來排進「影片與
+ * 分析」頁的待分析清單，或展開網址與說明。
+ *
+ * 這頁的職責只到「挑片並收進來」為止，**不在這裡跑分析**——分析要花錢，統一
+ * 留在「影片與分析」頁勾選後送出。搜尋本身只讀 metadata，只有按下「加入待分析」
+ * 才會真的下載影片（等同在「影片與分析」頁貼網址按下載）。 */
 export function YoutubeSearchPage() {
   const [input, setInput] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
@@ -79,7 +82,7 @@ export function YoutubeSearchPage() {
             title="搜尋 YouTube 影片"
             hints={[
               '輸入關鍵字後會列出前 12 筆結果',
-              '卡片上可以直接「播放」預覽，或按「開始分析」下載並分析這支影片',
+              '卡片上可以直接「播放」預覽，或按「加入待分析」把影片收進「影片與分析」頁',
               '點「查看詳情」可以看到網址與說明',
             ]}
             icon={<MonitorPlay className="h-8 w-8" aria-hidden="true" />}

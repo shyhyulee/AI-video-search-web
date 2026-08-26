@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Copy, ExternalLink, ImageOff, Play, Sparkles, X } from 'lucide-react'
-import { analyzeVideo, downloadYoutube } from '../api/client'
+import { ChevronDown, ChevronUp, Copy, ExternalLink, ImageOff, ListPlus, Play, X } from 'lucide-react'
+import { downloadYoutube } from '../api/client'
 import { ApiError } from '../api/types'
 import type { YoutubeSearchItem } from '../api/types'
 import { formatDuration, formatViewCount } from '../lib/format'
@@ -15,10 +15,14 @@ interface YoutubeResultCardProps {
 }
 
 /** YouTube 搜尋結果卡片：收合時只有縮圖／標題／頻道資訊，「播放」就地把縮圖
- * 換成 YouTube 內嵌播放器（不用離開這一頁確認影片內容），「開始分析」直接跑
- * 下載 → 分析兩段 job（等同「影片與分析」頁貼網址下載再勾選分析），點
- * 「查看詳情」在卡片內就地展開網址與說明（不用 Modal，窄螢幕不會擋住畫面）。
- * 展開／播放／分析狀態都放在卡片內部，多張可以同時進行；外層 grid 記得加
+ * 換成 YouTube 內嵌播放器（不用離開這一頁確認影片內容），「加入待分析」把影片
+ * 下載進來排進「影片與分析」頁的待分析清單，點「查看詳情」在卡片內就地展開
+ * 網址與說明（不用 Modal，窄螢幕不會擋住畫面）。
+ *
+ * 這張卡片**只負責下載、不觸發分析**：分析要花錢、也需要挑選要不要跑，一律
+ * 留在「影片與分析」頁由使用者勾選後統一送出，這頁維持「挑片」的單一職責。
+ *
+ * 展開／播放／下載狀態都放在卡片內部，多張可以同時進行；外層 grid 記得加
  * items-start，不然展開一張會把同一列其他卡片一起撐高。 */
 export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
   const [expanded, setExpanded] = useState(false)
@@ -45,98 +49,65 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
     }
   }
 
-  // --- 開始分析：下載 job 完成後接分析 job ---
+  // --- 加入待分析：只跑下載 job，下載完影片就落在「待分析」清單裡 ---
   const [downloadJobId, setDownloadJobId] = useState<number | null>(null)
-  const [analysisJobId, setAnalysisJobId] = useState<number | null>(null)
+  const [added, setAdded] = useState(false)
   const [failure, setFailure] = useState('')
-  // 兩段 job 都是輪詢查詢，同一個終態會被讀到很多次；用 ref 記下已經處理過的
-  // job id，確保「接下一段」與「收尾」各只做一次。
+  // downloadJob 是輪詢查詢，同一個終態會被讀到很多次；用 ref 記下已經處理過的
+  // job id，確保收尾（invalidate＋toast）只做一次。
   const handledDownload = useRef<number | null>(null)
-  const handledAnalysis = useRef<number | null>(null)
 
   const downloadJob = useJobPolling(downloadJobId).data
-  const analysisJob = useJobPolling(analysisJobId).data
-
-  const invalidateAfterChange = () => {
-    queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
-    queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
-    queryClient.invalidateQueries({ queryKey: ['stats'] })
-  }
-
-  const analyzeMutation = useMutation({
-    mutationFn: (videoId: number) => analyzeVideo(videoId),
-    onSuccess: (job) => setAnalysisJobId(job.id),
-    onError: (err: Error) =>
-      setFailure(
-        err instanceof ApiError && err.code === 'DURATION_LIMIT_EXCEEDED'
-          ? '影片長度超過分析上限'
-          : `無法開始分析：${err.message}`,
-      ),
-  })
 
   const downloadMutation = useMutation({
     mutationFn: () => downloadYoutube(item.url),
     onSuccess: (job) => setDownloadJobId(job.id),
-    onError: (err: Error) => setFailure(`下載失敗：${err.message}`),
+    // 用搜尋結果挑片很容易挑到已經下載過的，DUPLICATE_JOB 是常態不是意外，
+    // 給一句看得懂的話，不要把後端的原始訊息直接丟出來。
+    onError: (err: Error) =>
+      setFailure(
+        err instanceof ApiError && err.code === 'DUPLICATE_JOB'
+          ? '這支影片已經在影片庫或下載中'
+          : `下載失敗：${err.message}`,
+      ),
   })
 
   useEffect(() => {
     if (!downloadJob || handledDownload.current === downloadJob.id) return
-    if (downloadJob.status === 'completed' && downloadJob.video_id !== null) {
+    if (downloadJob.status === 'completed') {
       handledDownload.current = downloadJob.id
-      // 影片已經進 DB（待分析），先讓清單／統計反映出來再送分析。
-      invalidateAfterChange()
-      analyzeMutation.mutate(downloadJob.video_id)
+      // 下載完成 = 影片已經以 pending 狀態進 DB，刷新「待分析影片」清單與
+      // Header 統計卡；分析要不要跑、什麼時候跑，交給「影片與分析」頁決定。
+      queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      // oxlint-disable-next-line react/set-state-in-effect
+      setAdded(true)
+      toast.show(`已把「${item.title}」加入待分析清單`, 'success')
     } else if (downloadJob.status === 'failed') {
       handledDownload.current = downloadJob.id
       // 來源是輪詢查詢（外部系統）而非 DOM 事件，ref 已擋掉重複執行。
       // oxlint-disable-next-line react/set-state-in-effect
       setFailure(`下載失敗：${downloadJob.error_message ?? '未知錯誤'}`)
     }
-    // analyzeMutation 每次 render 都是新物件，放進 deps 會讓 effect 每輪都跑；
+    // toast／queryClient 每次 render 都是新物件，放進 deps 會讓 effect 每輪都跑；
     // 真正的觸發條件只有 downloadJob 的狀態變化。
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadJob])
 
-  useEffect(() => {
-    if (!analysisJob || handledAnalysis.current === analysisJob.id) return
-    if (analysisJob.status === 'completed') {
-      handledAnalysis.current = analysisJob.id
-      invalidateAfterChange()
-      toast.show(`「${item.title}」分析完成`, 'success')
-    } else if (analysisJob.status === 'failed') {
-      handledAnalysis.current = analysisJob.id
-      invalidateAfterChange()
-      // oxlint-disable-next-line react/set-state-in-effect
-      setFailure(`分析失敗：${analysisJob.error_message ?? '未知錯誤'}`)
-    }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysisJob])
-
-  const downloading =
+  const busy =
     downloadMutation.isPending || (downloadJob ? downloadJob.status === 'queued' || downloadJob.status === 'running' : false)
-  const analyzing =
-    analyzeMutation.isPending || (analysisJob ? analysisJob.status === 'queued' || analysisJob.status === 'running' : false)
-  const busy = downloading || analyzing
-  const done = analysisJob?.status === 'completed'
 
-  // 兩段 job 共用一條進度條：下載中看下載 job，其餘看分析 job。
-  const activeJob = downloading ? downloadJob : analysisJob
   const progressText = (() => {
     if (failure) return failure
-    if (done) return '✓ 分析完成，可到「搜尋結果」頁查詢'
+    if (added) return '✓ 已加入「影片與分析」待分析清單'
     if (downloadMutation.isPending) return '準備下載…'
-    if (downloading) return downloadJob?.progress_message ?? '下載中…'
-    if (analyzeMutation.isPending || analysisJob?.status === 'queued') return '排隊分析中…'
-    if (analyzing) return analysisJob?.stage ?? '分析中…'
+    if (busy) return downloadJob?.progress_message ?? '下載中…'
     return ''
   })()
 
-  const onAnalyzeClicked = () => {
+  const onAddClicked = () => {
     setFailure('')
     handledDownload.current = null
-    handledAnalysis.current = null
-    setAnalysisJobId(null)
     downloadMutation.mutate()
   }
 
@@ -204,11 +175,11 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
               variant="primary"
               size="sm"
               loading={busy}
-              disabled={busy || done}
-              onClick={onAnalyzeClicked}
-              icon={<Sparkles className="h-4 w-4" aria-hidden="true" />}
+              disabled={busy || added}
+              onClick={onAddClicked}
+              icon={<ListPlus className="h-4 w-4" aria-hidden="true" />}
             >
-              {done ? '已分析' : '開始分析'}
+              {added ? '已加入' : '加入待分析'}
             </Button>
           </div>
 
@@ -218,7 +189,7 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
                 <div className="mb-1 h-1.5 overflow-hidden rounded-full bg-sand">
                   <div
                     className="h-full bg-primary transition-all"
-                    style={{ width: `${activeJob?.progress_percent ?? 0}%` }}
+                    style={{ width: `${downloadJob?.progress_percent ?? 0}%` }}
                   />
                 </div>
               )}

@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import { Film, Library, Search, MessageCircle, MonitorPlay } from 'lucide-react'
 
-// YouTube 搜尋放第一個：它是整條流程的入口（搜尋 → 播放確認 → 開始分析），
-// 後面四個頁籤都是分析完成後才會用到。
+// YouTube 搜尋放第一個：它是整條流程的入口（搜尋 → 播放確認 → 加入待分析），
+// 分析本身在下一個頁籤「影片與分析」進行，再後面三個是分析完成後才會用到。
 const NAV_ITEMS = [
   // lucide 這個版本已移除品牌圖示（沒有 Youtube icon），用 MonitorPlay 代替。
   { to: '/youtube', label: 'YouTube 搜尋', icon: MonitorPlay },
