@@ -18,7 +18,9 @@ from __future__ import annotations
 import pytest
 
 from ai_video_search_web import db
-from ai_video_search_web.pipeline import embedding, search, translation
+from ai_video_search_web.pipeline import embedding, translation
+from ai_video_search_web.pipeline import search
+from ai_video_search_web.pipeline.search import dense, fusion, results as results_module, service
 
 # 查詢向量固定用這個方向；片段向量跟它的夾角決定相似度，方便人工推算。
 QUERY_VECTOR = [1.0, 0.0, 0.0, 0.0]
@@ -54,18 +56,18 @@ def fake_openai(monkeypatch):
     embedding 呼叫次數才可預期）、embed_text。回傳 embedder 供測試斷言。
     """
     embedder = _FakeEmbedder({})
-    monkeypatch.setattr(search, "get_client", lambda: object())
+    monkeypatch.setattr(service, "get_client", lambda: object())
     monkeypatch.setattr(
-        search.translation,
+        dense.translation,
         "translate_query",
         lambda client, query: translation.TranslateResult(
             chinese=query, english=query, cost_usd=TRANSLATE_COST
         ),
     )
-    monkeypatch.setattr(search.embedding, "embed_text", embedder)
+    monkeypatch.setattr(dense.embedding, "embed_text", embedder)
     # 影片標題／摘要的 embedding 快取是模組全域 dict，會跨測試殘留，每個測試
     # 都要換成新的，否則上一個測試的向量會讓這個測試的影片篩選結果不可預期。
-    monkeypatch.setattr(search, "_title_summary_embedding_cache", {})
+    monkeypatch.setattr(dense, "_title_summary_embedding_cache", {})
     return embedder
 
 
@@ -166,12 +168,12 @@ def test_search_orders_by_fusion_score_and_fills_result_fields(temp_db, fake_ope
     assert top.transcript_score is None and top.ocr_score is None
     assert top.description == "穿著制服的人"
     assert top.hit_source == "畫面"
-    assert top.fusion_strategy == search.FUSION_STRATEGY
+    assert top.fusion_strategy == results_module.FUSION_STRATEGY
     # 融合分數由高到低嚴格遞減，且都是 RRF 值（1/(K+rank)）而不是 cosine
     assert [r.fusion_score for r in response.results] == sorted(
         (r.fusion_score for r in response.results), reverse=True
     )
-    assert response.results[0].fusion_score == pytest.approx(1 / (search.RRF_K + 1))
+    assert response.results[0].fusion_score == pytest.approx(1 / (fusion.RRF_K + 1))
 
 
 def test_search_similarity_is_the_max_of_three_modality_scores(temp_db, fake_openai):
@@ -357,7 +359,7 @@ def test_search_falls_back_to_original_query_when_translation_fails(temp_db, fak
     def _boom(client, query):
         raise RuntimeError("翻譯 API 掛了")
 
-    monkeypatch.setattr(search.translation, "translate_query", _boom)
+    monkeypatch.setattr(dense.translation, "translate_query", _boom)
     fake_openai.vectors["查詢"] = QUERY_VECTOR
     video_id = _add_video()
     wanted = _add_segment(video_id, visual="片段", visual_vec=SIMILARITY_1_00)
