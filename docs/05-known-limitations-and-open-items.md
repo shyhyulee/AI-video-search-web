@@ -14,6 +14,9 @@
 - Phase B 單一場景 VLM 失敗（例如內容審查拒絕）只跳過該場景，不會拖垮整支分析，但沒有「失敗比例過高就整支判定失敗」的斷路器——如果帳號被封、API key 失效這類系統性問題發生，會安靜地生出一支幾乎沒有畫面描述、只有字幕的分析結果（UI 會顯示失敗場景數，但不會主動擋下來）。這是刻意先不做的取捨。
 - ~~`BUDGET_USD`（US$0.20）是否要因應場景數變多重新校準還沒正式實測確認~~ **已決策，調高到 US$0.30**：起因是 VLM 條件式多幀取樣規劃（見下方「功能延伸」與 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣phase-1-規劃定案尚未實作)）——用真實 7 支影片費用反推，Most Beautiful Faces 系列（觸發率 88～98%）換算後單支費用最高約 US$0.2015，超過原本上限，US$0.30 留有餘裕。這個新上限還沒有在實際套用多幀邏輯後的真實分析流程裡驗證過（目前的 US$0.2015 是用單一場景實測倍率反推的估計值）。
 
+- **批次分析沒有任何總量上限**：`BUDGET_USD`（目前 US$0.80）是**每支影片**各自計算的，`pages/VideosPage.tsx` 的批次送出沒有筆數檢查，`job_manager` 只保證「同時只跑一支」、不限制排隊數量——所以一次勾 10 支的理論最高花費就是 10×$0.80，中間沒有任何機制會攔下來或警示。完整的上限對照表見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12。
+- **`MAX_DURATION_SEC` 的 60 分鐘上限實際上碰不到，ASR 會先失敗**：`asr._extract_audio()` 固定輸出 64kbps 單聲道 mp3（實測 7,998 bytes/s），Whisper 的 25MB 上傳上限換算後約 52～55 分鐘，且 ASR 例外會讓整支分析失敗（不是略過字幕繼續跑）。這是從位元率反推的，**沒有用真實長影片實測驗證過**；`BUDGET_USD=0.80` 對 60 分鐘影片的餘裕只有 4.6%（最壞情況外推 $0.765），同樣沒有實測。見 §8.12。
+
 ### 搜尋
 
 - ~~無答案信心判斷（`is_confident`）無法處理否定句~~ **已修正（sparse 層級）**：`search.py` 新增 `_split_negated_query()`／`_negated_segment_ids()`，偵測到「不要／沒有／不是／並非」後面的關鍵字就把字面命中的片段整個排除，不進 RRF 融合，`is_confident` 判斷因此自然一併修好。詳見 [`02-technical-decisions.md`](02-technical-decisions.md#否定句偵測與排除)。已知限制：`_NEGATION_MARKERS` 只有四個詞；只用 golden set 一題（`gs-018`）驗證過，複雜句型沒測過。
