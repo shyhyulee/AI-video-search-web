@@ -7,6 +7,11 @@ interface VideoListItemProps {
   selected?: boolean
   checked?: boolean
   onCheckedChange?: (checked: boolean) => void
+  /** 勾選框不可用（例如已達批次上限）。已勾選的項目不該被停用，否則會變成
+   * 取消不掉——呼叫端負責只對「還沒勾選」的項目傳 true。 */
+  checkboxDisabled?: boolean
+  /** 勾選框停用的原因，顯示成 tooltip。 */
+  checkboxDisabledReason?: string
   onClick?: () => void
   meta: ReactNode
   trailing?: ReactNode
@@ -20,6 +25,8 @@ export function VideoListItem({
   selected = false,
   checked,
   onCheckedChange,
+  checkboxDisabled = false,
+  checkboxDisabledReason,
   onClick,
   meta,
   trailing,
@@ -46,9 +53,11 @@ export function VideoListItem({
         <input
           type="checkbox"
           checked={checked ?? false}
+          disabled={checkboxDisabled}
+          title={checkboxDisabled ? checkboxDisabledReason : undefined}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => onCheckedChange(e.target.checked)}
-          className="h-4 w-4 shrink-0 accent-primary"
+          className="h-4 w-4 shrink-0 accent-primary disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={`選取 ${video.title}`}
         />
       )}

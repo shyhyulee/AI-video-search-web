@@ -19,6 +19,16 @@ import { useToast } from '../lib/useToast'
 
 const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本機' }
 
+/** 一次最多勾選幾支送分析。分析是全站唯一會花錢的觸發點，而
+ * `analyzer.BUDGET_USD`（US$0.80）是**每支影片各自計算**的，沒有批次層級的
+ * 總量上限（見 docs/11 §8.12 的上限對照表），所以在送出前先用勾選數把單批的
+ * 成本天花板壓在 5×$0.80 以內。
+ *
+ * 這是 UI 層的節流，不是強制約束：`POST /api/v1/videos/{id}/analyze` 一次只
+ * 收一支影片、本身沒有批次概念，job_manager 也不限制排隊數量，所以直接打 API
+ * 仍然可以無限送。 */
+const MAX_BATCH_SELECTION = 5
+
 function jobStatusInfo(job: Job | undefined): { text: string; kind: 'success' | 'error' | 'primary' | 'neutral' } {
   if (!job) return { text: '等待分析', kind: 'neutral' }
   if (job.status === 'completed') return { text: '✓ 分析完成', kind: 'success' }
@@ -59,8 +69,14 @@ export function VideosPage() {
   const toggleSelected = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(id)) {
+        next.delete(id)
+        return next
+      }
+      // 已達上限就不再加選。畫面上未勾選的 checkbox 這時已經是 disabled，
+      // 這裡是第二道防線，確保狀態本身不可能超過上限。
+      if (next.size >= MAX_BATCH_SELECTION) return prev
+      next.add(id)
       return next
     })
   }
@@ -127,6 +143,7 @@ export function VideosPage() {
     onSuccess: invalidateAfterChange,
   })
 
+  const atSelectionLimit = selected.size >= MAX_BATCH_SELECTION
   const selectedTitles = [...selected].map((id) => pending?.find((v) => v.id === id)?.title ?? String(id))
   const deletePreview = selectedTitles.slice(0, 3).join('、') + (selectedTitles.length > 3 ? '…' : '')
 
@@ -175,6 +192,8 @@ export function VideosPage() {
                   key={v.id}
                   video={v}
                   checked={selected.has(v.id)}
+                  checkboxDisabled={!selected.has(v.id) && atSelectionLimit}
+                  checkboxDisabledReason={`一次最多勾選 ${MAX_BATCH_SELECTION} 支`}
                   onCheckedChange={() => toggleSelected(v.id)}
                   meta={
                     <>
@@ -223,6 +242,10 @@ export function VideosPage() {
           <Button variant="secondary" disabled={selected.size === 0} onClick={() => setConfirmDeleteOpen(true)}>
             移除
           </Button>
+          <p className="self-center text-sm text-text-secondary" aria-live="polite">
+            已選 {selected.size} / {MAX_BATCH_SELECTION}
+            {atSelectionLimit && '（已達一次可送出的上限）'}
+          </p>
         </div>
         {rejectedNote && (
           <p className="mt-2 text-sm text-error" aria-live="polite">
