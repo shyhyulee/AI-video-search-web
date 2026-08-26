@@ -39,12 +39,6 @@ export function formatPercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }
 
-const SCORE_NA = 'N/A'
-
-export function formatScore(score: number | null): string {
-  return score === null ? SCORE_NA : score.toFixed(2)
-}
-
 export function formatElapsed(startedAt: string | null): string {
   if (!startedAt) return '0:00'
   const startMs = new Date(startedAt).getTime()

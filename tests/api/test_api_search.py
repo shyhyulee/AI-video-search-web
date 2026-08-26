@@ -1,5 +1,5 @@
 """search API：monkeypatch search_service.search 避免真的呼叫 OpenAI，重點
-測 request/response 轉換與 CSV 匯出格式。
+測 request/response 轉換。
 """
 from __future__ import annotations
 
@@ -29,16 +29,3 @@ def test_search_returns_results(client, monkeypatch):
     assert len(body["results"]) == 1
     assert body["results"][0]["video_title"] == "測試影片"
     assert body["results"][0]["start_sec"] == 65.0
-
-
-def test_search_export_returns_csv(client, monkeypatch):
-    monkeypatch.setattr(search_service, "search", lambda query, video_id=None, top_k=20: _fake_response())
-
-    resp = client.post("/api/v1/search/export", json={"query": "找機器人"})
-
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/csv")
-    body = resp.text
-    assert "排名,影片名稱,時間範圍,相似度,融合分數,命中來源,片段描述" in body
-    assert "測試影片" in body
-    assert "01:05–01:30" in body

@@ -100,26 +100,6 @@ export function search(params: SearchParams): Promise<SearchResponse> {
   return request<SearchResponse>('/search', { method: 'POST', body: JSON.stringify(params) })
 }
 
-/** CSV 匯出直接觸發瀏覽器下載，不回傳資料給呼叫端。 */
-export async function exportSearchCsv(params: SearchParams): Promise<void> {
-  const resp = await fetch(`${BASE}/search/export`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  })
-  if (!resp.ok) {
-    const body = (await resp.json()) as ApiErrorBody
-    throw new ApiError(resp.status, body)
-  }
-  const blob = await resp.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = '搜尋結果.csv'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 /** 搜尋 YouTube 影片（只查 metadata，不會下載任何東西）。 */
 export function searchYoutube(query: string, limit?: number): Promise<YoutubeSearchResponse> {
   const params = new URLSearchParams({ q: query })

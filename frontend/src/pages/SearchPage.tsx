@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { exportSearchCsv, search } from '../api/client'
+import { search } from '../api/client'
 import type { SearchResult } from '../api/types'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
@@ -126,14 +126,6 @@ export function SearchPage() {
           />
           <Button type="submit" variant="primary" size="lg">
             搜尋
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={results.length === 0}
-            onClick={() => exportSearchCsv({ query: queryText.trim(), video_id: scopeVideoId })}
-          >
-            匯出 CSV
           </Button>
         </form>
         <p className="mt-2 text-sm text-text-secondary" aria-live="polite">

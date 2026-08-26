@@ -624,3 +624,41 @@ overflow 就悄悄跑掉。
    `BUDGET_USD` 交給使用者決定，這次沒有自行更動。同樣的說明也寫在 `analyzer.py` 的註解裡。
 
 **驗證**：後端全套測試 **267 passed**（1 deselected）。
+
+### 8.13 搜尋影片頁精簡：拿掉 CSV 匯出與融合分數說明，模態分數改百分比條（2026-08-26）
+
+> 編號跳過 8.12：那個號碼留給還在進行中的 `BUDGET_USD` $0.30 → $0.80 調整，
+> `pipeline/analyzer.py` 的註解已經先引用了 §8.12。
+
+**需求**（三件小事一起做）：
+
+1. 空狀態的 icon 置中。
+2. Evidence Panel 拿掉「主要命中來源」與「融合分數 0.236（排序依據）・RRF 融合（…）」兩行。
+3. 搜尋影片頁拿掉「匯出 CSV」；字幕／畫面／OCR 三個分數改用跟「最終相似度」一樣的百分比條，並排一列。
+
+**修改**：
+
+- `components/EmptyState.tsx`：icon 外層由 `mx-auto` 改成 `flex justify-center`。**原因**：那層
+  `<div>` 是 block 且沒設寬度，會撐滿容器，`mx-auto` 等於沒作用；而 Tailwind preflight 把 `svg` 設成
+  `display: block`，父層的 `text-center` 也管不到它，icon 就貼在最左邊。
+- `components/EvidencePanel.tsx`：刪掉 `hit_source`／`fusion_score`／`fusion_strategy` 三個欄位的顯示；
+  `ScoreCell` 改吃原始分數並改用 `SimilarityBar`，外層 `grid-cols-3` 三欄同列。
+- `components/SimilarityBar.tsx`：`ratio` 改收 `number | null`，null（該模態沒內容，例如整段無字幕）
+  顯示空條＋灰字 N/A；百分比文字加 `shrink-0`，欄位窄時先縮色條、不擠壓數字。
+- `pages/SearchPage.tsx`／`api/client.ts`／`lib/format.ts`：移除「匯出 CSV」按鈕、`exportSearchCsv()`
+  與跟著沒人用的 `formatScore()`。
+- `api/search.py`：移除 `POST /api/v1/search/export` 與 `_format_time_range()`，`csv`／`io`／
+  `StreamingResponse` 三個 import 一併清掉。`tests/api/test_api_search.py` 移除
+  `test_search_export_returns_csv`。
+
+**兩點要記清楚**：
+
+1. **三模態分數用百分比條在語意上是對的**：`similarity` 就是 transcript／visual／OCR 三個 cosine
+   分數取最高（`pipeline/search.py:232`），四條共用同一個尺度，最高的那條必定等於上方「最終相似度」。
+   跟它同框的 `fusion_score` **不是**同一個尺度（RRF 融合值，排序依據），所以它被拿掉之後不要再用
+   同一種條狀圖把它加回來。
+2. **`docs/08` §API 清單仍列著 `POST /api/v1/search/export`**，那是遷移期的設計文件、保留為歷史紀錄，
+   以本節為準。Tkinter 版的 CSV 匯出（`docs/07` §5）不受影響，這次只動 Web。
+
+**驗證**：後端全套測試 **266 passed**（1 deselected；比 8.11 少的一支就是刪掉的 CSV 測試）。前端
+`tsc --noEmit`／`oxlint` 全過。
