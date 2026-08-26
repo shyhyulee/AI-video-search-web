@@ -7,10 +7,11 @@
 _analyze_worker() 是整支流程的 orchestrator，呼叫下面幾個具名的
 _run_*()／_write_segments() phase 函式，對應 Phase A~F 的邏輯區塊
 （B~F 原本就有對應註解，A／音訊轉錄步驟原本沒有獨立標記，這次一併補上），
-拆出來是為了每個階段的邏輯可以獨立閱讀，不是要改變流程本身。cost 累加用
-「傳入目前的 total_cost、回傳更新後的 total_cost」
-的方式在 phase 函式間傳遞，因為好幾個 phase 都需要讀取目前累積花費（檢查
-是否超出 BUDGET_USD）又會再花錢，這是最直接、不需要額外狀態物件的做法。
+拆出來是為了每個階段的邏輯可以獨立閱讀，不是要改變流程本身。每個 phase 都
+需要的三件事——這次分析的固定輸入（video_id／video_path／client）、進度回報、
+累計花費與預算判斷——集中在 _AnalysisContext，phase 函式只收 `ctx` 加上自己
+真正需要的參數（原本是把 `progress_queue` 一路傳下去、`total_cost` 進出每個
+簽名手工穿線，新增一個 phase 就要記得同時處理三件事才不會漏）。
 
 其中三組互不依賴的 phase 改成同時起跑縮短耗時（Tier 1 平行化，不改變任何
 判斷邏輯／輸出結果，見 docs/analysis-pipeline-parallelization-plan.md）：
@@ -164,6 +165,101 @@ class _SegmentRow:
     frame_count: int
 
 
+class _AnalysisContext:
+    """一次分析從頭到尾共用的東西：固定的輸入（video_id／video_path／client），
+    加上兩個橫切關注點——進度回報與累計花費／預算判斷。
+
+    抽出來的理由：這兩件事原本靠參數手工穿過每個 phase 函式（`progress_queue`
+    一路往下傳、`total_cost` 進出每個簽名），新增或調整一個 phase 就要同時記得
+    三件事——更新 videos.pipeline_stage、送出 AnalysisProgress、累加並回傳花費
+    ——漏掉任何一件都不會報錯，只會安靜地少一個進度或少算一筆錢。
+    """
+
+    def __init__(
+        self,
+        video_id: int,
+        video_path: Path,
+        client: OpenAI,
+        progress_queue: "queue.Queue[object]",
+        initial_cost: float = 0.0,
+    ) -> None:
+        self.video_id = video_id
+        self.video_path = video_path
+        self.client = client
+        self._progress_queue = progress_queue
+        self._initial_cost = initial_cost
+        self._cost = initial_cost
+        # 好幾個 phase 是在背景執行緒裡累加花費（音訊轉錄、本地 OCR），用鎖
+        # 讓 spend() 本身就是安全的，呼叫端不用各自想同步問題。
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # 花費與預算
+    # ------------------------------------------------------------------
+    @property
+    def total_cost(self) -> float:
+        with self._lock:
+            return self._cost
+
+    @property
+    def spent(self) -> float:
+        """這個 context 自己花掉的金額（不含起始基準），給 merge_branch() 用。"""
+        with self._lock:
+            return self._cost - self._initial_cost
+
+    def spend(self, amount: float) -> None:
+        with self._lock:
+            self._cost += amount
+
+    @property
+    def over_budget(self) -> bool:
+        return self.total_cost > BUDGET_USD
+
+    # ------------------------------------------------------------------
+    # 進度回報
+    # ------------------------------------------------------------------
+    def enter_stage(self, stage: str) -> None:
+        """階段切換：同時寫進 videos.pipeline_stage（重新整理頁面也看得到目前
+        跑到哪）與送出 AnalysisProgress 事件（Job Manager 的 pump thread 會把它
+        寫進 jobs 表）。兩者用同一段文字。"""
+        db.update_video_status(self.video_id, db.STATUS_ANALYZING, stage)
+        self._progress_queue.put(AnalysisProgress(stage=stage))
+
+    def report_progress(self, stage: str, detail: str, *, persist_as: str | None = None) -> None:
+        """階段內的百分比回報。預設只送事件、不寫 DB——這種事件很密集（場景
+        切分／音訊轉錄／本地 OCR 都是），沒必要每次都寫一次資料庫。
+
+        Phase B（畫面分析）是唯一會順便更新 pipeline_stage 的，而且兩邊的文字
+        格式本來就不一樣（DB 寫「畫面分析 40%」一整串，事件是 stage／detail
+        分開兩欄），所以用 persist_as 明確指定要寫進 DB 的字串，不假設兩者相同。
+        """
+        if persist_as is not None:
+            db.update_video_status(self.video_id, db.STATUS_ANALYZING, persist_as)
+        self._progress_queue.put(AnalysisProgress(stage=stage, detail=detail))
+
+    # ------------------------------------------------------------------
+    # 平行分支
+    # ------------------------------------------------------------------
+    def budget_branch(self) -> "_AnalysisContext":
+        """給「互相平行、而且各自都要判斷預算」的 phase 用：回傳一個從目前金額
+        起算、獨立累加的 context。兩個分支互相看不到對方的花費——這正是
+        _run_local_ocr_and_summary() 既有的取捨（兩者合計可能比 BUDGET_USD 多出
+        一點點），用 budget_branch() 把它變成明講的機制而不是靠傳參數傳出來的
+        副作用。跑完用 merge_branch() 把增量併回主帳。
+        """
+        return _AnalysisContext(
+            video_id=self.video_id,
+            video_path=self.video_path,
+            client=self.client,
+            progress_queue=self._progress_queue,
+            initial_cost=self.total_cost,
+        )
+
+    def merge_branch(self, branch: "_AnalysisContext") -> None:
+        """把分支自己花掉的增量併回主帳（不是把分支的總額覆蓋上來）。"""
+        self.spend(branch.spent)
+
+
 def is_within_duration_limit(duration_sec: int | None) -> bool:
     return duration_sec is not None and duration_sec <= MAX_DURATION_SEC
 
@@ -186,26 +282,26 @@ def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> Non
         progress_queue.put(AnalysisError(video_id=video_id, message="找不到影片檔案"))
         return
 
+    # 這個階段切換刻意不透過 ctx：建立 context 需要 client，而 get_client()
+    # 必須留在「場景切分中」寫進 DB／送出事件之後——維持重構前的順序，
+    # get_client() 失敗（例如缺 API 金鑰）時的可觀察狀態才會跟以前一致。
     db.update_video_status(video_id, db.STATUS_ANALYZING, "場景切分中")
     progress_queue.put(AnalysisProgress(stage="場景切分中"))
 
-    client = get_client()
-    total_cost = 0.0
+    ctx = _AnalysisContext(
+        video_id=video_id, video_path=video_path, client=get_client(), progress_queue=progress_queue
+    )
 
     try:
         duration_sec = float(video.duration_sec or 0)
 
-        scenes, transcribe_result, total_cost = _run_scene_detection_and_transcription(
-            client, video_id, video_path, duration_sec, progress_queue, total_cost
-        )
+        scenes, transcribe_result = _run_scene_detection_and_transcription(ctx, duration_sec)
 
-        scene_rows, total_cost, vlm_failed_count = _run_vlm_phase(
-            client, video_id, video_path, scenes, transcribe_result, progress_queue, total_cost
-        )
+        scene_rows, vlm_failed_count = _run_vlm_phase(ctx, scenes, transcribe_result)
 
-        segment_rows, total_cost = _run_embedding_phase(client, video_id, scene_rows, progress_queue, total_cost)
+        segment_rows = _run_embedding_phase(ctx, scene_rows)
 
-        segment_ids = _write_segments(video_id, segment_rows, progress_queue)
+        segment_ids = _write_segments(ctx, segment_rows)
 
         segment_count = len(segment_rows)
         partial = segment_count < len(scenes)
@@ -224,14 +320,12 @@ def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> Non
         # 見 docs/analysis-pipeline-parallelization-plan.md。本地 OCR 整段失敗
         # 只記 log、不能讓已經成功的分析結果被判定為失敗，見
         # docs/ocr-local-engine-plan.md 設計決策 5。
-        summary_text, total_cost = _run_local_ocr_and_summary(
-            client, video_id, video_path, segment_rows, segment_ids, total_cost, progress_queue
-        )
+        summary_text = _run_local_ocr_and_summary(ctx, segment_rows, segment_ids)
 
         db.mark_video_analyzed(
             video_id=video_id,
             segment_count=segment_count,
-            cost_usd=total_cost,
+            cost_usd=ctx.total_cost,
             asr_model=asr.MODEL_NAME,
             vlm_model=vlm.MODEL_NAME,
             embedding_model=embedding.MODEL_NAME,
@@ -241,7 +335,7 @@ def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> Non
         )
         progress_queue.put(
             AnalysisResult(
-                video_id=video_id, segment_count=segment_count, cost_usd=total_cost, partial=partial,
+                video_id=video_id, segment_count=segment_count, cost_usd=ctx.total_cost, partial=partial,
                 vlm_failed_count=vlm_failed_count,
             )
         )
@@ -258,51 +352,37 @@ def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> Non
         progress_queue.put(AnalysisError(video_id=video_id, message=str(exc)))
 
 
-def _run_scene_detection(
-    video_path: Path, duration_sec: float, progress_queue: "queue.Queue[object]"
-) -> list[scene_detect.NormalizedScene]:
+def _run_scene_detection(ctx: _AnalysisContext, duration_sec: float) -> list[scene_detect.NormalizedScene]:
     """Phase A：場景切分。"""
 
     def _on_scene_progress(percent: int) -> None:
-        progress_queue.put(AnalysisProgress(stage="場景切分中", detail=f"{percent}%（預估）"))
+        ctx.report_progress("場景切分中", f"{percent}%（預估）")
 
-    return scene_detect.detect_scenes_with_progress(video_path, duration_sec, on_progress=_on_scene_progress)
+    return scene_detect.detect_scenes_with_progress(
+        ctx.video_path, duration_sec, on_progress=_on_scene_progress
+    )
 
 
-def _run_transcription(
-    client: OpenAI,
-    video_id: int,
-    video_path: Path,
-    duration_sec: float,
-    progress_queue: "queue.Queue[object]",
-    total_cost: float,
-) -> tuple[asr.TranscribeResult, float]:
+def _run_transcription(ctx: _AnalysisContext, duration_sec: float) -> asr.TranscribeResult:
     """整支影片的音訊轉錄（原本無獨立 Phase 字母，緊接在 Phase A 場景切分之後、
-    Phase B 逐片段畫面分析之前），回傳 (轉錄結果, 累加後的 total_cost)。"""
-    db.update_video_status(video_id, db.STATUS_ANALYZING, "音訊轉錄中")
-    progress_queue.put(AnalysisProgress(stage="音訊轉錄中"))
+    Phase B 逐片段畫面分析之前）。花費直接記進 ctx。"""
+    ctx.enter_stage("音訊轉錄中")
 
     def _on_transcribe_progress(percent: int) -> None:
-        progress_queue.put(AnalysisProgress(stage="音訊轉錄中", detail=f"{percent}%（預估）"))
+        ctx.report_progress("音訊轉錄中", f"{percent}%（預估）")
 
     transcribe_result = asr.transcribe_with_progress(
-        client, video_path, duration_sec, on_progress=_on_transcribe_progress
+        ctx.client, ctx.video_path, duration_sec, on_progress=_on_transcribe_progress
     )
-    total_cost += transcribe_result.cost_usd
-    db.update_video_status(video_id, db.STATUS_ANALYZING, "音訊轉錄完成")
-    progress_queue.put(AnalysisProgress(stage="音訊轉錄完成"))
+    ctx.spend(transcribe_result.cost_usd)
+    ctx.enter_stage("音訊轉錄完成")
 
-    return transcribe_result, total_cost
+    return transcribe_result
 
 
 def _run_scene_detection_and_transcription(
-    client: OpenAI,
-    video_id: int,
-    video_path: Path,
-    duration_sec: float,
-    progress_queue: "queue.Queue[object]",
-    total_cost: float,
-) -> tuple[list[scene_detect.NormalizedScene], asr.TranscribeResult, float]:
+    ctx: _AnalysisContext, duration_sec: float
+) -> tuple[list[scene_detect.NormalizedScene], asr.TranscribeResult]:
     """Phase A（場景切分）跟音訊轉錄互不依賴——一個看畫面、一個聽聲音，改成
     同時起跑縮短總耗時；`_run_scene_detection()`／`_run_transcription()` 本身
     不動，只是呼叫順序從循序改成併發，見
@@ -312,9 +392,7 @@ def _run_scene_detection_and_transcription(
 
     def _do_transcription() -> None:
         try:
-            transcribe_holder["result"] = _run_transcription(
-                client, video_id, video_path, duration_sec, progress_queue, total_cost
-            )
+            transcribe_holder["result"] = _run_transcription(ctx, duration_sec)
         except Exception as exc:  # 子執行緒的例外不會自動傳給主執行緒，join 後手動重拋
             transcribe_holder["error"] = exc
 
@@ -322,18 +400,16 @@ def _run_scene_detection_and_transcription(
     transcribe_thread.start()
 
     try:
-        scenes = _run_scene_detection(video_path, duration_sec, progress_queue)
+        scenes = _run_scene_detection(ctx, duration_sec)
     finally:
         # 場景切分萬一拋例外，也要等轉錄執行緒做完才能離開這個函式——不然
-        # 轉錄那個已經開始的 API 呼叫會在背景繼續跑，脫離這個函式的生命週期，
-        # 花的錢也不會被算進 total_cost。
+        # 轉錄那個已經開始的 API 呼叫會在背景繼續跑，脫離這個函式的生命週期。
         transcribe_thread.join()
 
     if "error" in transcribe_holder:
         raise transcribe_holder["error"]  # type: ignore[misc]
 
-    transcribe_result, updated_cost = transcribe_holder["result"]  # type: ignore[misc]
-    return scenes, transcribe_result, updated_cost
+    return scenes, transcribe_holder["result"]  # type: ignore[return-value]
 
 
 def _frame_fractions_for(scene: scene_detect.NormalizedScene) -> tuple[float, ...]:
@@ -347,14 +423,10 @@ def _frame_fractions_for(scene: scene_detect.NormalizedScene) -> tuple[float, ..
 
 
 def _run_vlm_phase(
-    client: OpenAI,
-    video_id: int,
-    video_path: Path,
+    ctx: _AnalysisContext,
     scenes: list[scene_detect.NormalizedScene],
     transcribe_result: asr.TranscribeResult,
-    progress_queue: "queue.Queue[object]",
-    total_cost: float,
-) -> tuple[list[_SceneAnalysisRow], float, int]:
+) -> tuple[list[_SceneAnalysisRow], int]:
     """Phase B：逐片段畫面分析（VLM，成本主要來源）。場景分批平行送出縮短耗時
     （Tier 2 平行化，見 docs/analysis-pipeline-parallelization-plan.md）：同一批
     內用 thread pool 並發呼叫，用「送出順序」收集結果（不是完成順序），確保
@@ -383,8 +455,7 @@ def _run_vlm_phase(
         nonlocal completed
         completed += 1
         percent = round(completed / len(scenes) * 100)
-        db.update_video_status(video_id, db.STATUS_ANALYZING, f"畫面分析 {percent}%")
-        progress_queue.put(AnalysisProgress(stage="畫面分析", detail=f"{percent}%"))
+        ctx.report_progress("畫面分析", f"{percent}%", persist_as=f"畫面分析 {percent}%")
 
     with ThreadPoolExecutor(max_workers=VLM_BATCH_SIZE) as pool:
         for batch_start in range(0, len(scenes), VLM_BATCH_SIZE):
@@ -392,7 +463,7 @@ def _run_vlm_phase(
             futures = [
                 pool.submit(
                     _describe_segment_with_retry,
-                    client, video_path, scene.start_sec, scene.end_sec, _frame_fractions_for(scene),
+                    ctx.client, ctx.video_path, scene.start_sec, scene.end_sec, _frame_fractions_for(scene),
                 )
                 for scene in batch
             ]
@@ -412,7 +483,7 @@ def _run_vlm_phase(
                 _report_progress()
 
                 if describe_result is not None:
-                    total_cost += describe_result.cost_usd
+                    ctx.spend(describe_result.cost_usd)
                 scene_rows.append(
                     _SceneAnalysisRow(
                         start_sec=start_sec,
@@ -425,10 +496,10 @@ def _run_vlm_phase(
                     )
                 )
 
-            if total_cost > BUDGET_USD:
+            if ctx.over_budget:
                 break
 
-    return scene_rows, total_cost, vlm_failed_count
+    return scene_rows, vlm_failed_count
 
 
 def _describe_segment_with_retry(
@@ -455,13 +526,7 @@ def _describe_segment_with_retry(
             time.sleep(VLM_RATE_LIMIT_RETRY_WAIT_SEC)
 
 
-def _run_embedding_phase(
-    client: OpenAI,
-    video_id: int,
-    scene_rows: list[_SceneAnalysisRow],
-    progress_queue: "queue.Queue[object]",
-    total_cost: float,
-) -> tuple[list[_SegmentRow], float]:
+def _run_embedding_phase(ctx: _AnalysisContext, scene_rows: list[_SceneAnalysisRow]) -> list[_SegmentRow]:
     """Phase C：建立向量（字幕、畫面描述、OCR 文字分開 embed）。同一片段內的三個
     embedding 互相獨立，用 thread pool 平行送出縮短耗時；片段仍然照原順序一個一個
     處理，budget 檢查時機（一個片段的三個 embedding 都做完才檢查一次）不變，見
@@ -474,8 +539,7 @@ def _run_embedding_phase(
     模式 B（asr.find_repetitive_transcript_indices()，連續場景被同一個詞
     主導）跨場景判斷，要先對整支影片的字幕算一次。
     """
-    db.update_video_status(video_id, db.STATUS_ANALYZING, "建立向量中")
-    progress_queue.put(AnalysisProgress(stage="建立向量中"))
+    ctx.enter_stage("建立向量中")
 
     repetitive_indices = asr.find_repetitive_transcript_indices(
         [row.transcript_text for row in scene_rows]
@@ -486,23 +550,18 @@ def _run_embedding_phase(
         is_hallucinated = asr.is_hallucinated_transcript(row.scores) or index in repetitive_indices
         transcript_for_embedding = row.transcript_text if row.transcript_text and not is_hallucinated else None
         embed_results = _embed_segment_texts(
-            client, transcript=transcript_for_embedding, visual=row.description, ocr=row.ocr_text
+            ctx.client, transcript=transcript_for_embedding, visual=row.description, ocr=row.ocr_text
         )
 
-        transcript_embedding = None
-        if "transcript" in embed_results:
-            total_cost += embed_results["transcript"].cost_usd
-            transcript_embedding = embedding.encode_embedding(embed_results["transcript"].vector)
-
-        visual_embedding = None
-        if "visual" in embed_results:
-            total_cost += embed_results["visual"].cost_usd
-            visual_embedding = embedding.encode_embedding(embed_results["visual"].vector)
-
-        ocr_embedding = None
-        if "ocr" in embed_results:
-            total_cost += embed_results["ocr"].cost_usd
-            ocr_embedding = embedding.encode_embedding(embed_results["ocr"].vector)
+        # 三個模態的處理完全一樣（累加花費＋編碼成 bytes），照固定順序跑一次
+        # 迴圈；沒有 embed 到的模態就不會出現在 blobs 裡，取值是 None。
+        blobs: dict[str, bytes] = {}
+        for kind in ("transcript", "visual", "ocr"):
+            embed_result = embed_results.get(kind)
+            if embed_result is None:
+                continue
+            ctx.spend(embed_result.cost_usd)
+            blobs[kind] = embedding.encode_embedding(embed_result.vector)
 
         segment_rows.append(
             _SegmentRow(
@@ -511,18 +570,18 @@ def _run_embedding_phase(
                 transcript_text=row.transcript_text,
                 description=row.description,
                 ocr_text=row.ocr_text,
-                transcript_embedding=transcript_embedding,
-                visual_embedding=visual_embedding,
-                ocr_embedding=ocr_embedding,
+                transcript_embedding=blobs.get("transcript"),
+                visual_embedding=blobs.get("visual"),
+                ocr_embedding=blobs.get("ocr"),
                 scores=row.scores,
                 frame_count=row.frame_count,
             )
         )
 
-        if total_cost > BUDGET_USD:
+        if ctx.over_budget:
             break
 
-    return segment_rows, total_cost
+    return segment_rows
 
 
 def _embed_segment_texts(
@@ -543,17 +602,14 @@ def _embed_segment_texts(
         return {kind: future.result() for kind, future in futures.items()}
 
 
-def _write_segments(
-    video_id: int, segment_rows: list[_SegmentRow], progress_queue: "queue.Queue[object]"
-) -> list[int]:
+def _write_segments(ctx: _AnalysisContext, segment_rows: list[_SegmentRow]) -> list[int]:
     """Phase D：把所有片段一次寫入 segments 表，回傳依序對應的 segment_id 清單。"""
-    db.update_video_status(video_id, db.STATUS_ANALYZING, "寫入索引")
-    progress_queue.put(AnalysisProgress(stage="寫入索引"))
+    ctx.enter_stage("寫入索引")
 
     segment_ids: list[int] = []
     for row in segment_rows:
         segment_id = db.insert_segment(
-            video_id=video_id,
+            video_id=ctx.video_id,
             start_sec=row.start_sec,
             end_sec=row.end_sec,
             transcript=row.transcript_text or None,
@@ -575,15 +631,9 @@ def _write_segments(
 
 
 def _run_local_ocr(
-    client: OpenAI,
-    video_id: int,
-    video_path: Path,
-    segment_rows: list[_SegmentRow],
-    segment_ids: list[int],
-    total_cost: float,
-    progress_queue: "queue.Queue[object]",
-) -> float:
-    """跑本地 OCR 掃描並把結果 embed、寫入 ocr_events；回傳累加後的 total_cost。
+    ctx: _AnalysisContext, segment_rows: list[_SegmentRow], segment_ids: list[int]
+) -> None:
+    """跑本地 OCR 掃描並把結果 embed、寫入 ocr_events；花費記進 ctx。
     只掃描 VLM-OCR 沒抓到文字的場景（segment_rows 的 ocr_text 為空）——本地 OCR
     的目的是補 VLM 單幀取樣漏掉的文字，不是重複掃描 VLM 已經找到文字的場景；
     用真實影片校準過，多數影片 VLM 已覆蓋 98~100% 場景，全面依序掃描只會把
@@ -598,20 +648,20 @@ def _run_local_ocr(
         if not row.ocr_text  # VLM-OCR 已經有文字的場景不用本地 OCR 複掃
     ]
     if not scenes_with_segment_id:
-        return total_cost
+        return
 
     def _on_ocr_progress(percent: int) -> None:
-        progress_queue.put(AnalysisProgress(stage="本地 OCR 掃描中", detail=f"{percent}%"))
+        ctx.report_progress("本地 OCR 掃描中", f"{percent}%")
 
     ocr_events = ocr_service.scan_scenes(
-        video_id, video_path, scenes_with_segment_id, on_progress=_on_ocr_progress
+        ctx.video_id, ctx.video_path, scenes_with_segment_id, on_progress=_on_ocr_progress
     )
 
     for event in ocr_events:
-        if total_cost > BUDGET_USD:
+        if ctx.over_budget:
             break
-        embed_result = embedding.embed_text(client, event.resolved_text)
-        total_cost += embed_result.cost_usd
+        embed_result = embedding.embed_text(ctx.client, event.resolved_text)
+        ctx.spend(embed_result.cost_usd)
         db.insert_ocr_event(
             video_id=event.video_id,
             segment_id=event.segment_id,
@@ -627,71 +677,65 @@ def _run_local_ocr(
             embedding=embedding.encode_embedding(embed_result.vector),
         )
 
-    return total_cost
 
-
-def _run_summary_phase(
-    client: OpenAI, video_id: int, total_cost: float, progress_queue: "queue.Queue[object]"
-) -> tuple[str | None, float]:
+def _run_summary_phase(ctx: _AnalysisContext) -> str | None:
     """Phase F：產生摘要（GPT-4o-mini，彙整全部片段字幕與畫面描述，約 100~200 字）。
     budget 已經超支就跳過，不強求一定要有摘要；失敗只記 log，不影響其他分析
     結果——跟本地 OCR 同樣的失敗隔離原則。這份摘要也是搜尋端影片篩選
     （search.py 的 _video_relevance_score()）的主要依據，見
     docs/scene-length-normalization-plan.md 之後的搜尋規劃討論。
     """
-    db.update_video_status(video_id, db.STATUS_ANALYZING, "產生摘要中")
-    progress_queue.put(AnalysisProgress(stage="產生摘要中"))
+    ctx.enter_stage("產生摘要中")
 
     summary_text: str | None = None
     try:
-        if total_cost <= BUDGET_USD:
-            fresh_segments = db.list_segments_for_video(video_id)
+        if not ctx.over_budget:
+            fresh_segments = db.list_segments_for_video(ctx.video_id)
             if fresh_segments:
-                summary_result = summary_pipeline.generate_summary(client, fresh_segments)
-                total_cost += summary_result.cost_usd
+                summary_result = summary_pipeline.generate_summary(ctx.client, fresh_segments)
+                ctx.spend(summary_result.cost_usd)
                 summary_text = summary_result.summary
     except Exception:
         logger.warning("自動產生摘要失敗，跳過（不影響其他分析結果）", exc_info=True)
 
-    return summary_text, total_cost
+    return summary_text
 
 
 def _run_local_ocr_and_summary(
-    client: OpenAI,
-    video_id: int,
-    video_path: Path,
-    segment_rows: list[_SegmentRow],
-    segment_ids: list[int],
-    total_cost: float,
-    progress_queue: "queue.Queue[object]",
-) -> tuple[str | None, float]:
+    ctx: _AnalysisContext, segment_rows: list[_SegmentRow], segment_ids: list[int]
+) -> str | None:
     """Phase E（本地 OCR）跟 Phase F（產生摘要）互不依賴——F 只讀 Phase D 寫入的
-    segments，不碰 Phase E 寫的 ocr_events 表——改成同時起跑縮短耗時。兩者都用
-    「進入這個函式那一刻」的 total_cost 當基準；`_run_local_ocr()` 本身完全不動，
-    `_run_summary_phase()` 判斷要不要花錢做摘要的依據原本是「本地 OCR 跑完後」的
-    金額，這裡改成「本地 OCR 開始前」的金額——極端情況下兩者合計可能讓總花費
+    segments，不碰 Phase E 寫的 ocr_events 表——改成同時起跑縮短耗時。兩者各拿一個
+    `ctx.budget_branch()`：都以「進入這個函式那一刻」的金額當預算判斷基準，互相
+    看不到對方的花費。`_run_summary_phase()` 判斷要不要花錢做摘要的依據因此是
+    「本地 OCR 開始前」的金額而不是「跑完後」——極端情況下兩者合計可能讓總花費
     比 BUDGET_USD 多出一點點，是刻意接受的已知取捨，見
     docs/analysis-pipeline-parallelization-plan.md。
     """
-    baseline_cost = total_cost
-    ocr_holder: dict[str, float] = {"cost": baseline_cost}
+    ocr_ctx = ctx.budget_branch()
+    summary_ctx = ctx.budget_branch()
+    ocr_succeeded = False
 
     def _do_local_ocr() -> None:
-        db.update_video_status(video_id, db.STATUS_ANALYZING, "本地 OCR 掃描中")
-        progress_queue.put(AnalysisProgress(stage="本地 OCR 掃描中"))
+        nonlocal ocr_succeeded
+        ocr_ctx.enter_stage("本地 OCR 掃描中")
         try:
-            ocr_holder["cost"] = _run_local_ocr(
-                client, video_id, video_path, segment_rows, segment_ids, baseline_cost, progress_queue
-            )
+            _run_local_ocr(ocr_ctx, segment_rows, segment_ids)
+            ocr_succeeded = True
         except Exception:
             logger.warning("本地 OCR 掃描階段失敗，跳過（不影響其他分析結果）", exc_info=True)
 
     ocr_thread = threading.Thread(target=_do_local_ocr)
     ocr_thread.start()
 
-    summary_text, summary_cost = _run_summary_phase(client, video_id, baseline_cost, progress_queue)
+    summary_text = _run_summary_phase(summary_ctx)
 
     ocr_thread.join()
 
-    total_cost = ocr_holder["cost"] + summary_cost - baseline_cost
-    return summary_text, total_cost
+    # 本地 OCR 整段失敗時不併回它的花費：維持重構前的語意（舊版把累加中的
+    # 金額放在區域變數裡，例外一拋就整個丟掉，已經花掉的 embedding 錢不會被
+    # 算進總額）。這其實是個小小的低估，但屬於行為，不在這次重構的範圍內改。
+    if ocr_succeeded:
+        ctx.merge_branch(ocr_ctx)
+    ctx.merge_branch(summary_ctx)
+    return summary_text

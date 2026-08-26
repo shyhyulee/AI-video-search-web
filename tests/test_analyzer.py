@@ -26,6 +26,16 @@ _DUMMY_VIDEO_PATH = Path("/dev/null")
 _NO_SCORES = SegmentScores(no_speech_prob=None, avg_logprob=None, compression_ratio=None)
 
 
+def _context(initial_cost: float = 0.0) -> analyzer._AnalysisContext:
+    """測試用的分析 context：固定的 video_id／影片路徑／假 client，進度事件丟進
+    一條沒人讀的 queue。initial_cost 對應重構前直接傳進 phase 函式的 total_cost。
+    """
+    return analyzer._AnalysisContext(
+        video_id=1, video_path=_DUMMY_VIDEO_PATH, client=MagicMock(),
+        progress_queue=queue.Queue(), initial_cost=initial_cost,
+    )
+
+
 def _rate_limit_error() -> openai.RateLimitError:
     request = httpx2.Request("POST", "https://api.openai.com/v1/chat/completions")
     response = httpx2.Response(status_code=429, request=request)
@@ -72,14 +82,11 @@ def test_run_local_ocr_only_scans_scenes_without_vlm_ocr_text(monkeypatch):
 
     monkeypatch.setattr(analyzer.ocr_service, "scan_scenes", fake_scan_scenes)
 
-    result_cost = analyzer._run_local_ocr(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        segment_rows=segment_rows, segment_ids=segment_ids,
-        total_cost=0.0, progress_queue=queue.Queue(),
-    )
+    ctx = _context()
+    analyzer._run_local_ocr(ctx, segment_rows, segment_ids)
 
     assert captured["scenes"] == [(6.0, 12.0, 102), (12.0, 18.0, 103)]
-    assert result_cost == 0.0
+    assert ctx.total_cost == 0.0
 
 
 def test_run_local_ocr_skips_scan_scenes_when_all_covered_by_vlm(monkeypatch):
@@ -91,14 +98,11 @@ def test_run_local_ocr_skips_scan_scenes_when_all_covered_by_vlm(monkeypatch):
     scan_scenes_mock = MagicMock(side_effect=AssertionError("不該被呼叫"))
     monkeypatch.setattr(analyzer.ocr_service, "scan_scenes", scan_scenes_mock)
 
-    result_cost = analyzer._run_local_ocr(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        segment_rows=segment_rows, segment_ids=segment_ids,
-        total_cost=0.0, progress_queue=queue.Queue(),
-    )
+    ctx = _context()
+    analyzer._run_local_ocr(ctx, segment_rows, segment_ids)
 
     scan_scenes_mock.assert_not_called()
-    assert result_cost == 0.0
+    assert ctx.total_cost == 0.0
 
 
 def test_embed_segment_texts_returns_all_present_kinds(monkeypatch):
@@ -142,16 +146,14 @@ def test_run_embedding_phase_stops_at_same_segment_as_sequential(monkeypatch):
         _scene_row(2.0, 3.0, transcript_text="t2", description="d2", ocr_text="o2"),
     ]
 
-    segment_rows, total_cost = analyzer._run_embedding_phase(
-        client=MagicMock(), video_id=1, scene_rows=scene_rows,
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    segment_rows = analyzer._run_embedding_phase(ctx, scene_rows)
 
     # 每個片段 3 個 embedding * $0.05：第 1 個片段做完 $0.15（未超支，繼續），
     # 第 2 個片段做完 $0.30（超支，停）——第 3 個片段完全不該被處理。
     assert len(segment_rows) == 2
     assert call_count["n"] == 6
-    assert round(total_cost, 10) == 0.30
+    assert round(ctx.total_cost, 10) == 0.30
 
 
 def test_run_embedding_phase_skips_transcript_embedding_when_hallucinated(monkeypatch):
@@ -175,10 +177,7 @@ def test_run_embedding_phase_skips_transcript_embedding_when_hallucinated(monkey
         _scene_row(1.0, 2.0, transcript_text="真實字幕", scores=normal_scores),
     ]
 
-    segment_rows, total_cost = analyzer._run_embedding_phase(
-        client=MagicMock(), video_id=1, scene_rows=scene_rows,
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    segment_rows = analyzer._run_embedding_phase(_context(), scene_rows)
 
     assert len(segment_rows) == 2
     assert "ក្រាមំ ក្រាមំ" not in embedded_texts  # 幻覺字幕沒有被送去 embed
@@ -215,10 +214,7 @@ def test_run_embedding_phase_skips_transcript_embedding_for_repetitive_run(monke
         _scene_row(3.0, 4.0, transcript_text="真實字幕內容", scores=normal_scores),
     ]
 
-    segment_rows, total_cost = analyzer._run_embedding_phase(
-        client=MagicMock(), video_id=1, scene_rows=scene_rows,
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    segment_rows = analyzer._run_embedding_phase(_context(), scene_rows)
 
     assert len(segment_rows) == 4
     assert "Music" not in embedded_texts
@@ -238,24 +234,23 @@ def test_run_local_ocr_and_summary_combines_costs_without_double_counting(monkey
     「E 跑完後」的金額——最終合計不能重複計算或漏算任一邊的花費。"""
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
 
-    def fake_run_local_ocr(client, video_id, video_path, segment_rows, segment_ids, total_cost, progress_queue):
-        assert total_cost == 0.05  # 收到的是基準值，不是「循序版本」會有的其他數字
-        return total_cost + 0.02
+    def fake_run_local_ocr(ctx, segment_rows, segment_ids):
+        assert ctx.total_cost == 0.05  # 收到的是基準值，不是「循序版本」會有的其他數字
+        ctx.spend(0.02)
 
-    def fake_run_summary_phase(client, video_id, total_cost, progress_queue):
-        assert total_cost == 0.05  # 用「本地 OCR 開始前」的金額判斷，不是 OCR 跑完後
-        return "摘要文字", total_cost + 0.03
+    def fake_run_summary_phase(ctx):
+        assert ctx.total_cost == 0.05  # 用「本地 OCR 開始前」的金額判斷，不是 OCR 跑完後
+        ctx.spend(0.03)
+        return "摘要文字"
 
     monkeypatch.setattr(analyzer, "_run_local_ocr", fake_run_local_ocr)
     monkeypatch.setattr(analyzer, "_run_summary_phase", fake_run_summary_phase)
 
-    summary_text, total_cost = analyzer._run_local_ocr_and_summary(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        segment_rows=[], segment_ids=[], total_cost=0.05, progress_queue=queue.Queue(),
-    )
+    ctx = _context(initial_cost=0.05)
+    summary_text = analyzer._run_local_ocr_and_summary(ctx, [], [])
 
     assert summary_text == "摘要文字"
-    assert round(total_cost, 10) == 0.10  # 0.05（基準）+ 0.02（OCR）+ 0.03（摘要）
+    assert round(ctx.total_cost, 10) == 0.10  # 0.05（基準）+ 0.02（OCR）+ 0.03（摘要）
 
 
 def test_run_local_ocr_and_summary_isolates_local_ocr_failure(monkeypatch):
@@ -263,43 +258,41 @@ def test_run_local_ocr_and_summary_isolates_local_ocr_failure(monkeypatch):
     也不能讓例外冒出這個函式（延續既有的失敗隔離原則）。"""
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
 
-    def fake_run_local_ocr(client, video_id, video_path, segment_rows, segment_ids, total_cost, progress_queue):
+    def fake_run_local_ocr(ctx, segment_rows, segment_ids):
         raise RuntimeError("本地 OCR 掛了")
 
-    def fake_run_summary_phase(client, video_id, total_cost, progress_queue):
-        return "摘要照常產生", total_cost + 0.03
+    def fake_run_summary_phase(ctx):
+        ctx.spend(0.03)
+        return "摘要照常產生"
 
     monkeypatch.setattr(analyzer, "_run_local_ocr", fake_run_local_ocr)
     monkeypatch.setattr(analyzer, "_run_summary_phase", fake_run_summary_phase)
 
-    summary_text, total_cost = analyzer._run_local_ocr_and_summary(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        segment_rows=[], segment_ids=[], total_cost=0.05, progress_queue=queue.Queue(),
-    )
+    ctx = _context(initial_cost=0.05)
+    summary_text = analyzer._run_local_ocr_and_summary(ctx, [], [])
 
     assert summary_text == "摘要照常產生"
     # 本地 OCR 失敗沒有貢獻花費，總花費只有基準值 + 摘要花費
-    assert round(total_cost, 10) == 0.08
+    assert round(ctx.total_cost, 10) == 0.08
 
 
 def test_run_scene_detection_and_transcription_returns_both_results(monkeypatch):
-    def fake_run_scene_detection(video_path, duration_sec, progress_queue):
+    def fake_run_scene_detection(ctx, duration_sec):
         return [(0.0, 1.0)]
 
-    def fake_run_transcription(client, video_id, video_path, duration_sec, progress_queue, total_cost):
-        return "TRANSCRIBE_RESULT", total_cost + 0.01
+    def fake_run_transcription(ctx, duration_sec):
+        ctx.spend(0.01)
+        return "TRANSCRIBE_RESULT"
 
     monkeypatch.setattr(analyzer, "_run_scene_detection", fake_run_scene_detection)
     monkeypatch.setattr(analyzer, "_run_transcription", fake_run_transcription)
 
-    scenes, transcribe_result, total_cost = analyzer._run_scene_detection_and_transcription(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        duration_sec=10.0, progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    scenes, transcribe_result = analyzer._run_scene_detection_and_transcription(ctx, 10.0)
 
     assert scenes == [(0.0, 1.0)]
     assert transcribe_result == "TRANSCRIBE_RESULT"
-    assert round(total_cost, 10) == 0.01
+    assert round(ctx.total_cost, 10) == 0.01
 
 
 def test_run_scene_detection_and_transcription_joins_thread_even_if_scene_detection_fails(monkeypatch):
@@ -307,22 +300,20 @@ def test_run_scene_detection_and_transcription_joins_thread_even_if_scene_detect
     沒 join 的執行緒繼續在背景花錢。"""
     transcription_completed = {"done": False}
 
-    def fake_run_scene_detection(video_path, duration_sec, progress_queue):
+    def fake_run_scene_detection(ctx, duration_sec):
         raise RuntimeError("場景切分失敗")
 
-    def fake_run_transcription(client, video_id, video_path, duration_sec, progress_queue, total_cost):
+    def fake_run_transcription(ctx, duration_sec):
         time.sleep(0.05)  # 模擬轉錄仍在進行中
         transcription_completed["done"] = True
-        return "TRANSCRIBE_RESULT", total_cost + 0.01
+        ctx.spend(0.01)
+        return "TRANSCRIBE_RESULT"
 
     monkeypatch.setattr(analyzer, "_run_scene_detection", fake_run_scene_detection)
     monkeypatch.setattr(analyzer, "_run_transcription", fake_run_transcription)
 
     try:
-        analyzer._run_scene_detection_and_transcription(
-            client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-            duration_sec=10.0, progress_queue=queue.Queue(), total_cost=0.0,
-        )
+        analyzer._run_scene_detection_and_transcription(_context(), 10.0)
         raise AssertionError("應該要拋出場景切分的例外")
     except RuntimeError as exc:
         assert "場景切分失敗" in str(exc)
@@ -377,11 +368,7 @@ def test_run_vlm_phase_passes_multi_frame_fractions_to_triggered_scenes(monkeypa
         NormalizedScene(10.0, 20.0, source_raw_duration=40.0),  # 硬切出來的，觸發多幀
     ]
 
-    scene_rows, _, _ = analyzer._run_vlm_phase(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        scenes=scenes, transcribe_result=MagicMock(segments=[]),
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    scene_rows, _ = analyzer._run_vlm_phase(_context(), scenes, MagicMock(segments=[]))
 
     assert received_fractions == [analyzer.vlm.DEFAULT_FRAME_FRACTIONS, analyzer.MULTI_FRAME_FRACTIONS]
     assert [row.frame_count for row in scene_rows] == [1, 2]
@@ -408,16 +395,13 @@ def test_run_vlm_phase_preserves_scene_order_despite_parallel_completion(monkeyp
         NormalizedScene(2.0, 3.0, source_raw_duration=1.0),
     ]
 
-    scene_rows, total_cost, vlm_failed_count = analyzer._run_vlm_phase(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        scenes=scenes, transcribe_result=MagicMock(segments=[]),
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    scene_rows, vlm_failed_count = analyzer._run_vlm_phase(ctx, scenes, MagicMock(segments=[]))
 
     assert [row.description for row in scene_rows] == ["D0.0", "D1.0", "D2.0"]
     assert [row.transcript_text for row in scene_rows] == ["T0.0", "T1.0", "T2.0"]
     assert [(row.start_sec, row.end_sec) for row in scene_rows] == [(s.start_sec, s.end_sec) for s in scenes]
-    assert round(total_cost, 10) == 0.0
+    assert round(ctx.total_cost, 10) == 0.0
     assert vlm_failed_count == 0
 
 
@@ -441,14 +425,11 @@ def test_run_vlm_phase_checks_budget_once_per_batch_not_per_scene(monkeypatch):
         NormalizedScene(2.0, 3.0, source_raw_duration=1.0),
     ]
 
-    scene_rows, total_cost, vlm_failed_count = analyzer._run_vlm_phase(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        scenes=scenes, transcribe_result=MagicMock(segments=[]),
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    scene_rows, vlm_failed_count = analyzer._run_vlm_phase(ctx, scenes, MagicMock(segments=[]))
 
     assert len(scene_rows) == 3
-    assert round(total_cost, 10) == 0.45
+    assert round(ctx.total_cost, 10) == 0.45
     assert vlm_failed_count == 0
 
 
@@ -477,16 +458,13 @@ def test_run_vlm_phase_stops_at_batch_boundary_when_more_scenes_remain(monkeypat
         NormalizedScene(5.0, 6.0, source_raw_duration=1.0),
     ]
 
-    scene_rows, total_cost, vlm_failed_count = analyzer._run_vlm_phase(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        scenes=scenes, transcribe_result=MagicMock(segments=[]),
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    scene_rows, vlm_failed_count = analyzer._run_vlm_phase(ctx, scenes, MagicMock(segments=[]))
 
     # 第 1 批（2 個場景）：0.22，超支，停——第 2、3 批完全不該開始
     assert len(scene_rows) == 2
     assert call_count["n"] == 2
-    assert round(total_cost, 10) == 0.22
+    assert round(ctx.total_cost, 10) == 0.22
     assert vlm_failed_count == 0
 
 
@@ -511,11 +489,8 @@ def test_run_vlm_phase_isolates_single_scene_failure(monkeypatch):
         NormalizedScene(2.0, 3.0, source_raw_duration=1.0),
     ]
 
-    scene_rows, total_cost, vlm_failed_count = analyzer._run_vlm_phase(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        scenes=scenes, transcribe_result=MagicMock(segments=[]),
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    scene_rows, vlm_failed_count = analyzer._run_vlm_phase(ctx, scenes, MagicMock(segments=[]))
 
     assert vlm_failed_count == 1
     # 失敗場景（index 1）：字幕保留、畫面描述空字串、OCR 是 None
@@ -526,7 +501,7 @@ def test_run_vlm_phase_isolates_single_scene_failure(monkeypatch):
     assert [(row.start_sec, row.end_sec) for row in scene_rows] == [(s.start_sec, s.end_sec) for s in scenes]
     assert [row.frame_count for row in scene_rows] == [1, 0, 1]  # 失敗場景的 frame_count 記 0
     # 失敗場景沒有貢獻花費，只有 2 個成功場景各 0.05
-    assert round(total_cost, 10) == 0.10
+    assert round(ctx.total_cost, 10) == 0.10
 
 
 def test_run_vlm_phase_failure_does_not_trigger_budget_break(monkeypatch):
@@ -548,15 +523,12 @@ def test_run_vlm_phase_failure_does_not_trigger_budget_break(monkeypatch):
         NormalizedScene(1.0, 2.0, source_raw_duration=1.0),
     ]
 
-    scene_rows, total_cost, vlm_failed_count = analyzer._run_vlm_phase(
-        client=MagicMock(), video_id=1, video_path=_DUMMY_VIDEO_PATH,
-        scenes=scenes, transcribe_result=MagicMock(segments=[]),
-        progress_queue=queue.Queue(), total_cost=0.0,
-    )
+    ctx = _context()
+    scene_rows, vlm_failed_count = analyzer._run_vlm_phase(ctx, scenes, MagicMock(segments=[]))
 
     assert vlm_failed_count == 1
     assert len(scene_rows) == 2  # 兩個場景都留下一筆，沒有被 budget 截斷
-    assert round(total_cost, 10) == 0.19
+    assert round(ctx.total_cost, 10) == 0.19
 
 
 def test_describe_segment_with_retry_retries_on_rate_limit_then_succeeds(monkeypatch):
