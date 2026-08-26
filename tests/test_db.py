@@ -286,6 +286,84 @@ def test_get_header_stats(temp_db):
 
 
 # ----------------------------------------------------------------------
+# modality_flags_by_video()：VideoOut 三個模態旗標的聚合查詢
+# ----------------------------------------------------------------------
+
+
+def _insert_segment_with_modalities(
+    video_id: int,
+    transcript: str | None = None,
+    visual_description: str | None = None,
+    ocr_text: str | None = None,
+) -> int:
+    return db.insert_segment(
+        video_id=video_id, start_sec=0.0, end_sec=5.0,
+        transcript=transcript, visual_description=visual_description, ocr_text=ocr_text,
+        transcript_embedding=None, visual_embedding=None,
+        asr_model="a", vlm_model="v", embedding_model="e",
+    )
+
+
+def test_modality_flags_aggregates_across_segments_of_the_same_video(temp_db):
+    video_id = _make_video()
+    _insert_segment_with_modalities(video_id, transcript="有字幕")
+    _insert_segment_with_modalities(video_id, ocr_text="有畫面文字")
+
+    flags = db.modality_flags_by_video()
+
+    assert flags[video_id] == db.ModalityFlags(has_transcript=True, has_visual=False, has_ocr=True)
+
+
+def test_modality_flags_treats_null_and_empty_string_as_no_content(temp_db):
+    """對應 VideoOut 原本的 `any(s.transcript for s in segments)`：空字串是 falsy。"""
+    video_id = _make_video()
+    _insert_segment_with_modalities(video_id, transcript="", visual_description=None, ocr_text="  ")
+
+    flags = db.modality_flags_by_video()
+
+    # 空字串與 NULL 都算沒內容；空白字元字串在 Python truthiness 下是有內容
+    assert flags[video_id] == db.ModalityFlags(has_transcript=False, has_visual=False, has_ocr=True)
+
+
+def test_modality_flags_keeps_videos_separate(temp_db):
+    first = _make_video(title="A")
+    second = _make_video(title="B")
+    _insert_segment_with_modalities(first, transcript="只有 A 有字幕")
+    _insert_segment_with_modalities(second, visual_description="只有 B 有畫面描述")
+
+    flags = db.modality_flags_by_video()
+
+    assert flags[first] == db.ModalityFlags(has_transcript=True)
+    assert flags[second] == db.ModalityFlags(has_visual=True)
+
+
+def test_modality_flags_omits_videos_without_segments(temp_db):
+    video_id = _make_video()
+
+    assert db.modality_flags_by_video() == {}
+    assert db.modality_flags_by_video([video_id]) == {}
+
+
+def test_modality_flags_filters_by_video_ids(temp_db):
+    wanted = _make_video(title="要查的")
+    other = _make_video(title="不查的")
+    _insert_segment_with_modalities(wanted, transcript="甲")
+    _insert_segment_with_modalities(other, transcript="乙")
+
+    flags = db.modality_flags_by_video([wanted])
+
+    assert set(flags) == {wanted}
+
+
+def test_modality_flags_empty_id_list_returns_empty_dict_without_querying(temp_db):
+    """空清單代表「沒有影片要查」，不能退化成「查全部」。"""
+    video_id = _make_video()
+    _insert_segment_with_modalities(video_id, transcript="甲")
+
+    assert db.modality_flags_by_video([]) == {}
+
+
+# ----------------------------------------------------------------------
 # segments_fts（BM25 關鍵字檢索，見 docs/hybrid-retrieval-bm25-plan.md）
 # ----------------------------------------------------------------------
 

@@ -60,12 +60,14 @@ from .videos import (
     update_video_summary,
 )
 from .segments import (
+    ModalityFlags,
     SegmentRecord,
     fts_bm25_search,
     fts_like_search,
     insert_segment,
     list_all_segments,
     list_segments_for_video,
+    modality_flags_by_video,
 )
 from .ocr_events import (
     OcrEventRecord,
@@ -105,12 +107,12 @@ __all__ = [
     "PROJECT_ROOT", "DB_PATH", "get_connection", "init_db",
     "STATUS_PENDING", "STATUS_ANALYZING", "STATUS_ANALYZED", "STATUS_FAILED",
     "SOURCE_YOUTUBE", "SOURCE_LOCAL",
-    "VideoRecord", "HeaderStatsData", "SegmentRecord", "OcrEventRecord",
+    "VideoRecord", "HeaderStatsData", "SegmentRecord", "ModalityFlags", "OcrEventRecord",
     "insert_video", "get_video", "find_by_source_url", "list_pending_videos",
     "get_header_stats", "list_analyzed_videos", "list_library_videos",
     "update_video_summary", "reset_to_pending", "delete_video",
     "update_video_status", "mark_video_analyzed",
-    "insert_segment", "list_segments_for_video", "list_all_segments",
+    "insert_segment", "list_segments_for_video", "list_all_segments", "modality_flags_by_video",
     "fts_bm25_search", "fts_like_search",
     "insert_ocr_event", "list_ocr_events_for_video", "list_all_ocr_events",
     "insert_search_log",

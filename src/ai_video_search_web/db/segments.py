@@ -20,6 +20,17 @@ _SEGMENTS_NEW_COLUMNS = {
 }
 
 
+@dataclass(frozen=True)
+class ModalityFlags:
+    """某支影片「有沒有這個模態的內容」——`schemas/videos.py` 的 VideoOut 用來
+    填 has_transcript／has_visual／has_ocr。預設全 False，對應「這支影片還沒有
+    任何片段」（例如 pending 影片）。
+    """
+    has_transcript: bool = False
+    has_visual: bool = False
+    has_ocr: bool = False
+
+
 @dataclass
 class SegmentRecord:
     id: int
@@ -161,6 +172,47 @@ def list_all_segments() -> list[SegmentRecord]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM segments ORDER BY video_id, start_sec").fetchall()
         return [_row_to_segment(row) for row in rows]
+
+
+def modality_flags_by_video(video_ids: list[int] | None = None) -> dict[int, ModalityFlags]:
+    """每支影片各有哪些模態的內容，一次聚合查詢算完。傳 video_ids 就只算那幾支，
+    None 代表全部。沒有任何片段的影片不會出現在回傳的 dict 裡，呼叫端用
+    `.get(video_id, ModalityFlags())` 取值即可。
+
+    刻意不走「載入 SegmentRecord 再用 any() 判斷」：那個做法會把每個片段的三個
+    embedding BLOB 也一起讀出來（實測 10 支影片／746 個片段約 4.5MB、47ms），
+    只為了算三個布林值。`COALESCE(col, '') != ''` 對應原本 `any(s.transcript
+    for s in segments)` 的 Python truthiness——NULL 與空字串都不算有內容。
+    """
+    where = ""
+    params: list[object] = []
+    if video_ids is not None:
+        if not video_ids:
+            return {}
+        where = f" WHERE video_id IN ({','.join('?' * len(video_ids))})"
+        params = list(video_ids)
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT video_id,
+                   MAX(COALESCE(transcript, '') != '') AS has_transcript,
+                   MAX(COALESCE(visual_description, '') != '') AS has_visual,
+                   MAX(COALESCE(ocr_text, '') != '') AS has_ocr
+            FROM segments{where}
+            GROUP BY video_id
+            """,
+            params,
+        ).fetchall()
+
+    return {
+        row["video_id"]: ModalityFlags(
+            has_transcript=bool(row["has_transcript"]),
+            has_visual=bool(row["has_visual"]),
+            has_ocr=bool(row["has_ocr"]),
+        )
+        for row in rows
+    }
 
 
 def fts_bm25_search(terms: list[str], limit: int = 200) -> list[tuple[int, float]]:

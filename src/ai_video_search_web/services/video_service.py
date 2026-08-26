@@ -84,6 +84,12 @@ def list_segments_for_video(video_id: int) -> list[db.SegmentRecord]:
     return db.list_segments_for_video(video_id)
 
 
+def modality_flags(video_ids: list[int] | None = None) -> dict[int, db.ModalityFlags]:
+    """每支影片有哪些模態的內容（給 VideoOut 的三個旗標用），一次查完。
+    沒有片段的影片不會出現在回傳的 dict 裡。"""
+    return db.modality_flags_by_video(video_ids)
+
+
 def is_within_duration_limit(duration_sec: int | None) -> bool:
     return analyzer.is_within_duration_limit(duration_sec)
 

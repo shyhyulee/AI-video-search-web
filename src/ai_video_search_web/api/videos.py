@@ -27,7 +27,10 @@ _ALLOWED_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm"}
 @router.get("", response_model=list[VideoOut])
 def list_videos(status: str | None = None) -> list[VideoOut]:
     records = video_service.list_pending_videos() if status == "pending" else video_service.list_library_videos()
-    return [VideoOut.from_record(v, video_service.list_segments_for_video(v.id)) for v in records]
+    # 三個模態旗標一次聚合查完，不要逐支影片載入全部 segment（那會連 embedding
+    # BLOB 一起讀出來，只為了算三個布林值）。
+    flags = video_service.modality_flags([v.id for v in records])
+    return [VideoOut.from_record(v, flags.get(v.id)) for v in records]
 
 
 @router.get("/{video_id}", response_model=VideoOut)
@@ -35,7 +38,7 @@ def get_video(video_id: int) -> VideoOut:
     video = video_service.get_video(video_id)
     if video is None:
         raise job_manager.VideoNotFoundError(f"找不到影片 {video_id}")
-    return VideoOut.from_record(video, video_service.list_segments_for_video(video_id))
+    return VideoOut.from_record(video, video_service.modality_flags([video_id]).get(video_id))
 
 
 @router.delete("/{video_id}")
@@ -104,7 +107,7 @@ def regenerate_summary(video_id: int) -> VideoOut:
     video_service.regenerate_summary(video_id, segments)
     video = video_service.get_video(video_id)
     assert video is not None
-    return VideoOut.from_record(video, segments)
+    return VideoOut.from_record(video, video_service.modality_flags([video_id]).get(video_id))
 
 
 @router.get("/{video_id}/stream")

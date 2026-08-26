@@ -11,10 +11,84 @@ from ai_video_search_web.pipeline import analyzer
 from conftest import make_video
 
 
+def _add_segment(
+    video_id: int,
+    transcript: str | None = None,
+    visual_description: str | None = None,
+    ocr_text: str | None = None,
+) -> int:
+    return db.insert_segment(
+        video_id=video_id, start_sec=0.0, end_sec=5.0,
+        transcript=transcript, visual_description=visual_description, ocr_text=ocr_text,
+        transcript_embedding=None, visual_embedding=None,
+        asr_model=None, vlm_model=None, embedding_model=None,
+    )
+
+
 def test_list_videos_empty(client):
     resp = client.get("/api/v1/videos")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ----------------------------------------------------------------------
+# has_transcript／has_visual／has_ocr：從 segments 衍生的三個旗標。特徵測試，
+# 鎖住「任一片段有內容就是 True、空字串不算內容、沒有片段就全 False」的語意。
+# ----------------------------------------------------------------------
+def test_video_modality_flags_are_true_when_any_segment_has_content(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="有字幕")
+    _add_segment(video_id, visual_description="有畫面描述")
+    _add_segment(video_id, ocr_text="有畫面文字")
+
+    body = client.get(f"/api/v1/videos/{video_id}").json()
+
+    assert (body["has_transcript"], body["has_visual"], body["has_ocr"]) == (True, True, True)
+
+
+def test_video_modality_flags_are_false_without_matching_segment_content(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="只有字幕")
+
+    body = client.get(f"/api/v1/videos/{video_id}").json()
+
+    assert (body["has_transcript"], body["has_visual"], body["has_ocr"]) == (True, False, False)
+
+
+def test_video_modality_flags_treat_empty_string_as_no_content(client):
+    """`any(s.transcript for s in segments)` 的語意：空字串是 falsy，不算有內容。"""
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="", visual_description="", ocr_text="")
+
+    body = client.get(f"/api/v1/videos/{video_id}").json()
+
+    assert (body["has_transcript"], body["has_visual"], body["has_ocr"]) == (False, False, False)
+
+
+def test_video_modality_flags_are_false_when_video_has_no_segments(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+
+    body = client.get(f"/api/v1/videos/{video_id}").json()
+
+    assert (body["has_transcript"], body["has_visual"], body["has_ocr"]) == (False, False, False)
+
+
+def test_list_videos_reports_flags_per_video_not_shared(client):
+    """清單端點的旗標必須各算各的，不能因為改成一次查詢就串到別支影片身上。"""
+    with_transcript = make_video(status=db.STATUS_ANALYZED)
+    with_ocr = make_video(status=db.STATUS_ANALYZED)
+    without_segments = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(with_transcript, transcript="有字幕")
+    _add_segment(with_ocr, ocr_text="有畫面文字")
+
+    body = client.get("/api/v1/videos").json()
+    flags = {
+        item["id"]: (item["has_transcript"], item["has_visual"], item["has_ocr"]) for item in body
+    }
+
+    assert flags[with_transcript] == (True, False, False)
+    assert flags[with_ocr] == (False, False, True)
+    assert flags[without_segments] == (False, False, False)
 
 
 def test_get_video_not_found_returns_404_with_error_schema(client):
