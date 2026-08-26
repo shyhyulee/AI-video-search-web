@@ -209,8 +209,8 @@
     <h1>重構任務看板</h1>
     <p class="sub">AI 影片搜尋 · 第三輪重構（Web 化之後）· 依 <code>.claude/skills/refactor/SKILL.md</code> 進行</p>
     <div class="stats">
-      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">11 <small>/ 17</small></span></div>
-      <div class="stat"><span class="k">已提交 / 待提交</span><span class="v">6 <small>/ 5</small></span></div>
+      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">11 <small>/ 16</small></span></div>
+      <div class="stat"><span class="k">提交數</span><span class="v">8 <small>（全部已提交）</small></span></div>
       <div class="stat"><span class="k">測試</span><span class="v">326 <small>← 266</small></span></div>
       <div class="stat"><span class="k">新增測試</span><span class="v">+60</span></div>
       <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（C0 缺陷）</small></span></div>
@@ -277,20 +277,8 @@
 
   <!-- ============ 待進行 ============ -->
   <section class="col" data-col="todo">
-    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">2</span></div>
+    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">1</span></div>
     <div class="cards">
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">GIT</span><span class="tag">流程</span></div>
-        <h3>提交 C0 與波 C</h3>
-        <p>5 個步驟改動散在 22 個檔案，尚未提交。C0 是行為變更、C1–C4 是重構，不該混在同一個 commit。</p>
-        <span class="metric">待提交 <b>5 步 / 22 檔</b></span>
-        <details><summary>細節</summary><ul>
-          <li>建議切法：① C0 單獨（缺陷修正）② C1+C2（分層）③ C3+C4（日誌與文件）</li>
-          <li>提交後這張卡片與各卡的 commit 欄位要一起更新</li>
-        </ul></details>
-        <div class="commit"><span class="blocked">等待決定切法</span></div>
-      </article>
 
       <article class="card" data-kind="docs">
         <div class="card-top"><span class="id">DOC</span><span class="tag">文件</span></div>
@@ -333,7 +321,7 @@
               而不是直接改動設計階段的歷史紀錄</li>
           <li>移除死碼 <code>cancel_job()</code> 與它的 3 支測試；剩餘 4 個 <code>assert</code> 改成明確 raise</li>
         </ul></details>
-        <div class="commit"><span class="blocked">未提交</span></div>
+        <div class="commit"><code>06101cc</code></div>
       </article>
 
       <article class="card" data-kind="structure">
@@ -348,7 +336,7 @@
               其中 analyzer 的 <code>pipeline_stage</code> 折進訊息本文，避免丟資訊</li>
           <li><strong>實測</strong>：設定前是裸訊息、INFO 完全不出現；設定後有時間戳／級別／模組名</li>
         </ul></details>
-        <div class="commit"><span class="blocked">未提交</span></div>
+        <div class="commit"><code>06101cc</code></div>
       </article>
 
       <article class="card" data-kind="structure">
@@ -362,7 +350,7 @@
               「找不到就 404」的重複判斷與 <code>assert job is not None</code></li>
           <li>沒有為了收斂而加無意義的透傳：只加了真正有邏輯的查詢入口</li>
         </ul></details>
-        <div class="commit"><span class="blocked">未提交</span></div>
+        <div class="commit"><code>992fbeb</code></div>
       </article>
 
       <article class="card" data-kind="structure">
@@ -375,7 +363,7 @@
               <code>ConversationNotFoundError</code>、<code>YoutubeSearchError</code></li>
           <li>順帶讓 <code>api/errors.py</code> 不再為了一張對映表就把 job_manager 連同 analyzer／downloader 相依拉進來</li>
         </ul></details>
-        <div class="commit"><span class="blocked">未提交</span></div>
+        <div class="commit"><code>992fbeb</code></div>
       </article>
 
       <article class="card" data-kind="bug">
@@ -392,7 +380,7 @@
               驗證第一個 job 失敗、影片狀態變 failed、<strong>排隊中的第二個 job 照常被派發</strong></li>
           <li>這是<strong>行為變更</strong>（失敗路徑）不是重構，所以獨立處理、獨立提交</li>
         </ul></details>
-        <div class="commit"><span class="blocked">未提交</span> · 分析中發現，非原計畫項目</div>
+        <div class="commit"><code>0135b0e</code> · 分析中發現，非原計畫項目</div>
       </article>
 
       <article class="card" data-kind="structure">
@@ -515,16 +503,19 @@
 
 <footer>
   <p>
-    卡片內容對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> → <code>60bd954</code> → <code>a322c73</code>。
-    每一步都遵守「先分析、確認後才動手、一次只做一步、每步都跑測試驗證」。
+    卡片內容對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> →
+    <code>60bd954</code> → <code>a322c73</code> → <code>0135b0e</code> → <code>992fbeb</code> →
+    <code>06101cc</code>（8 個 commit）。每一步都遵守「先分析、確認後才動手、一次只做一步、
+    每步都跑測試驗證」；最後三個 commit 在提交前各自匯出成獨立副本跑過完整測試，
+    確認每一個 commit 單獨 checkout 都是綠的。
   </p>
   <p>
     驗收標準已全數達成：C3 補上日誌／設定管理的一致性，C4 讓文件與程式碼對齊。
     C0 是分析中發現的缺陷，屬於<strong>刻意的行為變更</strong>，與重構分開處理。
   </p>
   <p>
-    C0 與 C1–C4 共 5 個步驟尚未提交（22 個檔案）。全套測試 326 passed；
-    另外用真的 server 驗過 <code>/stats</code>、<code>/videos</code> 旗標與錯誤格式。
+    全套測試 <strong>326 passed</strong>；另外用真的 server 驗過 <code>/stats</code>、
+    <code>/videos</code> 旗標與錯誤格式。
   </p>
 </footer>
 
