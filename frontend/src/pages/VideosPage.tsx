@@ -1,29 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download } from 'lucide-react'
-import { analyzeVideo, deleteVideo, downloadYoutube, listVideos, retryJob, uploadVideo } from '../api/client'
+import { Link } from 'react-router-dom'
+import { MonitorPlay } from 'lucide-react'
+import { analyzeVideo, deleteVideo, listVideos, retryJob } from '../api/client'
 import { ApiError } from '../api/types'
 import type { Job } from '../api/types'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { Dropzone } from '../components/Dropzone'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
-import { SegmentedControl } from '../components/SegmentedControl'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatDateTime, formatDuration, formatElapsed } from '../lib/format'
-import { useJobPolling, useJobsPolling } from '../lib/useJobPolling'
+import { useJobsPolling } from '../lib/useJobPolling'
 import { useToast } from '../lib/useToast'
 
 const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本機' }
-
-const SOURCE_OPTIONS = [
-  { value: 'youtube' as const, label: 'YouTube 網址' },
-  { value: 'local' as const, label: '本機影片' },
-]
 
 function jobStatusInfo(job: Job | undefined): { text: string; kind: 'success' | 'error' | 'primary' | 'neutral' } {
   if (!job) return { text: '等待分析', kind: 'neutral' }
@@ -33,11 +27,13 @@ function jobStatusInfo(job: Job | undefined): { text: string; kind: 'success' | 
   return { text: '排隊中', kind: 'neutral' }
 }
 
-/** 「影片與分析」頁面，對齊 ui/video_tab.py：新增影片（YouTube 下載／本機
- * 上傳）、待分析影片列表、開始分析，見
+/** 「影片與分析」頁面：待分析影片列表、開始分析、移除，見
  * docs/07-ui-structure-and-features.md 6.1 節與
- * docs/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」（本階段風險
- * 最高的一步：multipart 上傳進度 + job 輪詢兩個新模式）。 */
+ * docs/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
+ *
+ * **這頁不再有「新增影片」區塊**：影片一律從「YouTube 搜尋」頁的卡片按
+ * 「加入待分析」收進來，本機上傳也一併移除（見 docs/11 §8.5）。這頁的職責
+ * 收斂成「決定哪些收進來的影片要送分析」——也是全站唯一會花錢的觸發點。 */
 export function VideosPage() {
   const queryClient = useQueryClient()
   const toast = useToast()
@@ -48,12 +44,6 @@ export function VideosPage() {
     refetch: refetchPending,
   } = useQuery({ queryKey: ['videos', 'pending'], queryFn: () => listVideos('pending') })
 
-  const [sourceMode, setSourceMode] = useState<'youtube' | 'local'>('youtube')
-  const [url, setUrl] = useState('')
-  const [downloadJobId, setDownloadJobId] = useState<number | null>(null)
-  const [downloadError, setDownloadError] = useState('')
-  const [uploadPercent, setUploadPercent] = useState<number | null>(null)
-  const [uploadError, setUploadError] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [analysisJobs, setAnalysisJobs] = useState<Record<number, number>>({}) // video_id -> job_id
   const [rejectedNote, setRejectedNote] = useState('')
@@ -64,57 +54,6 @@ export function VideosPage() {
     queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
     queryClient.invalidateQueries({ queryKey: ['stats'] })
   }, [queryClient])
-
-  // --- YouTube 下載 ---
-  const downloadMutation = useMutation({
-    mutationFn: (u: string) => downloadYoutube(u),
-    onSuccess: (job) => {
-      setDownloadError('')
-      setDownloadJobId(job.id)
-    },
-    onError: (err: Error) => setDownloadError(err.message),
-  })
-  const downloadJobQuery = useJobPolling(downloadJobId)
-  const downloadJob = downloadJobQuery.data
-  const downloadActive =
-    downloadMutation.isPending || (downloadJob ? downloadJob.status === 'running' || downloadJob.status === 'queued' : false)
-
-  useEffect(() => {
-    if (downloadJob?.status === 'completed') {
-      // downloadJob 的來源是輪詢查詢（外部系統），不是使用者觸發的 DOM
-      // 事件，這裡是 TanStack Query 目前推薦的「回應查詢狀態變化」寫法
-      // （v5 拿掉了 useQuery 的 onSuccess callback）；setDownloadJobId(null)
-      // 之後 useJobPolling(null) 會停用查詢，不會再次觸發，不會連續重渲染。
-      // oxlint-disable-next-line react/set-state-in-effect
-      setDownloadJobId(null)
-      setUrl('')
-      invalidateAfterChange()
-    }
-  }, [downloadJob?.status, invalidateAfterChange])
-
-  const onDownloadSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!url.trim()) {
-      setDownloadError('請輸入 YouTube 網址')
-      return
-    }
-    downloadMutation.mutate(url.trim())
-  }
-
-  // --- 本機上傳 ---
-  const onFileSelected = (file: File) => {
-    setUploadError('')
-    setUploadPercent(0)
-    uploadVideo(file, setUploadPercent)
-      .then(() => {
-        setUploadPercent(null)
-        invalidateAfterChange()
-      })
-      .catch((err: Error) => {
-        setUploadPercent(null)
-        setUploadError(err.message)
-      })
-  }
 
   // --- 待分析清單 ---
   const toggleSelected = (id: number) => {
@@ -203,56 +142,6 @@ export function VideosPage() {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <Card>
-        <h2 className="mb-3 text-base font-bold text-text-primary">新增影片</h2>
-        <SegmentedControl options={SOURCE_OPTIONS} value={sourceMode} onChange={setSourceMode} />
-
-        {sourceMode === 'youtube' ? (
-          <form onSubmit={onDownloadSubmit} className="mt-3 flex gap-2">
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              disabled={downloadActive}
-              placeholder="貼上 YouTube 影片網址"
-              className="flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none disabled:opacity-60"
-            />
-            <Button type="submit" variant="primary" disabled={downloadActive} icon={<Download className="h-4 w-4" />}>
-              下載影片
-            </Button>
-          </form>
-        ) : (
-          <div className="mt-3">
-            <Dropzone onFileSelected={onFileSelected} disabled={uploadPercent !== null} hint="支援格式：MP4、MOV、MKV、WebM" />
-          </div>
-        )}
-
-        {(downloadActive || downloadJob) && (
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-sand">
-            <div
-              className="h-full bg-primary transition-all"
-              style={{ width: `${downloadJob?.progress_percent ?? 0}%` }}
-            />
-          </div>
-        )}
-        {uploadPercent !== null && (
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-sand">
-            <div className="h-full bg-primary transition-all" style={{ width: `${uploadPercent}%` }} />
-          </div>
-        )}
-
-        {(downloadError || uploadError || downloadJob || uploadPercent !== null) && (
-          <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
-            {downloadError && <span className="text-error">{downloadError}</span>}
-            {!downloadError && downloadJob && downloadJob.status === 'running' && (downloadJob.progress_message ?? '下載中…')}
-            {!downloadError && downloadJob?.status === 'failed' && (
-              <span className="text-error">下載失敗：{downloadJob.error_message}</span>
-            )}
-            {uploadError && <span className="text-error">{uploadError}</span>}
-            {uploadPercent !== null && `上傳中… ${uploadPercent.toFixed(0)}%`}
-          </p>
-        )}
-      </Card>
-
       <Card className="flex min-h-0 flex-1 flex-col">
         <h2 className="mb-1 text-base font-bold text-text-primary">待分析影片（{pending?.length ?? 0}）</h2>
         <div className="min-h-0 flex-1 overflow-auto" aria-busy={pendingLoading}>
@@ -261,7 +150,22 @@ export function VideosPage() {
           ) : pendingError ? (
             <ErrorState title="載入待分析影片失敗" onRetry={() => refetchPending()} />
           ) : !pending || pending.length === 0 ? (
-            <EmptyState title="目前沒有待分析影片" hints={['可貼上 YouTube 網址或選擇本機影片']} />
+            // 這頁已經沒有新增影片的入口，空狀態必須直接把人帶去唯一的入口，
+            // 否則會變成無路可走的死路。
+            <EmptyState
+              title="目前沒有待分析影片"
+              hints={['到「YouTube 搜尋」頁找影片，按卡片上的「加入待分析」就會出現在這裡']}
+              icon={<MonitorPlay className="h-8 w-8" aria-hidden="true" />}
+              action={
+                <Link
+                  to="/youtube"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-white transition-colors hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  <MonitorPlay className="h-4 w-4" aria-hidden="true" />
+                  去 YouTube 搜尋
+                </Link>
+              }
+            />
           ) : (
             pending.map((v) => {
               const job = jobByVideoId.get(v.id)

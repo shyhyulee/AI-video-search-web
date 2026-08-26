@@ -73,34 +73,9 @@ export function getThumbnailUrl(videoId: number): string {
   return `${BASE}/videos/${videoId}/thumbnail`
 }
 
-/** fetch 沒有原生的上傳進度事件，用 XMLHttpRequest 才能回報 onProgress。 */
-export function uploadVideo(file: File, onProgress?: (percent: number) => void): Promise<Video> {
-  return new Promise((resolve, reject) => {
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${BASE}/videos/upload`)
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        onProgress((event.loaded / event.total) * 100)
-      }
-    }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText) as Video)
-      } else {
-        try {
-          reject(new ApiError(xhr.status, JSON.parse(xhr.responseText) as ApiErrorBody))
-        } catch {
-          reject(new Error(`上傳失敗：HTTP ${xhr.status}`))
-        }
-      }
-    }
-    xhr.onerror = () => reject(new Error('上傳失敗：網路錯誤'))
-    xhr.send(formData)
-  })
-}
+// 本機上傳（`uploadVideo()`，XHR + onProgress）在移除「影片與分析」頁的新增
+// 影片區塊時一併刪掉，見 docs/11 §8.5。後端 `POST /videos/upload` 仍在、測試
+// 也還在，之後要恢復的話是加回一個前端函式的事。
 
 export function listJobs(videoId?: number): Promise<Job[]> {
   const query = videoId !== undefined ? `?video_id=${videoId}` : ''

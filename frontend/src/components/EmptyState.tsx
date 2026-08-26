@@ -4,10 +4,13 @@ interface EmptyStateProps {
   title: string
   hints?: string[]
   icon?: ReactNode
+  /** 選填的行動點（按鈕或連結）。用在「這個空狀態要靠別的頁面才能解掉」的
+   * 情境，例如待分析清單空了要去「YouTube 搜尋」頁加影片。 */
+  action?: ReactNode
 }
 
 /** 取代空表格的置中提示區塊。 */
-export function EmptyState({ title, hints = [], icon }: EmptyStateProps) {
+export function EmptyState({ title, hints = [], icon, action }: EmptyStateProps) {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="max-w-sm text-center">
@@ -18,6 +21,7 @@ export function EmptyState({ title, hints = [], icon }: EmptyStateProps) {
             {line}
           </p>
         ))}
+        {action && <div className="mt-3 flex justify-center">{action}</div>}
       </div>
     </div>
   )

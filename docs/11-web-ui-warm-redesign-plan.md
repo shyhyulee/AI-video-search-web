@@ -412,3 +412,42 @@ conversation、聊天記錄整個清空**。這同時也是 `docs/09` §9、`doc
 **未驗證（誠實揭露）**：沒有真的下載一支影片跑完 → 切到「影片與分析」頁確認它出現在待分析清單。
 下載 API 與 job 輪詢是既有、已在「影片與分析」頁用了很久的路徑，卡片只是換一個地方呼叫它，但這段
 端到端沒有實跑過（會在使用者的 `video/` 目錄留下檔案與一筆 DB 資料，未經同意不主動製造）。
+
+### 8.5 移除「影片與分析」頁的新增影片區塊與本機上傳（2026-08-26）
+
+**需求**：使用者要求把「影片與分析」頁上方的「新增影片」區塊整塊移除——YouTube 網址下載與本機上傳
+都不要，影片一律由 8.4 的「YouTube 搜尋」頁卡片加入。
+
+**這是 8.4 的自然收尾**：8.4 把「分析」收斂成只有一個觸發點，這一步把「加入影片」也收斂成只有一個
+入口。兩頁的職責因此變成互不重疊——「YouTube 搜尋」負責挑片並收進來，「影片與分析」負責決定哪些
+要送分析。
+
+**修改**：
+
+- `VideosPage.tsx` 刪掉整個第一張 `Card`，連同 `sourceMode`／`url`／`downloadJobId`／`downloadError`／
+  `uploadPercent`／`uploadError` 六個 state、`downloadMutation`、下載 job 的 `useJobPolling` 與收尾
+  `useEffect`、`onDownloadSubmit`／`onFileSelected`，以及 `SOURCE_OPTIONS` 常數。頁面剩下待分析清單
+  這一張 Card（`flex min-h-0 flex-1 flex-col` 讓它自己撐滿高度，版面不需要另外調）。
+- **空狀態必須補一個出口**：原本的提示是「可貼上 YouTube 網址或選擇本機影片」，新增區塊沒了之後這句
+  會變成無路可走的死路。改成「到『YouTube 搜尋』頁找影片，按卡片上的『加入待分析』就會出現在這裡」，
+  並加一顆 `<Link to="/youtube">` 的行動按鈕。為此 `EmptyState` 新增一個選填的 `action?: ReactNode`
+  ——這是這次唯一擴充的共用元件 API，用在「這個空狀態要靠別的頁面才能解掉」的情境。
+- **刪除變成孤兒的檔案（使用者明確同意後才刪，依 CLAUDE.md 規則）**：`components/SegmentedControl.tsx`
+  （只有來源切換在用）、`components/Dropzone.tsx`（只有本機上傳在用），以及 `api/client.ts` 的
+  `uploadVideo()`（XHR + `onProgress` 上傳進度，是 Phase 2 唯一用到 XMLHttpRequest 而非 fetch 的地方）。
+  同時刪掉先前幾輪留在 `frontend/` 的三支 Playwright 驗證腳本 `_shot*.mjs`（本來就沒進版控）。
+  **後端 `POST /videos/upload` 與它的測試都保留沒動**：這次只拆前端入口，後端能力留著，之後要恢復
+  本機上傳是加回一個前端函式的事。Phase 2（§5）記錄的 `Dropzone`／`SegmentedControl` 設計不回頭改，
+  以這一節為準。
+
+**能力損失（誠實揭露，使用者已知情）**：移除之後**沒有任何地方能貼一條指定的 YouTube 網址**——
+「YouTube 搜尋」頁只吃關鍵字，手上有明確網址時得先想個關鍵字把它搜出來。本機上傳則是使用者明確
+表示不需要。若之後要恢復「貼網址」這條路，建議做在 YouTube 搜尋頁的搜尋框上（偵測輸入是網址就直接
+跑下載），而不是把區塊加回「影片與分析」頁，這樣入口仍然只有一個。
+
+**驗證**：`tsc -b`／`oxlint`／`build` 全過（bundle 從 357.95 kB 降到 353.58 kB）。Playwright 實跑
+`/videos`：「新增影片」標題、YouTube 網址輸入框、「下載影片」按鈕、來源切換（`role=radio`）、
+Dropzone 的 `input[type=file]` 五項全部確認為 0 個；頁面剩 1 張 Card；待分析清單正常顯示 3 支真實
+影片；勾選前「開始分析」為 disabled、勾選後啟用（確認核心流程沒被拆壞）；390px 無橫向溢位；零
+console error。空狀態另外用 `page.route()` 把 `GET /videos?status=pending` 假裝成 `[]` 驗過（不刪
+任何真實資料）：標題、提示、「去 YouTube 搜尋」按鈕都正確，點下去確實導到 `/youtube`。
