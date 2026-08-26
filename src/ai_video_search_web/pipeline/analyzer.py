@@ -271,6 +271,31 @@ def start_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> thre
 
 
 def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> None:
+    """分析執行緒的最外層。唯一的職責是保證「不管發生什麼事，都會送出剛好一個
+    終端事件」（AnalysisResult 或 AnalysisError）。
+
+    這件事是硬需求不是防禦性程式碼：job_manager 的 pump thread 用
+    `queue.get()` 等終端事件、收到才會 break 並釋放分析 slot。少送一次，
+    pump 就永遠停在那裡、slot 永遠不會釋放，**之後每一支影片的分析都會卡在
+    queued，只能重啟伺服器**。實際踩得到的路徑是 `_run_analysis()` 進到自己
+    的 try 之前那幾行（讀影片紀錄、更新狀態、`get_client()`——缺 API 金鑰時
+    OpenAI() 會直接拋）。
+    """
+    try:
+        _run_analysis(video_id, progress_queue)
+    except Exception as exc:
+        # 走到這裡代表 _run_analysis() 內層的 except 沒接到（例如例外發生在它
+        # 自己的 try 之前，或連內層處理本身都失敗了）。訊息用最原始的形式，
+        # 不假設任何前置資料（例如影片標題）拿得到。
+        logger.error("分析執行緒異常結束（video_id=%s）：%s", video_id, exc, exc_info=True)
+        try:
+            db.update_video_status(video_id, db.STATUS_FAILED, f"分析失敗：{exc}")
+        except Exception:
+            logger.error("連標記分析失敗都寫不進資料庫（video_id=%s）", video_id, exc_info=True)
+        progress_queue.put(AnalysisError(video_id=video_id, message=str(exc)))
+
+
+def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
     video = db.get_video(video_id)
     if video is None:
         progress_queue.put(AnalysisError(video_id=video_id, message="找不到這支影片的紀錄"))

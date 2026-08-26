@@ -6,7 +6,7 @@
 409」「第二個 job 停在 queued」等對外行為；這裡直接呼叫 service 函式，測
 HTTP 層看不到的內部行為——pump thread 把 queue 事件寫進 jobs 表的**欄位對映**、
 失敗路徑是否一樣會釋放分析 slot、下載工作的 dest_dir 命名規則、retry 對
-analysis／download 兩種工作的不同處理。
+analysis／download 兩種工作的不同處理，以及 worker 異常結束時分析 slot 仍會釋放。
 
 analyzer.start_analysis／downloader.start_download 一律換成假的：測試自己
 持有那條 queue，想送什麼事件、什麼時候送，都由測試決定，不觸發真的
@@ -109,6 +109,11 @@ def _wait_until(predicate, timeout: float = 2.0) -> bool:
     return predicate()
 
 
+def _live_pump_threads() -> list[threading.Thread]:
+    """還活著的 pump thread。名稱前綴由 job_manager 定義，見 PUMP_THREAD_PREFIX。"""
+    return [t for t in threading.enumerate() if t.name.startswith(job_manager.PUMP_THREAD_PREFIX)]
+
+
 def _wait_for_job_status(job_id: int, status: str) -> None:
     assert _wait_until(lambda: db.get_job(job_id).status == status), (
         f"工作 {job_id} 應該變成 {status}，實際是 {db.get_job(job_id).status}"
@@ -121,11 +126,13 @@ def _wait_for_analysis_idle() -> None:
     只等 job 變成終態不夠：`_pump_analysis()` 是先寫終態、才呼叫
     `_release_analysis_slot()`，而後者會再查一次 `db.list_jobs()`。測試如果
     在這中間就返回，那次查詢會落在 monkeypatch 已經還原 DB_PATH 之後，變成
-    對別的資料庫查詢（曾經在 tests/api 實測炸出 "no such table: jobs" 的
-    跨測試污染）。旗標翻回 False 之後再給一個很短的寬限，讓鏈式派發那段跑完。
+    對別的資料庫查詢（實測會炸出 "no such table: jobs"）。
     """
     assert _wait_until(lambda: not job_manager._analysis_running), "分析 slot 應該被釋放"
-    time.sleep(0.05)
+    # 旗標翻回 False 之後，那條 pump thread 還要跑完「鏈式派發」才真的結束。
+    # 多數測試刻意讓 pump 停在 queue.get() 不送終端事件，所以不能等「所有
+    # pump thread 都結束」（那會等到逾時），只能給收尾一小段寬限。
+    _wait_until(lambda: not _live_pump_threads(), timeout=0.3)
 
 
 # ----------------------------------------------------------------------
@@ -250,6 +257,108 @@ def test_analysis_slot_is_released_after_failure_not_only_success(temp_db, fake_
         analyzer.AnalysisResult(video_id=fake_analysis.video_ids[1], segment_count=1, cost_usd=0.0, partial=False)
     )
     _wait_for_job_status(second_job, db.JOB_STATUS_COMPLETED)
+    _wait_for_analysis_idle()
+
+
+def test_analysis_slot_is_released_even_when_pump_write_fails(temp_db, fake_analysis, monkeypatch):
+    """pump 迴圈裡的資料庫寫入失敗時，slot 仍然要釋放並派發下一個工作——
+    否則一次寫入失敗就會讓之後所有分析永遠卡在 queued。
+    """
+    first_video = _make_video()
+    job_manager.submit_analysis(first_video)
+    second_job = job_manager.submit_analysis(_make_video())
+
+    # 用旗標控制假實作，不用 monkeypatch.undo()——undo() 會把這個測試的**全部**
+    # monkeypatch 一起撤掉，包含 fixture 設的 db.DB_PATH，後半段就會讀到真正的
+    # app.db（主目錄剛好有那個檔案，所以這個錯誤一度沒被發現）。
+    failing = {"on": True}
+    real_mark_completed = db.mark_job_completed
+
+    def _mark_completed(*args, **kwargs):
+        if failing["on"]:
+            raise RuntimeError("寫不進去")
+        return real_mark_completed(*args, **kwargs)
+
+    monkeypatch.setattr(db, "mark_job_completed", _mark_completed)
+    fake_analysis.queues[0].put(
+        analyzer.AnalysisResult(video_id=first_video, segment_count=1, cost_usd=0.0, partial=False)
+    )
+
+    _wait_for_job_status(second_job, db.JOB_STATUS_RUNNING)
+    assert len(fake_analysis.video_ids) == 2
+
+    failing["on"] = False
+    fake_analysis.queues[1].put(
+        analyzer.AnalysisResult(video_id=fake_analysis.video_ids[1], segment_count=1, cost_usd=0.0, partial=False)
+    )
+    _wait_for_job_status(second_job, db.JOB_STATUS_COMPLETED)
+    _wait_for_analysis_idle()
+
+
+def test_analysis_slot_is_released_even_when_the_failure_fallback_also_fails(temp_db, fake_analysis, monkeypatch):
+    """pump 的寫入失敗、連「改標記成失敗」的 fallback 也失敗時，slot 仍然要
+    釋放。這是 `finally` 唯一無可取代的情境——只有 except 而沒有 finally 的話，
+    這條路徑會讓之後所有分析永遠卡在 queued。
+    """
+    first_video = _make_video()
+    job_manager.submit_analysis(first_video)
+    second_job = job_manager.submit_analysis(_make_video())
+
+    failing = {"on": True}
+    real_mark_completed, real_mark_failed = db.mark_job_completed, db.mark_job_failed
+
+    def _explode_while_failing(real):
+        def _wrapped(*args, **kwargs):
+            if failing["on"]:
+                raise RuntimeError("資料庫整個壞掉")
+            return real(*args, **kwargs)
+        return _wrapped
+
+    monkeypatch.setattr(db, "mark_job_completed", _explode_while_failing(real_mark_completed))
+    monkeypatch.setattr(db, "mark_job_failed", _explode_while_failing(real_mark_failed))
+    fake_analysis.queues[0].put(
+        analyzer.AnalysisResult(video_id=first_video, segment_count=1, cost_usd=0.0, partial=False)
+    )
+
+    _wait_for_job_status(second_job, db.JOB_STATUS_RUNNING)
+
+    failing["on"] = False
+    fake_analysis.queues[1].put(
+        analyzer.AnalysisResult(video_id=fake_analysis.video_ids[1], segment_count=1, cost_usd=0.0, partial=False)
+    )
+    _wait_for_job_status(second_job, db.JOB_STATUS_COMPLETED)
+    _wait_for_analysis_idle()
+
+
+def test_analysis_slot_is_released_when_the_worker_dies_before_its_own_error_handling(
+    temp_db, tmp_path, monkeypatch
+):
+    """C0 缺陷的回歸測試（整合層級，用真的 analyzer.start_analysis()）。
+
+    模擬最實際的觸發路徑：影片檔案存在、流程正常往下走，但 `get_client()`
+    因為缺 API 金鑰而拋例外——那行在 `_run_analysis()` 自己的 try 之前，修好
+    以前 worker 會無聲死掉、pump 永遠停在 queue.get()、slot 永不釋放，之後
+    每一支影片都卡在 queued。
+    """
+    monkeypatch.setattr(analyzer, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("沒有 API 金鑰")))
+
+    real_video = tmp_path / "real.mp4"
+    real_video.write_bytes(b"not really a video")
+    first_video = db.insert_video(
+        title="有檔案的影片", source=db.SOURCE_LOCAL, source_url=None,
+        file_path=str(real_video), duration_sec=100,
+    )
+
+    first_job = job_manager.submit_analysis(first_video)
+    second_job = job_manager.submit_analysis(_make_video())
+
+    _wait_for_job_status(first_job, db.JOB_STATUS_FAILED)
+    assert "沒有 API 金鑰" in db.get_job(first_job).error_message
+    assert db.get_video(first_video).status == db.STATUS_FAILED
+
+    # 關鍵斷言：排隊中的第二個工作沒有被卡住，slot 有被釋放
+    _wait_for_job_status(second_job, db.JOB_STATUS_FAILED)  # 它的檔案不存在，也會失敗——但有真的跑到
+    assert db.get_job(second_job).error_message == "找不到影片檔案"
     _wait_for_analysis_idle()
 
 

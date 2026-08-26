@@ -105,26 +105,50 @@ def _oldest_queued_analysis_job() -> db.JobRecord | None:
     return min(queued, key=lambda job: job.id)
 
 
+# pump thread 的名稱前綴：traceback 與 py-spy 看得出這條執行緒在做什麼。
+PUMP_THREAD_PREFIX = "job-pump-"
+
+
 def _start_analysis_job(job: db.JobRecord) -> None:
-    assert job.video_id is not None
+    if job.video_id is None:
+        raise InvalidJobStateError(f"分析工作 {job.id} 沒有記錄 video_id，無法開始")
     db.mark_job_running(job.id)
     internal_queue: "queue.Queue[object]" = queue.Queue()
     analyzer.start_analysis(job.video_id, internal_queue)
-    threading.Thread(target=_pump_analysis, args=(job.id, internal_queue), daemon=True).start()
+    # 取名字：traceback 與 py-spy 看得出這條執行緒在做什麼，測試也能等它收尾
+    threading.Thread(
+        target=_pump_analysis, args=(job.id, internal_queue), daemon=True,
+        name=f"{PUMP_THREAD_PREFIX}analysis-{job.id}",
+    ).start()
 
 
 def _pump_analysis(job_id: int, internal_queue: "queue.Queue[object]") -> None:
-    while True:
-        item = internal_queue.get()
-        if isinstance(item, analyzer.AnalysisProgress):
-            db.update_job_progress(job_id, stage=item.stage, progress_message=item.detail or None)
-        elif isinstance(item, analyzer.AnalysisResult):
-            db.mark_job_completed(job_id, cost_usd=item.cost_usd)
-            break
-        elif isinstance(item, analyzer.AnalysisError):
-            db.mark_job_failed(job_id, error_message=item.message)
-            break
-    _release_analysis_slot()
+    """把 analyzer 送出的事件寫進 jobs 表，收到終端事件就結束。
+
+    釋放 slot 放在 finally：這個迴圈裡的每一次資料庫寫入都可能失敗，而只要
+    這條 pump 沒有走到釋放那一步，`_analysis_running` 就會永遠是 True，之後
+    所有分析都會卡在 queued。analyzer 那邊保證一定會送出終端事件（見
+    `_analyze_worker()`），這裡是第二道防線。
+    """
+    try:
+        while True:
+            item = internal_queue.get()
+            if isinstance(item, analyzer.AnalysisProgress):
+                db.update_job_progress(job_id, stage=item.stage, progress_message=item.detail or None)
+            elif isinstance(item, analyzer.AnalysisResult):
+                db.mark_job_completed(job_id, cost_usd=item.cost_usd)
+                break
+            elif isinstance(item, analyzer.AnalysisError):
+                db.mark_job_failed(job_id, error_message=item.message)
+                break
+    except Exception:
+        logger.error("分析工作 %s 的進度回報異常結束，標記失敗", job_id, exc_info=True)
+        try:
+            db.mark_job_failed(job_id, error_message="進度回報異常中斷")
+        except Exception:
+            logger.error("連標記工作 %s 失敗都寫不進資料庫", job_id, exc_info=True)
+    finally:
+        _release_analysis_slot()
 
 
 def _release_analysis_slot() -> None:
@@ -151,7 +175,10 @@ def submit_download(url: str) -> int:
     internal_queue: "queue.Queue[object]" = queue.Queue()
     dest_dir = downloader.VIDEO_DIR / f"job-{job_id}"
     downloader.start_download(url, internal_queue, dest_dir=dest_dir)
-    threading.Thread(target=_pump_download, args=(job_id, url, internal_queue), daemon=True).start()
+    threading.Thread(
+        target=_pump_download, args=(job_id, url, internal_queue), daemon=True,
+        name=f"{PUMP_THREAD_PREFIX}download-{job_id}",
+    ).start()
     return job_id
 
 

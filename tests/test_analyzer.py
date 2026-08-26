@@ -65,6 +65,82 @@ def _scene_row(
     )
 
 
+# ----------------------------------------------------------------------
+# _analyze_worker()：不管怎麼失敗都要送出剛好一個終端事件
+#
+# 少送一次，job_manager 的 pump thread 會永遠停在 queue.get()、分析 slot
+# 永遠不釋放，之後每一支影片都卡在 queued（見 _analyze_worker() 的說明）。
+# ----------------------------------------------------------------------
+
+
+def test_analyze_worker_emits_error_event_when_client_creation_fails(monkeypatch):
+    """`get_client()` 失敗（例如缺 API 金鑰）發生在內層 try 之前，最外層必須
+    接住並送出 AnalysisError。"""
+    monkeypatch.setattr(analyzer.db, "get_video", lambda vid: MagicMock(
+        file_path="/dev/null", duration_sec=10, title="測試影片", pipeline_stage=None))
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+    monkeypatch.setattr(analyzer, "get_client", MagicMock(side_effect=RuntimeError("沒有 API 金鑰")))
+
+    q: queue.Queue = queue.Queue()
+    analyzer._analyze_worker(1, q)
+
+    events = _drain(q)
+    assert any(isinstance(e, analyzer.AnalysisError) for e in events), "必須送出終端事件"
+    assert "沒有 API 金鑰" in events[-1].message
+
+
+def test_analyze_worker_emits_error_event_when_reading_the_video_record_fails(monkeypatch):
+    """連讀取影片紀錄都失敗（資料庫鎖死／損毀）一樣要送出終端事件。"""
+    monkeypatch.setattr(analyzer.db, "get_video", MagicMock(side_effect=RuntimeError("database is locked")))
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+
+    q: queue.Queue = queue.Queue()
+    analyzer._analyze_worker(1, q)
+
+    events = _drain(q)
+    assert len(events) == 1
+    assert isinstance(events[0], analyzer.AnalysisError)
+    assert "database is locked" in events[0].message
+
+
+def test_analyze_worker_still_emits_error_event_when_marking_failed_also_fails(monkeypatch):
+    """連「標記失敗」都寫不進資料庫時，仍然要送出終端事件——這是 slot 能不能
+    釋放的唯一依據，不能因為資料庫壞掉就一起放棄。"""
+    monkeypatch.setattr(analyzer.db, "get_video", MagicMock(side_effect=RuntimeError("boom")))
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock(side_effect=RuntimeError("也寫不進去")))
+
+    q: queue.Queue = queue.Queue()
+    analyzer._analyze_worker(1, q)
+
+    events = _drain(q)
+    assert len(events) == 1
+    assert isinstance(events[0], analyzer.AnalysisError)
+
+
+def test_analyze_worker_emits_exactly_one_terminal_event_on_normal_failure(monkeypatch):
+    """內層 except 已經處理過的一般失敗，不能因為多包了一層而送出兩個終端事件。"""
+    monkeypatch.setattr(analyzer.db, "get_video", lambda vid: MagicMock(
+        file_path="/dev/null", duration_sec=10, title="測試影片", pipeline_stage="場景切分中"))
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+    monkeypatch.setattr(analyzer, "get_client", lambda: MagicMock())
+    monkeypatch.setattr(analyzer, "_run_scene_detection_and_transcription",
+                        MagicMock(side_effect=RuntimeError("場景切分爆炸")))
+
+    q: queue.Queue = queue.Queue()
+    analyzer._analyze_worker(1, q)
+
+    terminal = [e for e in _drain(q) if isinstance(e, (analyzer.AnalysisError, analyzer.AnalysisResult))]
+    assert len(terminal) == 1
+    assert "場景切分爆炸" in terminal[0].message
+
+
+def _drain(q: queue.Queue) -> list:
+    items = []
+    while not q.empty():
+        items.append(q.get())
+    return items
+
+
 def test_run_local_ocr_only_scans_scenes_without_vlm_ocr_text(monkeypatch):
     segment_rows = [
         _segment_row(0.0, 6.0, "已經有文字"),
