@@ -11,7 +11,6 @@ import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { FilterChip } from '../components/FilterChip'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
-import { SearchField } from '../components/SearchField'
 import { VideoListItem } from '../components/VideoListItem'
 import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
@@ -45,7 +44,8 @@ export function LibraryPage() {
   const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
   const [sortReverse, setSortReverse] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [query, setQuery] = useState('')
+  // navigate 只剩「在此影片內搜尋」在用（帶 video_id 範圍跳到「搜尋影片」頁）；
+  // 這頁上方原本那條自由文字搜尋列已移除，搜尋一律在「搜尋影片」頁進行。
   const navigate = useNavigate()
 
   const {
@@ -84,26 +84,8 @@ export function LibraryPage() {
 
   const selected = rows.find((v) => v.id === selectedId) ?? null
 
-  const onSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`)
-  }
-
   return (
     <div className="flex h-full flex-col gap-4">
-      <Card>
-        <form onSubmit={onSearchSubmit} className="flex gap-2">
-          <SearchField
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="描述想尋找的事件、人物、動作或教學內容"
-          />
-          <Button type="submit" variant="primary">
-            搜尋
-          </Button>
-        </form>
-      </Card>
-
       <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
         <Card className="flex w-full flex-col md:min-h-0 md:w-3/5">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

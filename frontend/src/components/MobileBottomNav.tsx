@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { to: '/youtube', label: 'YouTube', icon: MonitorPlay },
   { to: '/videos', label: '影片與分析', icon: Film },
   { to: '/library', label: '影片庫', icon: Library },
-  { to: '/search', label: '搜尋結果', icon: Search },
+  { to: '/search', label: '搜尋影片', icon: Search },
   { to: '/conversation', label: '對話搜尋', icon: MessageCircle },
 ]
 
