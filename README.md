@@ -129,6 +129,7 @@ docs/              # 開發文件、規劃記錄與 Golden Set
 - [`04-testing-and-evaluation.md`](docs/04-testing-and-evaluation.md) — 測試套件、Golden Set、評測 baseline
 - [`05-known-limitations-and-open-items.md`](docs/05-known-limitations-and-open-items.md) — 已知限制、待辦、待確認事項
 - [`06-conversational-search-flow.md`](docs/06-conversational-search-flow.md) — 對話搜尋設計
+- [`12-search-query-logic.md`](docs/12-search-query-logic.md) — 一次搜尋的完整處理順序、多關鍵字／複合搜尋的實際行為
 - [`07-ui-structure-and-features.md`](docs/07-ui-structure-and-features.md) — 已移除的 Tkinter UI 完整盤點（歷史記錄）
 - [`09-web-ui-migration-plan.md`](docs/09-web-ui-migration-plan.md) — Web UI 遷移計畫、架構決策、Job Manager 設計、各 Phase 驗收紀錄
 

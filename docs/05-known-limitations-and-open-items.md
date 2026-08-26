@@ -19,9 +19,10 @@
 - ~~無答案信心判斷（`is_confident`）無法處理否定句~~ **已修正（sparse 層級）**：`search.py` 新增 `_split_negated_query()`／`_negated_segment_ids()`，偵測到「不要／沒有／不是／並非」後面的關鍵字就把字面命中的片段整個排除，不進 RRF 融合，`is_confident` 判斷因此自然一併修好。詳見 [`02-technical-decisions.md`](02-technical-decisions.md#否定句偵測與排除)。已知限制：`_NEGATION_MARKERS` 只有四個詞；只用 golden set 一題（`gs-018`）驗證過，複雜句型沒測過。
 - **否定句排除只有 sparse 層級有效，dense 相似度與影片層級篩選仍然完全看不懂否定語意**：實測「要真人的畫面 不要出現機器人的畫面」，排除邏輯正確排除了字面命中「機器人」的 25 個片段，但結果前 10 名仍有 9 個來自 BMW 工廠影片（用「機械手臂」「機械人」等字面不同但語意相同的詞描述），原因是 `_relevant_video_ids()`（影片層級篩選）與逐片段 dense 相似度計算都還是拿完整原始查詢（含否定內容）去 embed。詳見 [`02-technical-decisions.md`](02-technical-decisions.md#否定句排除後dense影片層級篩選仍會讓否定內容大量出現後續實測發現)。
 - **對話搜尋的否定句排除依賴否定詞字面存活到 `search()` 收到的查詢字串**：`pipeline/intent.py` 的 LLM 會把使用者原句改寫成 `standalone_query`，如果 LLM 把「不要」換成「避免」「排除」等沒有列在 `_NEGATION_MARKERS` 裡的說法，否定排除會整個失效且不會有任何錯誤或警告——這個風險還沒有實際驗證過會不會發生、多常發生。
+- **不支援布林式複合搜尋**：UI 只有「查詢字串」與「搜尋範圍」兩個條件，沒有 `AND`／`OR`／引號片語／欄位限定語法。輸入多個關鍵字時，dense channel 把整句壓成一個語意向量（偏 AND 的傾向但不強制），sparse channel 則是明確的 `OR`（`db/segments.py` 的 `fts_bm25_search()` 用 `" OR ".join`），唯一真正的複合條件是否定範圍排除（`AND NOT`）。另一個容易踩到的點是關鍵字之間沒有空白或虛詞時會被 `_extract_terms()` 黏成單一複合詞，trigram 片語查詢等同子字串比對而通常一無所獲。完整說明見 [`12-search-query-logic.md`](12-search-query-logic.md#4-複合搜尋輸入多個關鍵字會發生什麼)。golden set 目前沒有多關鍵字複合查詢的題目，現況準確率未知。
 - 影片層級篩選（`MIN_RELEVANCE`／`RELEVANCE_MARGIN`）只用兩支真實影片、幾組查詢實測驗證過，不是嚴謹調校的結果。
 - 搜尋成本已寫進 `search_log` 表、單次花費會顯示在搜尋結果頁籤，但**沒有上限或警示機制**，使用者可以無限次搜尋；Header 也沒有搜尋累計成本的統計卡，只能查資料庫。
-- Hybrid BM25 的虛詞表是針對目前這批 17 題 golden set 手動調的，沒驗證過更多樣查詢下的失敗率；`RRF_K=5` 只掃過 60/20/10/5 四個點就定案，沒有測過更小的 k（1、2）會不會出現反轉或不穩定。
+- Hybrid BM25 的虛詞表是針對目前這批 17 題 golden set 手動調的，沒驗證過更多樣查詢下的失敗率；`RRF_K=5` 只掃過 60/20/10/5 四個點就定案，沒有測過更小的 k（1、2）會不會出現反轉或不穩定。`RRF_K` 與 `MIN_FUSION_SCORE=0.1` 這兩個常數**沒有一起校準過**：兩者相乘隱含「只靠 dense 命中的片段必須排進 dense 前 5 名才會出現在結果裡」這條規則（`1/(5+5)=0.1` 剛好達標），調整 `RRF_K` 會連帶改變這條規則的鬆緊，見 [`12-search-query-logic.md`](12-search-query-logic.md#min_fusion_score-與-rrf_k-的隱含規則推論未實測)。
 - 現有 golden set 評測 baseline（見 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md#5-評測-baseline-的時效性警示)）在場景長度改成 8～12 秒後，一旦重新分析影片或重建 golden set 就會失去比較基準。
 
 ### 文件與程式碼一致性
