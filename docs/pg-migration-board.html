@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQLite → PostgreSQL 遷移看板 — AI 影片搜尋</title>
+<style>
+  /* Design Token 沿用 docs/refactor-board.html（來源 frontend/src/index.css），
+     讓兩份看板與 app 維持同一套視覺語言 */
+  :root {
+    --app-bg: #f8f3ed;
+    --card: #fffdf9;
+    --surface-alt: #fbf6ef;
+    --sand: #f1e4d5;
+    --sand-strong: #e9d5c0;
+    --text-primary: #34241d;
+    --text-secondary: #796b63;
+    --text-muted: #a39388;
+    --primary: #b95b41;
+    --primary-hover: #9d4630;
+    --primary-soft: #f7e4dc;
+    --accent: #dc9a3c;
+    --success: #607157;
+    --success-soft: #e8f0e4;
+    --warning: #91601a;
+    --warning-soft: #f6e9d2;
+    --error: #ad4438;
+    --error-soft: #f5e0dc;
+    --info: #4a6b7c;
+    --info-soft: #e2edf2;
+    --border: #eadfd4;
+    --radius-card: 1.125rem;
+    --shadow-card: 0 1px 2px rgba(52, 36, 29, .06), 0 8px 24px rgba(52, 36, 29, .08);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --app-bg: #1a1512;
+      --card: #241d19;
+      --surface-alt: #2b221d;
+      --sand: #3a2e26;
+      --sand-strong: #4a3a30;
+      --text-primary: #f2e9e1;
+      --text-secondary: #c3b3a7;
+      --text-muted: #94847a;
+      --primary: #d97a5e;
+      --primary-hover: #e89377;
+      --primary-soft: #40261e;
+      --accent: #e5aa54;
+      --success: #8fa383;
+      --success-soft: #2b3427;
+      --warning: #d1a25c;
+      --warning-soft: #382c17;
+      --error: #d97b6d;
+      --error-soft: #3d2320;
+      --info: #7ea3b5;
+      --info-soft: #22303a;
+      --border: #3a2e26;
+      --shadow-card: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0 0 3rem;
+    background: var(--app-bg);
+    color: var(--text-primary);
+    font-family: 'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1560px; margin: 0 auto; padding: 0 1rem; }
+
+  /* ---------- 頁首 ---------- */
+  header {
+    background: linear-gradient(180deg, var(--surface-alt), var(--app-bg));
+    border-bottom: 1px solid var(--border);
+    padding: 2rem 0 1.5rem;
+    margin-bottom: 1.75rem;
+  }
+  h1 { margin: 0 0 .35rem; font-size: 1.6rem; letter-spacing: .01em; }
+  .sub { margin: 0; color: var(--text-secondary); font-size: .95rem; }
+  .sub code, .goal code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .93em; background: var(--surface-alt); border-radius: .25rem; padding: 0 .25em;
+  }
+
+  .goal {
+    margin: 1.1rem 0 0; padding: .75rem .95rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: .9rem;
+    font-size: .85rem; color: var(--text-secondary); max-width: 62rem;
+  }
+  .goal b { color: var(--text-primary); }
+  .goal ol { margin: .4rem 0 0; padding-left: 1.2rem; }
+  .goal li { margin-bottom: .15rem; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.25rem; }
+  .stat {
+    background: var(--card); border: 1px solid var(--border); border-radius: .9rem;
+    padding: .55rem .9rem; min-width: 7.5rem;
+  }
+  .stat .k { display: block; font-size: .72rem; color: var(--text-muted); letter-spacing: .04em; }
+  .stat .v { display: block; font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: .78rem; font-weight: 400; color: var(--text-secondary); }
+  .stat.alarm { border-color: var(--error); background: var(--error-soft); }
+  .stat.alarm .v { color: var(--error); }
+  .stat.alarm .k { color: var(--error); opacity: .85; }
+
+  .progress {
+    margin-top: 1rem; max-width: 62rem;
+    height: .5rem; border-radius: 999px; background: var(--sand); overflow: hidden;
+  }
+  .progress i { display: block; height: 100%; width: 0%; background: var(--success); }
+  .progress-label { margin: .35rem 0 0; font-size: .76rem; color: var(--text-muted); }
+
+  /* ---------- 看板 ---------- */
+  .board {
+    display: grid; gap: 1rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
+  }
+  @media (max-width: 1180px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px)  { .board { grid-template-columns: minmax(0, 1fr); } }
+
+  .col { min-width: 0; }
+  .col-head {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .5rem .25rem .7rem; border-bottom: 2px solid var(--border); margin-bottom: .85rem;
+  }
+  .col-head h2 { margin: 0; font-size: .95rem; letter-spacing: .02em; }
+  .col-head .dot { width: .55rem; height: .55rem; border-radius: 50%; flex: none; }
+  .count {
+    margin-left: auto; background: var(--sand); color: var(--text-secondary);
+    border-radius: 999px; padding: .05rem .55rem; font-size: .78rem; font-variant-numeric: tabular-nums;
+  }
+  .col[data-col="blocked"] .dot { background: var(--error); }
+  .col[data-col="todo"]    .dot { background: var(--accent); }
+  .col[data-col="doing"]   .dot { background: var(--primary); }
+  .col[data-col="done"]    .dot { background: var(--success); }
+
+  .cards { display: flex; flex-direction: column; gap: .8rem; }
+
+  /* ---------- 卡片 ---------- */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card);
+    padding: .85rem .95rem; box-shadow: var(--shadow-card);
+    border-left: 4px solid var(--sand-strong);
+  }
+  .card[data-kind="env"]    { border-left-color: var(--accent); }
+  .card[data-kind="schema"] { border-left-color: var(--primary); }
+  .card[data-kind="code"]   { border-left-color: var(--info); }
+  .card[data-kind="data"]   { border-left-color: var(--warning); }
+  .card[data-kind="test"]   { border-left-color: var(--success); }
+  .card[data-kind="docs"]   { border-left-color: var(--text-muted); }
+  .card.is-blocked { border-left-color: var(--error); background: var(--error-soft); }
+
+  .card-top { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-bottom: .4rem; }
+  .id {
+    font: 700 .72rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--sand); color: var(--text-secondary);
+    border-radius: .4rem; padding: .05rem .4rem; letter-spacing: .03em;
+  }
+  .tag {
+    font-size: .68rem; border-radius: 999px; padding: .08rem .5rem; letter-spacing: .02em;
+    background: var(--sand); color: var(--text-secondary);
+  }
+  .tag.env    { background: var(--warning-soft); color: var(--warning); }
+  .tag.schema { background: var(--primary-soft); color: var(--primary-hover); }
+  .tag.code   { background: var(--info-soft); color: var(--info); }
+  .tag.test   { background: var(--success-soft); color: var(--success); }
+  .tag.risk   { background: var(--error-soft); color: var(--error); }
+  .tag.you    { background: var(--error-soft); color: var(--error); font-weight: 700; }
+
+  .card h3 { margin: 0 0 .35rem; font-size: .95rem; line-height: 1.45; }
+  .card h3 code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .9em; background: var(--surface-alt); border-radius: .25rem; padding: 0 .25em;
+  }
+  .card p { margin: 0 0 .5rem; font-size: .85rem; color: var(--text-secondary); }
+
+  .metric {
+    display: inline-flex; align-items: baseline; gap: .35rem;
+    background: var(--surface-alt); border: 1px solid var(--border); border-radius: .55rem;
+    padding: .2rem .5rem; font-size: .78rem; margin: 0 .3rem .35rem 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric b { font-weight: 700; color: var(--text-primary); }
+
+  details { margin-top: .45rem; }
+  summary {
+    cursor: pointer; font-size: .78rem; color: var(--primary-hover);
+    list-style: none; padding: .15rem 0; user-select: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  details ul, details ol { margin: .4rem 0 0; padding-left: 1.1rem; }
+  details li { font-size: .8rem; color: var(--text-secondary); margin-bottom: .25rem; }
+  details li code, .commit code, .gate code, td code, .lesson code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .93em; background: var(--surface-alt); border-radius: .25rem; padding: 0 .25em;
+  }
+
+  .gate {
+    margin-top: .5rem; padding: .4rem .55rem;
+    background: var(--surface-alt); border: 1px dashed var(--border); border-radius: .55rem;
+    font-size: .78rem; color: var(--text-secondary);
+  }
+  .gate b { color: var(--text-primary); }
+
+  .commit {
+    margin-top: .55rem; padding-top: .5rem; border-top: 1px dashed var(--border);
+    font-size: .76rem; color: var(--text-muted);
+  }
+  .blocked { color: var(--error); font-weight: 700; }
+
+  .empty {
+    border: 1px dashed var(--border); border-radius: var(--radius-card);
+    padding: 1.5rem 1rem; text-align: center; color: var(--text-muted); font-size: .84rem;
+    background: transparent;
+  }
+
+  /* ---------- 區塊 ---------- */
+  .section-title {
+    margin: 2.5rem 0 .9rem; font-size: 1.05rem;
+    display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  }
+  .section-title span.hint { font-size: .8rem; font-weight: 400; color: var(--text-muted); }
+
+  .grid3 { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid3 .card { box-shadow: none; }
+
+  .decisions .card { border-left-color: var(--info); }
+  .decisions .card p:last-child { margin-bottom: 0; }
+  .decisions .why {
+    display: block; margin-top: .5rem; padding-top: .45rem; border-top: 1px dashed var(--border);
+    font-size: .8rem; color: var(--text-secondary);
+  }
+  .decisions .why b { color: var(--primary-hover); }
+
+  .risks .card { border-left-color: var(--error); }
+  .risks .lv {
+    font-size: .68rem; border-radius: 999px; padding: .08rem .5rem;
+    background: var(--sand); color: var(--text-secondary);
+  }
+  .risks .lv[data-lv="中"] { background: var(--warning-soft); color: var(--warning); }
+  .risks .lv[data-lv="低"] { background: var(--success-soft); color: var(--success); }
+
+  .nogo .card { border-left-color: var(--border); box-shadow: none; background: var(--surface-alt); }
+  .nogo h3 { color: var(--text-secondary); font-size: .9rem; }
+  .nogo p { margin-bottom: 0; }
+
+  /* ---------- 表格 ---------- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: .84rem; }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--border); }
+  th { background: var(--surface-alt); font-size: .76rem; letter-spacing: .03em; color: var(--text-secondary); font-weight: 700; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .pending { color: var(--text-muted); }
+
+  footer {
+    margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border);
+    font-size: .78rem; color: var(--text-muted);
+  }
+  footer code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--surface-alt); border-radius: .25rem; padding: 0 .25em;
+  }
+  footer p { margin: .3rem 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>SQLite → PostgreSQL 遷移看板</h1>
+    <p class="sub">AI 影片搜尋 · 執行計畫見 <code>docs/14-postgresql-migration-plan.md</code> · 決定點已於 2026-08-27 拍板</p>
+
+    <div class="goal">
+      <b>這次遷移的動機</b>（決定了重點擺哪）：
+      <ol>
+        <li><b>專題發表／技術展示</b>——遷移過程本身要能講，每一步都要有可展示的產出。</li>
+        <li><b>為之後上 pgvector 鋪路</b>——這次不換向量欄位型別，但環境與 schema 先準備好。</li>
+      </ol>
+      不是為了效能或資料量（22 支影片／931 個 segments，SQLite 完全夠用）。這點要誠實寫進報告。
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">8 <small>/ 12</small></span></div>
+      <div class="stat"><span class="k">阻斷項</span><span class="v">0 <small>（P0 全數通過）</small></span></div>
+      <div class="stat"><span class="k">Baseline R@1</span><span class="v">0.462 <small>/ R@5 0.538</small></span></div>
+      <div class="stat"><span class="k">要改的表</span><span class="v">6 <small>張</small></span></div>
+      <div class="stat"><span class="k">要搬的資料</span><span class="v">1,833 <small>列 / 13.5MB</small></span></div>
+      <div class="stat"><span class="k">預估工期</span><span class="v">1–2 <small>工作天</small></span></div>
+    </div>
+
+    <div class="progress"><i style="width:66.7%"></i></div>
+    <p class="progress-label">進度 8 / 12 · P3 完成，58/58 冒煙測試通過；程式碼已恢復可執行，但 PostgreSQL 裡還沒有資料（待 P4）</p>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="board">
+
+  <!-- ============ 受阻 ============ -->
+  <section class="col" data-col="blocked">
+    <div class="col-head"><span class="dot"></span><h2>受阻</h2><span class="count">0</span></div>
+    <div class="cards">
+      <div class="empty">目前沒有阻斷項</div>
+    </div>
+  </section>
+
+  <!-- ============ 待處理 ============ -->
+  <section class="col" data-col="todo">
+    <div class="col-head"><span class="dot"></span><h2>待處理</h2><span class="count">4</span></div>
+    <div class="cards">
+
+
+
+
+
+
+
+      <article class="card" data-kind="data">
+        <div class="card-top"><span class="id">P4</span><span class="tag">資料</span></div>
+        <h3>資料搬遷腳本</h3>
+        <p>新增 <code>scripts/migrate_sqlite_to_pg.py</code>：讀 <code>app.db</code> 逐表搬，<b>保留原 id</b>。</p>
+        <span class="metric">表 <b>6</b></span>
+        <span class="metric">列 <b>1,833</b></span>
+        <span class="metric">embedding <b>9.6 MB</b></span>
+        <details><summary>細節與驗證方式</summary><ul>
+          <li>資料量小到搬遷本身不是問題——單次 INSERT 全表，秒級完成</li>
+          <li>保留原 id 很重要：<code>docs/golden-set.csv</code> 直接引用 <code>video_id</code></li>
+          <li>搬完必須 <code>setval</code> 修正 identity sequence，否則下一筆 insert 會撞主鍵</li>
+          <li><b>驗證：</b>六張表筆數相符 ＋ 抽 3 支影片比對 segment 內容 ＋ embedding 逐位元組相符</li>
+        </ul></details>
+        <div class="gate"><b>通過條件：</b>三項驗證全過；插一筆再 rollback 確認 sequence 對齊。</div>
+        <div class="commit">依賴 P3</div>
+      </article>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">P5</span><span class="tag test">測試</span></div>
+        <h3>測試改造</h3>
+        <p>6 處 <code>temp_db</code> fixture 從「每測試一個臨時檔案」改成「測試資料庫 ＋ <code>TRUNCATE ... RESTART IDENTITY CASCADE</code>」。</p>
+        <span class="metric">fixture <b>6 處</b></span>
+        <span class="metric">要改的測試 <b>2 支</b></span>
+        <span class="metric">不用動 <b>20 支</b></span>
+        <details><summary>工程量比想像中小</summary><ul>
+          <li><code>db/</code> 以外<b>完全沒有</b> SQL 或 <code>sqlite3</code> import</li>
+          <li>只有 <code>tests/test_db.py</code>（查 <code>sqlite_master</code>／<code>segments_fts</code> 的斷言）與 <code>tests/test_search_pipeline.py</code> 直接寫 SQL</li>
+          <li>其餘 20 支測試完全不用動</li>
+        </ul></details>
+        <div class="gate"><b>通過條件：</b><code>uv run pytest</code> 全綠。</div>
+        <div class="commit">依賴 P4</div>
+      </article>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">P6</span><span class="tag test">驗收</span></div>
+        <h3>Golden set 比對 ＋ 實跑 app</h3>
+        <p>跑同一份 18 題與 P0-5 的 baseline 對照，再實際操作完整流程。</p>
+        <details><summary>兩道關卡</summary><ul>
+          <li><b>量化：</b>Recall@1／Recall@5／MRR／nDCG 四個指標都不低於 baseline，或差異能逐題解釋。沒過就回頭調 P3 的分數公式，<b>不接受劣化</b></li>
+          <li><b>實跑：</b>下載 YouTube → 分析 → 搜尋 → 多輪對話 → 重新分析 → 刪除，六個流程都要正常</li>
+        </ul></details>
+        <div class="gate"><b>通過條件：</b>四個指標達標 ＋ 六個流程都正常。</div>
+        <div class="commit">依賴 P5 · 這關過了才算遷移完成</div>
+      </article>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">P7</span><span class="tag">文件</span></div>
+        <h3>收尾與文件更新</h3>
+        <p>把新的啟動方式與環境需求寫進文件。</p>
+        <details><summary>清單</summary><ul>
+          <li><code>README.md</code>：Docker 啟動步驟、<code>DATABASE_URL</code> 設定</li>
+          <li>新增 <code>.env.example</code></li>
+          <li><code>docs/00-overview.md</code>／<code>docs/02-technical-decisions.md</code>：技術選型理由</li>
+          <li><code>docs/01-development-timeline.md</code>：補這一輪的時間軸</li>
+          <li>本看板：把卡片搬到「已完成」並補上 commit</li>
+        </ul></details>
+        <div class="commit">依賴 P6</div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ 進行中 ============ -->
+  <section class="col" data-col="doing">
+    <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
+    <div class="cards">
+      <div class="empty">下一步是 P4<br>（把 931 個片段搬進來）</div>
+    </div>
+  </section>
+
+  <!-- ============ 已完成 ============ -->
+  <section class="col" data-col="done">
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">8</span></div>
+    <div class="cards">
+
+      <article class="card" data-kind="code">
+        <div class="card-top"><span class="id">P3</span><span class="tag code">程式</span><span class="tag test">✓ 58/58</span></div>
+        <h3>查詢改寫（含 FTS5 替代方案）</h3>
+        <p>六個子模組全部改完，逐支函式實打驗證。程式碼恢復可執行。</p>
+        <span class="metric">佔置換 <b>103 處</b></span>
+        <span class="metric">冒煙測試 <b>58/58</b></span>
+        <details open><summary>核心結果：IDF 真的生效</summary><ul>
+          <li>刻意設計的資料：<code>全壘打</code> 只命中 1 個片段（罕見）、<code>畫面</code> 命中全部 5 個（常見）</li>
+          <li>實測分數：<b>全壘打 −1.1458</b> vs <b>畫面 −0.0981</b>——罕見詞好 11.7 倍</li>
+          <li>這正是 <code>sparse.py</code> 的短詞比例門檻所依賴的鑑別力；IDF 沒保住的話這裡會是兩個相近數字，排序就壞了</li>
+          <li>OR 查詢中「同時命中兩個詞」的片段排第一，排序遞增（最相關在前），跟 SQLite bm25() 的介面契約一致</li>
+        </ul></details>
+        <details><summary>機械式改寫</summary><ul>
+          <li><code>?</code> → <code>%s</code>：videos 37、jobs 41、ocr_events 14、conversations 8、search_log 3</li>
+          <li><code>cursor.lastrowid</code> → <code>INSERT … RETURNING id</code>（5 處）</li>
+          <li><code>MAX(COALESCE(…) != '')</code> → <code>bool_or(COALESCE(…) &lt;&gt; '')</code>——PG 的比較結果是真布林，<code>MAX(boolean)</code> 會直接報錯</li>
+          <li><code>IN (?,?,?)</code> 動態拼佔位符 → <code>= ANY(%s)</code> 直接吃 list</li>
+        </ul></details>
+        <details><summary>BM25 實作方式</summary><ul>
+          <li>PG 沒有等價內建函式（<code>ts_rank</code> 只吃 tsvector，對中文不能用），直接用 SQL 把公式寫出來</li>
+          <li>參數對齊 SQLite FTS5 預設值：<code>k1=1.2</code>、<code>b=0.75</code></li>
+          <li>詞頻用「把該詞抽掉後少了幾個字元 ÷ 詞長」回推出現次數</li>
+          <li>分數加負號，維持「越小越相關」的既有介面契約</li>
+        </ul></details>
+        <details><summary>兩個順手修掉的問題</summary><ul>
+          <li>新增 <code>_like_escape()</code>：使用者查詢字串裡的 <code>%</code>／<code>_</code> 現在會當普通字元比對。實測 <code>fts_like_search("%")</code> 回傳空 list 而不是全部片段</li>
+          <li><code>fts_like_search()</code> 補 <code>ORDER BY id</code>：PG 的 LIMIT 沒有 ORDER BY 時回傳哪幾列不保證，而呼叫端要拿結果算比例門檻</li>
+        </ul></details>
+        <div class="gate"><b>冒煙測試覆蓋：</b>videos 5 項 · segments 5 項 · modality_flags 4 項 · BM25 9 項 · LIKE 2 項 · ocr_events 3 項 · jobs 14 項 · conversations 2 項 · stats 8 項 · 刪除路徑 6 項。</div>
+        <div class="commit">2026-08-27 · 尚未提交</div>
+      </article>
+
+      <article class="card" data-kind="schema">
+        <div class="card-top"><span class="id">P2</span><span class="tag schema">Schema</span><span class="tag test">✓ 通過</span></div>
+        <h3>Schema 改寫 ＋ 幹掉 FTS 手動同步</h3>
+        <p>六張表在 PostgreSQL 建起來，<code>init_db()</code> 連跑三次冪等。</p>
+        <span class="metric">db/ 行數 <b>1348 → 1231</b></span>
+        <span class="metric">淨減 <b>117 行</b></span>
+        <span class="metric">外鍵 <b>2</b></span>
+        <details open><summary>消失的四段程式碼（淨簡化）</summary><ul>
+          <li><code>videos.migrate_columns()</code> ＋ <code>_VIDEOS_NEW_COLUMNS</code></li>
+          <li><code>segments.migrate_columns()</code> ＋ <code>_SEGMENTS_NEW_COLUMNS</code></li>
+          <li><code>segments.backfill_fts()</code></li>
+          <li><code>segments.prune_orphan_fts()</code></li>
+          <li>連帶：<code>delete_for_video()</code> 的 FTS 同步、<code>insert_segment()</code> 的手動寫第二張表，以及兩支 <code>_row_to_record()</code> 裡 9 處 <code>if "x" in keys</code> 防呆</li>
+        </ul></details>
+        <details open><summary>實測驗證的四個機制</summary><ul>
+          <li>✓ <b>generated column 自動計算</b>：插入後 <code>content</code> = <code>'球員擊出全壘打 體育場的畫面 HOME RUN'</code></li>
+          <li>✓ <b>更新自動跟隨</b>：改 <code>transcript</code> 後 <code>content</code> 同步變成 <code>'球員擊出安打 …'</code></li>
+          <li>✓ <b>中文子字串比對</b>：<code>ILIKE '%安打%'</code> 命中 1 筆、改掉後的 <code>'%全壘打%'</code> 命中 0 筆</li>
+          <li>✓ <b>外鍵 CASCADE</b>：刪掉 video 之後 segment 自動歸零</li>
+        </ul></details>
+        <details><summary>兩個偏離原計畫的決定</summary><ul>
+          <li><b><code>GENERATED BY DEFAULT AS IDENTITY</code> 而非 <code>ALWAYS</code></b>：計畫原本寫 ALWAYS，但那會擋住 P4 保留原 id 的插入（要額外寫 <code>OVERRIDING SYSTEM VALUE</code>）。BY DEFAULT 同時更貼近 SQLite <code>AUTOINCREMENT</code> 允許顯式 id 的語意。</li>
+          <li><b><code>jobs.video_id</code> 與 <code>ocr_events.segment_id</code> 刻意不加外鍵</b>：download job 建立時影片還不存在；jobs 是歷史紀錄，影片刪掉後該留著。加外鍵會改變既有行為。</li>
+        </ul></details>
+        <div class="gate"><b>另外：</b><code>init_db()</code> 會自己 <code>CREATE EXTENSION IF NOT EXISTS pg_trgm</code>，剛 clone 下來的環境跑一次就能建起完整 schema。</div>
+        <div class="commit">2026-08-27 · 尚未提交</div>
+      </article>
+
+      <article class="card" data-kind="code">
+        <div class="card-top"><span class="id">P1</span><span class="tag code">程式</span><span class="tag test">✓ 通過</span></div>
+        <h3>連線層抽換</h3>
+        <p><code>db/__init__.py</code> 從 <code>sqlite3</code> 換成 <code>psycopg</code>，呼叫端一行都沒動。</p>
+        <span class="metric">psycopg <b>3.3.4</b></span>
+        <span class="metric">改動檔案 <b>4</b></span>
+        <details><summary>做了什麼</summary><ul>
+          <li><code>uv add "psycopg[binary]"</code>——Python 3.14 有現成 wheel，沒有編譯步驟</li>
+          <li><code>DB_PATH</code>（檔案路徑）→ <code>DSN</code>（連線字串），讀 <code>DATABASE_URL</code>，預設值跟 <code>docker-compose.yml</code> 對齊</li>
+          <li>這一層自己呼叫 <code>load_dotenv()</code>，不依賴呼叫端先載過——scripts／pytest／uvicorn 三個進入點不同，靠別人載會有順序問題</li>
+          <li><code>.env</code> 附加 <code>DATABASE_URL</code>（既有的 API 金鑰未讀取、未變動）</li>
+          <li>維持模組層級變數，測試照舊能 monkeypatch，只是對象從 <code>DB_PATH</code> 變成 <code>DSN</code></li>
+        </ul></details>
+        <details><summary>實測驗證的四件事</summary><ul>
+          <li>✓ <code>import db</code> 成功，連得上 <code>PostgreSQL 17.10</code>／資料庫 <code>avs</code>／使用者 <code>avs</code></li>
+          <li>✓ <code>row["d"]</code> 可用——<code>dict_row</code> 讓六支 <code>_row_to_record()</code> 完全不用改</li>
+          <li>✓ <code>"d" in row.keys()</code> 可用——<code>segments</code>／<code>videos</code> 判斷欄位存在與否靠這個</li>
+          <li>✓ <code>with</code> 結束後 <code>conn.closed = True</code>——順帶修掉 sqlite3 時期「只 commit 不 close」的連線洩漏</li>
+        </ul></details>
+        <div class="gate"><b>已知的中間狀態：</b>子模組還有 <b>130 個 <code>?</code> 佔位符</b>與 SQLite 專屬語法，app 要到 P3 做完才會恢復可執行。這是計畫內的階段順序，不是迴歸。</div>
+        <div class="commit">2026-08-27 · 尚未提交</div>
+      </article>
+
+      <article class="card" data-kind="env">
+        <div class="card-top"><span class="id">P0-1</span><span class="tag env">環境</span><span class="tag test">✓</span></div>
+        <h3>Docker 引擎啟動</h3>
+        <p>WSL Integration ＋ 引擎 VM 都到位。</p>
+        <span class="metric">Docker <b>29.6.1</b></span>
+        <span class="metric">Compose <b>v5.3.0</b></span>
+        <details><summary>過程：一度成功又斷線</summary><ul>
+          <li>整合打開後 <code>docker version</code> 一度成功，但下一個指令就斷——查出 <code>docker-desktop</code> distro 是 Stopped，只有 UI process 在跑，引擎 VM 沒起來</li>
+          <li><code>/mnt/wsl/docker-desktop/cli-tools/</code> 的殘留掛載讓 CLI 找得到卻連不上，是這個症狀最容易誤判的地方</li>
+          <li>重啟後 <code>wsl -l -v</code> 顯示 <code>docker-desktop</code> 為 Running，恢復正常</li>
+        </ul></details>
+        <div class="commit">2026-08-27</div>
+      </article>
+
+      <article class="card" data-kind="env">
+        <div class="card-top"><span class="id">P0-2</span><span class="tag env">環境</span><span class="tag test">✓ healthy</span></div>
+        <h3>PostgreSQL 容器啟動</h3>
+        <p><code>docker-compose.yml</code> 已進版控，一行 <code>docker compose up -d</code> 重建整個環境。</p>
+        <span class="metric">PostgreSQL <b>17.10</b></span>
+        <span class="metric">port <b>5433</b></span>
+        <span class="metric">healthcheck <b>healthy</b></span>
+        <details><summary>實際設定與驗證</summary><ul>
+          <li>image <code>pgvector/pgvector:pg17</code>、named volume <code>avs_pgdata</code></li>
+          <li><code>POSTGRES_INITDB_ARGS</code> 用 <code>--locale=C.UTF-8</code>：中文內容用 glibc collation 沒有實質排序語意，C 的 bytewise 比較行為明確、效能也較好</li>
+          <li>實測編碼 <code>UTF8</code> / collate <code>C.UTF-8</code> / ctype <code>C.UTF-8</code></li>
+          <li>從 WSL 測 <code>localhost:5433</code> TCP 通——app 之後就是走這條</li>
+        </ul></details>
+        <div class="commit">2026-08-27 · 尚未提交</div>
+      </article>
+
+      <article class="card" data-kind="env">
+        <div class="card-top"><span class="id">P0-3</span><span class="tag env">環境</span><span class="tag test">✓ spike 通過</span></div>
+        <h3>啟用 extension ＋ 中文 trigram spike</h3>
+        <p><code>pg_trgm</code> 1.6、<code>vector</code> 0.8.6 都已啟用。順手驗證了 D3 的核心假設。</p>
+        <span class="metric">pg_trgm <b>1.6</b></span>
+        <span class="metric">vector <b>0.8.6</b></span>
+        <details open><summary>spike 結果：中文子字串比對可行，但有個意外</summary><ul>
+          <li>✅ <code>content ILIKE '%全壘打%'</code> 對中文比對<b>正確</b>——替代方案的地基成立</li>
+          <li>✅ <code>show_trgm('全壘打')</code> 產出 4 個 trigram（多位元組會先雜湊成 <code>0x…</code>），中文進得了索引</li>
+          <li>⚠️ <code>show_trgm('汽車')</code>（2 字元）產出 <b>3 個</b> trigram 而非 0 個——<code>pg_trgm</code> 會補空白再切</li>
+          <li>意思是：SQLite FTS5 對 &lt;3 字元的詞是<b>真的查不到</b>，PG 這邊<b>本來就找得到</b>，只是用不到索引加速</li>
+        </ul></details>
+        <div class="gate"><b>因此的決定：</b>P3 仍保留兩支函式與 <code>sparse.py</code> 現有邏輯，一行都不改。合併成單一查詢會讓短詞從哨兵分數變成真實 IDF，那是<b>排名的行為變更</b>，正好是「刻意不做」明訂的事，也會讓 golden set 差異無法歸因。</div>
+        <div class="commit">2026-08-27 · 細節見 docs/14 §5.2.1</div>
+      </article>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">P0-5</span><span class="tag test">驗收基準</span><span class="tag test">✓ 已建立</span></div>
+        <h3>SQLite golden set baseline</h3>
+        <p>切換前的比較基準已鎖定，存在 <code>docs/eval-runs/20260827_194409.json</code>。</p>
+        <span class="metric">Recall@1 <b>0.462</b></span>
+        <span class="metric">Recall@5 <b>0.538</b></span>
+        <span class="metric">MRR <b>0.509</b></span>
+        <span class="metric">nDCG@5 <b>0.510</b></span>
+        <span class="metric">花費 <b>$0.00072</b></span>
+        <details><summary>與歷史紀錄比對（確認 baseline 可信）</summary><ul>
+          <li>20260827_194409（本次）：R@1 0.462 · R@5 0.538 · MRR 0.509 · nDCG 0.510</li>
+          <li>20260822_113949：R@1 0.462 · R@5 0.538 · MRR 0.509 · nDCG 0.510</li>
+          <li>20260822_110013：R@1 0.462 · R@5 0.538 · MRR 0.512 · nDCG 0.510</li>
+          <li>三個指標完全一致、MRR 僅 ±0.003 抖動 → 這份 baseline 具代表性，不是異常值</li>
+          <li>另有 Timestamp IoU 0.896、No-answer F1 0.667 一併記錄</li>
+        </ul></details>
+        <div class="gate"><b>P6 的通過條件：</b>PostgreSQL 版四個指標都不低於這組數字，或差異能逐題解釋。</div>
+        <div class="commit">2026-08-27 · 18 題真實 API 呼叫</div>
+      </article>
+
+      <article class="card" data-kind="data">
+        <div class="card-top"><span class="id">P0-4</span><span class="tag">安全網</span><span class="tag test">✓ 驗證通過</span></div>
+        <h3>備份 <code>app.db</code></h3>
+        <p>快照存到 <code>backup/app.db.20260827</code>，原檔完全沒動。</p>
+        <span class="metric">大小 <b>13,504,512 bytes</b></span>
+        <span class="metric">表 <b>7/7 相符</b></span>
+        <details><summary>為什麼不能直接 <code>cp</code></summary><ul>
+          <li><code>app.db-wal</code> 當時有 <b>251 KB</b> 尚未 checkpoint 進主檔的資料，直接複製 <code>app.db</code> 會漏掉那部分</li>
+          <li>改用 SQLite 的 <code>Connection.backup()</code> API，產出含 WAL 內容的一致性快照</li>
+          <li>驗證：七張表逐表筆數比對全部相符，另抽 5 筆 embedding BLOB 逐位元組比對相符</li>
+          <li><code>.gitignore</code> 補上 <code>/backup/</code>——備份檔名結尾是日期不是 <code>.db</code>，比對不到既有的 <code>*.db</code> 規則</li>
+        </ul></details>
+        <div class="gate"><b>結果：</b>videos 22 · segments 931 · ocr_events 95 · search_log 592 · jobs 29 · conversations 164 · segments_fts 931 — 全部通過。</div>
+        <div class="commit">2026-08-27 · 尚未提交</div>
+      </article>
+
+    </div>
+  </section>
+
+</div><!-- /board -->
+
+<!-- ============ 已拍板的決定 ============ -->
+<h2 class="section-title">已拍板的決定 <span class="hint">2026-08-27 · 詳細理由見 docs/14 §3</span></h2>
+<div class="grid3 decisions">
+
+  <article class="card">
+    <div class="card-top"><span class="id">D1</span><span class="tag env">環境</span></div>
+    <h3>PostgreSQL 放 Docker</h3>
+    <p><code>pgvector/pgvector:pg17</code>，port 5433。Windows 端已裝的 PG17 保留不動。</p>
+    <span class="why"><b>為什麼：</b>環境乾淨可重現，<code>docker-compose.yml</code> 進版控後整套環境是文件的一部分；直接用 pgvector 官方 image 等於鋪路零成本。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">D2</span><span class="tag code">程式</span></div>
+    <h3>psycopg3 ＋ 維持手寫 SQL</h3>
+    <p>不引入 SQLAlchemy／Alembic。</p>
+    <span class="why"><b>為什麼：</b><code>db/</code> 已經是乾淨邊界，函式介面不用動。改 ORM 是另一個獨立專案（重寫 1348 行 ＋ 22 支測試），綁在一起會讓「搜尋結果變了」無法歸因。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">D3</span><span class="tag schema">Schema</span></div>
+    <h3>FTS5 → pg_trgm ＋ 自算 IDF</h3>
+    <p>GIN <code>gin_trgm_ops</code> 索引，分數在 SQL 內算 <code>IDF × TF</code>。</p>
+    <span class="why"><b>為什麼：</b>PG 沒有 FTS5 對應物，而中文非用 trigram 不可。RRF 只吃排序不吃絕對值，但 IDF 不能丟。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">D4</span><span class="tag">範圍</span></div>
+    <h3>pgvector 開 extension，欄位不換</h3>
+    <p>embedding 維持 <code>BYTEA</code> 原樣搬。</p>
+    <span class="why"><b>為什麼：</b>動機是「鋪路」不是「這次就上」。換 <code>vector(1024)</code> 要連帶改 <code>analyzer.py</code>／<code>dense.py</code>／<code>embedding.py</code> 的編解碼路徑，混在一起同樣會讓指標變動無法歸因。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">D5</span><span class="tag">範圍</span></div>
+    <h3>時間欄位維持 TEXT</h3>
+    <p>ISO-8601 字串，不改 <code>timestamptz</code>。</p>
+    <span class="why"><b>為什麼：</b>6 個 dataclass 都宣告 <code>created_at: str</code>，且 ISO-8601 字串排序結果正確。改型別要動 dataclass ＋ API schema ＋ 前端格式化，收益只有「型別正確」。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">D6</span><span class="tag">策略</span></div>
+    <h3>一次性切換，不做 dual-write</h3>
+    <p>單機單人 app，可停機。</p>
+    <span class="why"><b>為什麼：</b>雙寫的複雜度只有在「不能停機」時才值得付。回頭路是原封不動的 <code>app.db</code> 備份 ＋ git branch，30 秒。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="id">D7</span><span class="tag">策略</span></div>
+    <h3>舊 <code>app.db</code> 保留不刪</h3>
+    <p>複製到備份路徑，穩定跑一陣子後再問。</p>
+    <span class="why"><b>為什麼：</b>CLAUDE.md 明訂刪檔一律先問；而且它同時是回滾用的安全網。</span>
+  </article>
+
+</div>
+
+<!-- ============ 風險 ============ -->
+<h2 class="section-title">風險與對策 <span class="hint">docs/14 §7</span></h2>
+<div class="grid3 risks">
+
+  <article class="card">
+    <div class="card-top"><span class="lv" data-lv="中">機率 中</span><span class="tag risk">P3</span></div>
+    <h3>中文 sparse 排序品質下降</h3>
+    <p>FTS5 的 bm25 換成自算 IDF×TF 後，排名可能跑掉。</p>
+    <span class="why"><b>對策：</b>golden set 量化把關（P0-5 ↔ P6）。沒過就調公式，不接受劣化。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="lv" data-lv="低">機率 低</span><span class="tag risk">P1</span></div>
+    <h3><code>with conn</code> 語意差異</h3>
+    <p><code>sqlite3</code> 只 commit 不 close，psycopg 是 commit <b>且</b> close。</p>
+    <span class="why"><b>對策：</b>語意其實更正確（現況在漏連線）。已檢查過沒有程式碼在 <code>with</code> 區塊外用同一個 conn。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="lv" data-lv="低">機率 低</span><span class="tag risk">P5</span></div>
+    <h3>測試改造工程量被低估</h3>
+    <p>擔心 fixture 改動牽連一大片。</p>
+    <span class="why"><b>對策：</b>已盤點——只有 6 處 fixture ＋ 2 支測試裡的直接 SQL，其餘 20 支完全不用動。</span>
+  </article>
+
+  <article class="card">
+    <div class="card-top"><span class="lv" data-lv="低">機率 低</span><span class="tag risk">P4</span></div>
+    <h3>id sequence 沒對齊</h3>
+    <p>搬遷後保留原 id，但 identity sequence 還停在 1，下一筆 insert 撞主鍵。</p>
+    <span class="why"><b>對策：</b>P4 明確列了 <code>setval</code> 步驟；驗證時插一筆再 rollback。</span>
+  </article>
+
+</div>
+
+<!-- ============ 可展示的成果 ============ -->
+<h2 class="section-title">可展示的成果 <span class="hint">對應動機 1：專題發表 · docs/14 §9</span></h2>
+<div class="table-scroll">
+<table>
+  <thead><tr><th>產出</th><th>形式</th><th>狀態</th></tr></thead>
+  <tbody>
+    <tr><td>Golden set 前後對照</td><td>Recall@1／Recall@5／MRR／nDCG 的 SQLite vs PostgreSQL 表格（同一份 18 題、同一批資料）</td><td>SQLite 側已鎖定<br>0.462 / 0.538 / 0.509 / 0.510<br><span class="pending">PostgreSQL 側待 P6</span></td></tr>
+    <tr><td>Schema 對照</td><td>型別／語法對照表，以及「為什麼中文要用 trigram 而不是預設 tokenizer」的設計理由</td><td class="pending">待 P2</td></tr>
+    <tr><td>消失的程式碼</td><td>FTS 手動同步四段被 generated column 取代，附 52% 殘留列 bug 的來龍去脈</td><td class="pending">待 P2</td></tr>
+    <tr><td>環境可重現性</td><td><code>docker-compose.yml</code> 進版控，一行 <code>docker compose up -d</code> 重建整個資料庫環境</td><td>✓ 完成</td></tr>
+    <tr><td>遷移驗證方法</td><td>逐表筆數、抽樣內容比對、embedding 逐位元組比對——說明「怎麼證明資料沒搬丟」</td><td class="pending">待 P4</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============ 現況數據 ============ -->
+<h2 class="section-title">現況盤點 <span class="hint">實測數字 · docs/14 §2</span></h2>
+<div class="table-scroll">
+<table>
+  <thead><tr><th>表</th><th class="num">筆數</th><th>備註</th></tr></thead>
+  <tbody>
+    <tr><td>videos</td><td class="num">22</td><td></td></tr>
+    <tr><td>segments</td><td class="num">931</td><td>含 9.6 MB embedding BLOB（每片段最多 3 個 1024 維 float32）</td></tr>
+    <tr><td>ocr_events</td><td class="num">95</td><td>95 筆有 embedding</td></tr>
+    <tr><td>search_log</td><td class="num">592</td><td></td></tr>
+    <tr><td>jobs</td><td class="num">29</td><td></td></tr>
+    <tr><td>conversations</td><td class="num">164</td><td></td></tr>
+    <tr><td>segments_fts</td><td class="num">931</td><td>FTS5 虛擬表（實際佔 5 張實體表）→ P2 之後消失</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============ 刻意不做 ============ -->
+<h2 class="section-title">刻意不做 <span class="hint">寫下來，避免之後被當成疏漏 · docs/14 §10</span></h2>
+<div class="grid3 nogo">
+  <article class="card"><h3>不引入 ORM／Alembic</h3><p>D2：<code>db/</code> 已是乾淨邊界，改 ORM 是獨立專案。</p></article>
+  <article class="card"><h3>不把 embedding 換成 <code>vector</code> 型別</h3><p>D4：extension 有開但欄位不換，路線見 docs/14 §8。</p></article>
+  <article class="card"><h3>不改時間欄位型別</h3><p>D5：維持 ISO-8601 TEXT。</p></article>
+  <article class="card"><h3>不改任何 API 介面、schema、前端</h3><p>這次是純資料層抽換。</p></article>
+  <article class="card"><h3>不改搜尋演算法本身</h3><p>RRF、門檻、取詞規則全部不動，只換 sparse channel 的底層實作。</p></article>
+  <article class="card"><h3>不動 Windows 端的 PostgreSQL 17</h3><p>保留當 pgAdmin 用。</p></article>
+</div>
+
+<footer>
+  <p>資料來源：<code>docs/14-postgresql-migration-plan.md</code>（v2）· 現況數字由 2026-08-27 實測 <code>app.db</code> 與本機環境取得</p>
+  <p>更新方式：每完成一個階段，把卡片移到「已完成」欄、補上 commit 短碼與實測結果，並同步更新頁首的統計與進度條</p>
+  <p>最後更新：2026-08-27 · 進度 8 / 12 · P3 完成，下一步 P4</p>
+</footer>
+
+</div><!-- /wrap -->
+</body>
+</html>
