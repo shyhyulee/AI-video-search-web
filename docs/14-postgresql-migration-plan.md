@@ -1,4 +1,4 @@
-# SQLite → PostgreSQL 遷移計畫（v2）
+# SQLite → PostgreSQL 遷移計畫（v2 · 已完成）
 
 ## 1. 文件目的
 
@@ -233,8 +233,8 @@ CREATE INDEX idx_segments_content_trgm ON segments USING gin (content gin_trgm_o
 
 ## 6. 執行階段
 
-> **目前進度：P0–P3 已完成（8/12），下一步 P4。**
-> 即時狀態見 `docs/pg-migration-board.html`，執行時才發現的事記在 §10。
+> **遷移已於 2026-08-27 全部完成（12/12）。**
+> 逐階段看板見 `docs/pg-migration-board.html`，執行時才發現的事記在 §10。
 
 ### P0 前置（有一項需要你手動操作）
 
@@ -369,8 +369,149 @@ P0-5 是整案最重要的一步：**沒有 baseline 就沒辦法證明遷移後
 2. **`fts_like_search()` 缺 `ORDER BY`**——PostgreSQL 的 `LIMIT` 沒有 `ORDER BY` 時回傳哪幾列
    不保證，而呼叫端要拿這個結果算比例門檻，需要可重現。補上 `ORDER BY id`。
 
-**待 P6 驗證**：GIN trigram 索引目前只有測試資料（5 筆），PostgreSQL 一定走 seq scan，
-看不出索引有沒有被用到。等 P4 搬進 931 筆之後再用 `EXPLAIN` 確認。
+**GIN 索引已於 P4 驗證**（見下）。
+
+### P4 資料搬遷（2026-08-27 完成）
+
+`scripts/migrate_sqlite_to_pg.py`。來源用 live `app.db`（609 筆 `search_log`，含 P0-5 baseline
+那次執行寫入的），不是 P0-4 的備份——備份維持不動當回滾用。
+
+| 表 | 筆數 | sequence 修正後 |
+|---|---|---|
+| videos | 22 | 24 |
+| segments | 931 | 2046 |
+| ocr_events | 95 | 401 |
+| search_log | 609 | 609 |
+| jobs | 29 | 29 |
+| conversations | 164 | 164 |
+
+三道驗證全過：逐表筆數相符、抽樣 3 支影片共 233 個片段逐欄位相符、
+**2338 個向量／9,576,448 bytes 的 embedding 逐位元組相符**（含 `ocr_events.embedding` 95 筆）。
+
+`max(id)` 遠大於筆數（segments 931 筆但 max=2046）是正常的：那些是歷來重新分析／刪除留下的
+id 空洞，正因如此才必須保留原 id 而不是重新編號。
+
+**欄位對應不寫死**：腳本從兩邊的 schema 推導交集，來源多的欄位（會遺失）與目標多的欄位
+（會填 NULL）都會在搬移前列出來。實跑結果是「沒有欄位落差」，`segments.content` 這個
+generated column 也依 `is_generated = 'NEVER'` 正確排除掉了。
+
+**搬移後補驗的三件事**：
+
+1. **sequence 對齊**——`nextval()` 實測等於 `max(id) + 1`（videos 25／segments 2047／
+   jobs 30／conversations 165），下一筆 INSERT 不會撞主鍵。
+2. **generated column 在搬進來的資料上正確產生**——931 筆裡 `content` 為 NULL 的 0 筆、
+   與三欄串接結果不符的 0 筆。
+3. **GIN trigram 索引真的被 planner 選用**（P3 時只有 5 筆測試資料，看不出來）：
+
+   | pattern | 字元數 | planner 選擇 | 命中 |
+   |---|---|---|---|
+   | `%機器人%` | 3 | **GIN 索引**（Bitmap Heap Scan） | 26 |
+   | `%全壘打%` | 3 | **GIN 索引** | 4 |
+   | `%BMW%` | 3（英文） | **GIN 索引** | 25 |
+   | `%汽車%` | 2 | Seq Scan | 53 |
+
+   完全符合 §5.2.1 的預測：3 字元以上吃得到索引，2 字元走 seq scan 但**結果仍然正確**。
+   `sparse.py` 的 ≥3 字元分界剛好跟索引邊界對齊，是巧合但很好用。
+
+   註：測這件事時第一次用了 `SET enable_seqscan = off`，那只證明索引「能」被用、
+   不代表 planner 會選它——`%汽車%` 在那個設定下也會走索引。要看真實行為必須用預設設定。
+
+### P5 測試改造（2026-08-27 完成）
+
+**338 passed**（改造前 336 支測試函式，現在 337——只多了一支
+`test_segments_fts_table_is_gone`）。
+
+隔離機制換掉了：SQLite 時期每個測試拿一個新的 `tmp_path / "test.db"`，隔離是免費的；
+PostgreSQL 沒有臨時檔案，改成整個 session 共用一個**獨立的測試資料庫** `avs_test`，
+每個測試開始前 `TRUNCATE ... RESTART IDENTITY CASCADE`。效果相同（空表、id 從 1 開始），
+成本也低（空表的 TRUNCATE 是常數時間，全套 338 支跑 16 秒）。
+
+新增 `tests/conftest.py` 集中這件事，六處重複的 fixture 收斂成一處：四支只做
+`DB_PATH + init_db()` 的直接刪掉（改用 conftest 的 `temp_db`），兩支需要額外 patch
+（`downloader.VIDEO_DIR`、`job_manager._analysis_running`）的改成 depend on `clean_db`。
+
+**安全防護（這一節最重要的部分）**：`avs` 現在裝著真實的分析結果，而測試會 `TRUNCATE`。
+所以 `clean_db` 在動手前會檢查目標資料庫名稱是否以 `_test` 結尾，不是就丟 `RuntimeError`；
+session fixture 也用同一條規則，不通過就 `pytest.exit()`。實測把 DSN 指回 `avs` 再呼叫
+`clean_db`，確實被擋下來、資料完好。這不是形式檢查——沒有它，一次 DSN 組法的錯誤
+就是無聲的資料全毀。
+
+**一支測試的斷言在遷移時反過來了**，是刻意的：
+`test_fts_bm25_search_short_query_finds_nothing` → `test_fts_bm25_search_short_query_now_finds_results`。
+SQLite 版鎖的是 FTS5 trigram 的硬限制（<3 字元完全查不到），而該測試當時的註解就預告了
+「如果哪天這個限制消失，代表 sparse.py 那層 fallback 可以評估要不要簡化」——遷移正是那一天。
+但 sparse.py 這次刻意沒跟著改（§5.2.1 的理由），所以測試改成把這個**已知落差**寫下來，
+當作之後真要簡化時的起點。
+
+其餘六支綁在 SQLite 機制上的測試全部**改寫而非刪除**，意圖不變、只換驗證方式：
+
+| 原本 | 現在 | 改動 |
+|---|---|---|
+| `test_init_db_adds_migrated_columns` | `test_init_db_creates_every_column_up_front` | `PRAGMA table_info` → `information_schema.columns` |
+| `test_init_db_creates_all_tables` | 同名 | `sqlite_master` → `pg_tables` |
+| `test_deleting_segments_also_clears_fts_rows` | `..._clears_search_index` | 不再需要另外數殘留列 |
+| `test_prune_orphan_fts_removes_rows_without_segment` | `test_search_index_cannot_go_orphan` | 從「殘留列清得掉」改成證明「殘留不可能發生」 |
+| `test_insert_segment_syncs_fts_table` | `test_insert_segment_is_searchable_immediately` | 不再依賴呼叫端記得同步 |
+| `test_backfill_fts_covers_pre_existing_rows` | `test_raw_insert_is_searchable_without_backfill` | 繞過 `insert_segment()` 直接下 SQL，一樣立刻搜得到 |
+| — | `test_segments_fts_table_is_gone`（新增） | 鎖住 FTS5 表不會被「順手」加回來 |
+
+### P6 驗收（2026-08-27 完成）
+
+#### 關卡一：Golden set 量化對照
+
+同一份 18 題、同一批資料，只有資料庫換了。
+
+| 指標 | SQLite baseline | PostgreSQL | Δ |
+|---|---|---|---|
+| Recall@1 | 0.4615 | 0.4615 | **0** |
+| Recall@5 | 0.5385 | 0.5385 | **0** |
+| nDCG@5 | 0.5101 | 0.5101 | **0** |
+| Mean Timestamp IoU | 0.8961 | 0.8961 | **0** |
+| No-answer F1 | 0.6667 | 0.6667 | **0** |
+| MRR | 0.5085 | 0.5077 | **−0.0009** |
+
+逐題命中模式（哪 11 題中、哪 6 題沒中）**完全相同**。
+
+MRR 那 0.0009 不用「在誤差範圍內」帶過——逐題比對後可以精確歸因：
+**只有 gs-012（`機器人在工廠操作零件`）一題的排名改變，正解從第 9 名掉到第 10 名**
+（reciprocal_rank 1/9 → 1/10）。13 道可回答題目平均下來就是 0.0111/13 = 0.00085，
+跟觀察到的 −0.0009 吻合。因為 9 和 10 都在 top-5 之外，Recall@5 與 nDCG@5 完全不受影響。
+其餘四題只有 `cost_usd` 有微小差異，那是 LLM 翻譯步驟的 token 數抖動，與資料庫無關。
+
+為了確認這個位移來自「我改的 sparse channel」而不是「非決定性的 LLM 翻譯」，另外做了一次
+**隔離比對**——直接拿相同的取詞結果，分別對 SQLite 備份的 FTS5 與 PostgreSQL 跑檢索，
+全程沒有任何 LLM 呼叫，兩邊都是決定性的：
+
+| 查詢 | 取詞 | SQLite 命中 | PG 命中 | 集合 | 排序 |
+|---|---|---|---|---|---|
+| 機器人在工廠操作零件 | `機器人`／`工廠操作零件` | 26 | 26 | **相同** | 前 4 名相同，第 5 名起有差異 |
+| FRAME 這個字出現在畫面上 | `FRAME` | 93 | 93 | **相同** | 前 10 名重疊 10/10，僅內部順序不同 |
+| 工人手動安裝汽車零件 | `工人手動安裝汽車零件` | 0 | 0 | 相同 | — |
+| 大象跟小象一起在草地上走路 | （無 ≥3 字元詞） | 0 | 0 | 相同 | — |
+
+**結論：召回完全一致，差異只在同一批候選集內部的排序。** 這正是兩套 BM25 實作的預期落差
+——FTS5 數的是 trigram token、我們數的是子字串出現次數，tie-break 不同。付出的代價是
+一題的正解在第 9/10 名之間移動，使用者看不到的位置。
+
+判定：**通過**（五個指標零變化，MRR 的差異已逐題解釋清楚）。
+
+#### 關卡二：實跑 app
+
+啟動後端跑完七個流程，全程 **117 個請求、0 個錯誤、0 個 5xx**：
+
+| # | 流程 | 結果 |
+|---|---|---|
+| 1 | 讀取（統計／清單／詳情） | pending 3・analyzed 19・segments 931・$1.46228；模態旗標（`bool_or`）正確 |
+| 2 | 搜尋 | `機器人在工廠操作零件` → is_confident=true，3 筆結果，$0.00013 |
+| 3 | 多輪對話 | 兩輪；第二輪「那有工人手動安裝的嗎」被改寫成「工人手動安裝零件的工廠影片」＝脈絡有效 |
+| 4 | 對話狀態持久化 | `state_json` 5275 字元寫入／讀回，成本累加正確 |
+| 5 | 上傳 → 分析 | 合成影片 → 1 個片段、$0.00118、摘要有產生 |
+| 6 | 重新分析 | segment id 2048 → 2049（舊的刪掉、新的寫入） |
+| 7 | 刪除 | video/segments/ocr_events 歸零（FK CASCADE）；**jobs 歷史保留**（就是不加外鍵的目的） |
+| 8 | YouTube 下載 | job 建立時 `video_id=null` → 完成後回填 27；`has_active_download_job` 防呆有效 |
+
+跑完 videos／segments／ocr_events 三張表回到搬移後的原始筆數（22／931／95）。
+search_log、jobs、conversations 有增長，那是歷史紀錄表的正常累積。
 
 ## 11. 明確不做
 

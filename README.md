@@ -20,6 +20,7 @@ Web 應用：從 YouTube 搜尋並下載影片後自動分析（場景切分、�
 - [uv](https://docs.astral.sh/uv/)
 - Node.js ≥ 18 與 npm（前端建置）
 - 系統套件：`ffmpeg`／`ffprobe`（場景抽幀、縮圖、探測本機影片長度用）、`node`（yt-dlp 下載時解 YouTube 簽章挑戰用，跟前端建置共用同一份 Node.js）
+- Docker（跑 PostgreSQL；見 `docker-compose.yml`）
 - OpenAI API 金鑰（分析與搜尋都需要呼叫 Whisper／GPT-4o-mini／text-embedding-3-small）
 
 ## 安裝
@@ -31,15 +32,24 @@ cd frontend && npm install    # 前端
 
 ## 設定
 
-在專案根目錄建立 `.env`（已加入 `.gitignore`，不會進版控）：
+在專案根目錄建立 `.env`（已加入 `.gitignore`，不會進版控）；可以直接複製 `.env.example`：
 
 ```
 OPENAI_API_KEY=sk-...
+DATABASE_URL=postgresql://avs:avs_local_dev@localhost:5433/avs
 ```
+
+`DATABASE_URL` 不設也能跑——`db/__init__.py` 的預設值就是上面那一行，跟 `docker-compose.yml` 對齊。
 
 ## 執行
 
-開發模式需要同時跑後端 API 與前端 dev server（兩個終端機）：
+先把資料庫跑起來（只要做一次，容器之後會自己隨 Docker 啟動）：
+
+```bash
+docker compose up -d          # PostgreSQL 17 + pgvector，對外 port 5433
+```
+
+再同時跑後端 API 與前端 dev server（兩個終端機）：
 
 ```bash
 # 終端機 1：後端 API（http://127.0.0.1:8000）
@@ -49,9 +59,17 @@ uv run ai-video-search-web
 cd frontend && npm run dev
 ```
 
-打開 `http://127.0.0.1:5173` 使用。第一次執行會自動在專案根目錄建立 `app.db`（SQLite 資料庫）與 `video/`（下載的影片檔案），兩者都已加入 `.gitignore`。
+打開 `http://127.0.0.1:5173` 使用。後端啟動時會自動建立資料表與索引（`init_db()` 是冪等的，
+每次啟動都會跑）；下載的影片檔放在專案根目錄的 `video/`，已加入 `.gitignore`。
+
+> port 用 5433 而不是預設的 5432，是為了避開機器上可能另外裝的 PostgreSQL。
+> 資料存在 Docker named volume `avs_pgdata`，容器砍掉重建資料還在。
 
 ## 測試
+
+後端測試需要 PostgreSQL 在跑（`docker compose up -d`）。測試會自動建立並使用一個獨立的
+`avs_test` 資料庫，每個測試前清空，**不會碰到正式資料庫**——`tests/conftest.py` 會檢查
+目標資料庫名稱以 `_test` 結尾才動手。
 
 ```bash
 # 後端
@@ -80,7 +98,7 @@ uv run python scripts/run_golden_set_eval.py
 ```text
 src/ai_video_search_web/
   __init__.py      # 套件進入點：main() 啟動 FastAPI（uvicorn）
-  db/              # SQLite 存取層（videos／segments／ocr_events／search_log／jobs／conversations）
+  db/              # PostgreSQL 存取層（videos／segments／ocr_events／search_log／jobs／conversations）
   downloader.py    # YouTube 下載（yt-dlp）
   services/        # Application Service 層：包裝 db／pipeline，供 API 使用
     job_manager.py     #   背景工作序列化、進度持久化、重試、啟動時 reconciliation
@@ -108,7 +126,9 @@ frontend/          # React + TypeScript + Vite + Tailwind + TanStack Query
   src/pages/         #   五個頁面（YoutubeSearchPage／VideosPage／LibraryPage／SearchPage／ConversationPage）
 tests/             # pytest 測試（單元測試 + integration marker）
   api/               #   FastAPI TestClient 測試
-scripts/           # 手動執行的工具腳本（Golden Set 評測）
+scripts/           # 手動執行的工具腳本
+  run_golden_set_eval.py   #   Golden Set 評測
+  migrate_sqlite_to_pg.py  #   一次性：把舊的 app.db 搬進 PostgreSQL（見 docs/14）
 docs/              # 開發文件、規劃記錄與 Golden Set
 ```
 

@@ -165,6 +165,18 @@
 
 **技術背景（已查證）**：SQLite 內建 FTS5，不用裝新套件。FTS5 預設的 `unicode61` tokenizer 對中文完全無法比對子字串（中文沒有空白分詞），改用 `tokenize='trigram'` 才能正確比對中文子字串——代價是**查詢字串小於 3 個字元完全查不到任何結果**（不是分數低，是 tokenizer 產生不出 trigram），這對中文殺傷力很大（「汽車」「獅子」這類雙字詞剛好卡在這條線下面）。
 
+> **2026-08 更新（遷移到 PostgreSQL 之後）**：上面這段的**結論仍然成立、實作換掉了**。
+> PostgreSQL 的 `to_tsvector` 對中文有一樣的斷詞問題（`simple` parser 會把整句當成一個
+> token），所以同樣選 trigram 路線——改用 `pg_trgm` 的 GIN 索引，BM25 分數在 SQL 裡自己算
+> （PG 沒有等價內建函式，`ts_rank` 只吃 tsvector）。「選 trigram 而不是內建全文檢索」這個
+> **決策本身沒有變**，只是換了一套 trigram 實作。
+>
+> 有一項限制消失了：`pg_trgm` 對 <3 字元的詞**查得到**，只是用不到索引加速（走 seq scan）。
+> 但 `sparse.py` 的短詞 fallback 與哨兵分數**刻意沒有跟著簡化**——那會變成搜尋排名的行為
+> 變更，讓遷移的 golden set 差異無法歸因。這個已知落差記在
+> `tests/test_db.py::test_fts_bm25_search_short_query_now_finds_results`，
+> 細節見 [`14-postgresql-migration-plan.md`](14-postgresql-migration-plan.md) §5.2.1。
+
 **斷詞方式**：不引入 jieba，用純規則（正則抽英文／數字 token；中文用手刻的虛詞表切開字串，剩下連續片段當一個候選詞）。`≥3` 字元的詞用 FTS5 `bm25()`（真正的 IDF 加權）；`<3` 字元的詞用 LIKE fallback，找到就給一個排在所有真正 bm25 分數之前的哨兵分數（模擬「精確關鍵字命中應該最優先」）。詳見 [`03-excluded-approaches.md`](03-excluded-approaches.md#搜尋不引入-jieba-斷詞)。
 
 **融合方式**：RRF（Reciprocal Rank Fusion）：`score = Σ 1/(k + rank)`，dense 排名（涵蓋全部候選片段）與 sparse 排名（BM25/LIKE 找到的片段）各自算一次再相加，沒被某個 channel 找到的片段，該 channel 貢獻是 0，不是懲罰分數。

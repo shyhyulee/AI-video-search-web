@@ -131,3 +131,57 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 **刻意不做**：不引入 Repository／DI container／CQRS（目前規模下 15 個 `db.*` 直呼更好讀）；不移除 `video_service` 的 11 個一行透傳（刪掉會讓 API 層直接依賴 db，方向更差）；`progress_estimation` 不改用 executor（它的 worker 是 `daemon=True`，換掉會讓分析途中 Ctrl-C 要等 ffmpeg／Whisper 跑完）；不修正本地 OCR 失敗時已花費用被丟棄的既有低估（那是行為不是結構債，已在程式碼註解標記）。
 
 完整的任務看板（含每張卡的驗證方式、刻意不做的理由，以及過程中做錯／走錯的記錄）見 [`refactor-board.html`](refactor-board.html)。
+
+## 2026-08-27：資料庫從 SQLite 遷移到 PostgreSQL
+
+完整計畫、決定理由與執行紀錄見 [`14-postgresql-migration-plan.md`](14-postgresql-migration-plan.md)，
+逐階段進度看板見 [`pg-migration-board.html`](pg-migration-board.html)。這裡只記時間軸摘要。
+
+**動機不是效能**：22 支影片／931 個片段，SQLite 完全夠用。真正的理由有兩個——專題發表需要
+一個能講的技術主題，以及為之後上 pgvector 鋪路。這點在計畫文件裡寫明，沒有包裝成效能優化。
+
+**條件很好**：`db/` 是全專案唯一碰 SQL 的地方（`db/` 以外沒有任何 `sqlite3` import 或查詢語句），
+所以 `services/`／`pipeline/`／`api/` 三層**一行都沒有因為換資料庫而改動**。沒有 ORM 要重寫、
+沒有 migration 歷史要轉換。
+
+**技術選型**：Docker 跑 `pgvector/pgvector:pg17`（port 5433 避開機器上另一份 PostgreSQL）、
+`psycopg` 3 搭配手寫 SQL（不引入 SQLAlchemy／Alembic——`db/` 已經是乾淨邊界，改 ORM 是另一個
+獨立專案，綁在一起會讓「搜尋結果變了」無法歸因）、embedding 維持 `BYTEA` 不換成 `vector` 型別
+（pgvector extension 有裝好，但欄位型別留給之後獨立的一步）。
+
+**最大的收穫是刪掉東西**：FTS5 虛擬表換成 `segments.content` 這個 generated column ＋ `pg_trgm`
+GIN 索引之後，`backfill_fts()`／`prune_orphan_fts()`／`delete_for_video()` 的 FTS 同步／
+`insert_segment()` 的第二次寫入四段程式碼全部消失，連同 `migrate_columns()` 與兩支
+`_row_to_record()` 裡 9 處 `if "x" in keys` 防呆——`db/` 從 1348 行降到 1231 行。
+更重要的是根除了一整類 bug：FTS5 的 rowid 靠呼叫端自己同步，漏掉就留下殘留列，實測曾有
+**925/1795（52%）**是對不到片段的殘留列，佔掉 bm25 前 200 名額、把真正命中的片段擠出候選集。
+generated column 由資料庫維護，這種脫節在結構上不可能發生。
+
+**檢索的替代方案**：PostgreSQL 沒有 FTS5，`to_tsvector` 對中文有一樣的斷詞問題，所以同樣走
+trigram 路線，BM25 分數在 SQL 裡自己算（k1=1.2、b=0.75 對齊 FTS5 預設值，分數加負號維持
+「越小越相關」的既有介面契約）。保住 IDF 是重點——`sparse.py` 的短詞比例門檻整套建立在
+「長詞有真實 IDF 加權」的前提上。
+
+**驗收**：動工前先在 SQLite 上跑一次 golden set 存 baseline（切換後就沒有 SQLite 環境可比了），
+遷移後跑同一份 18 題對照：
+
+| 指標 | SQLite | PostgreSQL |
+|---|---|---|
+| Recall@1／Recall@5／nDCG@5／IoU／No-answer F1 | — | **完全相同** |
+| MRR | 0.5085 | 0.5077（−0.0009） |
+
+那 0.0009 沒有用「在誤差內」帶過：逐題比對後確認**只有 gs-012 一題**的正解從第 9 名掉到
+第 10 名，13 道可回答題目平均下來正好是這個數字，而 9 和 10 都在 top-5 之外。再進一步做了
+不含 LLM 的隔離比對（相同取詞分別打 SQLite FTS5 與 PostgreSQL），確認**召回集合完全一致**
+（26 vs 26、93 vs 93），差異只在同一批候選集內部的排序——兩套 BM25 實作的預期落差。
+
+資料搬遷保留原 id（golden set 與既有對話都直接引用），2338 個向量／9,576,448 bytes 逐位元組
+比對相符。實跑 app 走完八個流程（讀取／搜尋／多輪對話／狀態持久化／上傳分析／重新分析／刪除／
+YouTube 下載）共 117 個請求、0 個錯誤。測試從 336 支增加到 337 支、全數通過，隔離方式從
+「每測試一個臨時 SQLite 檔案」換成「共用 `avs_test` 資料庫 ＋ 每測試 TRUNCATE」，並加了
+一道「資料庫名稱必須以 `_test` 結尾才准 TRUNCATE」的防護——正式資料庫現在裝著真實分析結果，
+一次 DSN 組法的錯誤就是無聲的資料全毀。
+
+**順手修掉兩個 SQLite 時期就存在、只是沒被觸發的問題**：查詢字串裡的 `%` 沒有跳脫（會變成
+「比對任意字串」、一次撈出全部片段），以及 `fts_like_search()` 的 `LIMIT` 沒有 `ORDER BY`
+（PostgreSQL 不保證回傳哪幾列，而呼叫端要拿結果算比例門檻）。

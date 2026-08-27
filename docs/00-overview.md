@@ -78,7 +78,7 @@
 |---|---|---|
 | 後端 API | FastAPI（`uvicorn`） | REST API，見 `api/`／`services/`／`schemas/` |
 | 前端 | React + TypeScript + Vite + Tailwind + TanStack Query | 見 `frontend/`；原本的 Tkinter 桌面 UI 已移除，見 3.5 節 |
-| 資料庫 | SQLite（`app.db`） | 含 FTS5 trigram 虛擬表供 BM25 檢索；另有 `jobs`／`conversations` 表供 Web 版背景工作與對話狀態持久化用 |
+| 資料庫 | PostgreSQL 17（Docker，`docker-compose.yml`） | 關鍵字檢索用 `pg_trgm` GIN 索引 ＋ SQL 手算 BM25；`jobs`／`conversations` 表供背景工作與對話狀態持久化。2026-08 從 SQLite 遷移過來，見 [`14-postgresql-migration-plan.md`](14-postgresql-migration-plan.md) |
 | ASR | OpenAI Whisper（`whisper-1`） | $0.006／分鐘 |
 | VLM（畫面描述＋OCR） | OpenAI GPT-4o-mini | 同一次呼叫回傳描述＋畫面文字，structured output |
 | Embedding | OpenAI `text-embedding-3-small` | 原生 1536 維，截短為 1024 維 |
