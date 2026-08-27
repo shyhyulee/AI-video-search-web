@@ -1,0 +1,39 @@
+# AI 影片搜尋的 PostgreSQL 開發資料庫。
+#
+# 用 pgvector 官方 image 而不是原版 postgres：這次遷移（見
+# docs/14-postgresql-migration-plan.md）不會把 embedding 欄位換成 vector 型別，
+# 但動機之一就是「為之後上 pgvector 鋪路」——用這個 image 等於零成本把
+# extension 準備好，之後真要換的時候不用再動環境。
+#
+# 版本鎖 pg17 而不是 pg18：對齊 Windows 端已經裝好的 PostgreSQL 17，
+# 那套 pgAdmin 4 可以直接拿來連這個容器，不用另外裝管理工具。
+#
+# port 對外用 5433 而不是 5432：Windows 那個 PostgreSQL 17 服務是「手動啟動」，
+# 哪天被 pgAdmin 帶起來就會佔住 5432，換一個號碼永久免除這類撞埠問題。
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: avs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: avs
+      POSTGRES_USER: avs
+      # 本機開發用的固定密碼，不是機密：資料庫只綁 localhost、裡面沒有任何個資。
+      POSTGRES_PASSWORD: avs_local_dev
+      # 用 C.UTF-8 而不是預設 en_US.UTF-8：這個 app 的內容以中文為主，
+      # 而 glibc 的中文 collation 沒有實質的排序語意，C collation 的
+      # bytewise 比較反而行為明確、效能也較好。
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    ports:
+      - "5433:5432"
+    volumes:
+      # named volume：容器砍掉重建，資料還在。
+      - avs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avs -d avs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  avs_pgdata:

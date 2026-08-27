@@ -16,6 +16,10 @@ wheels/
 *.db-shm
 *.db-wal
 
+# SQLite → PostgreSQL 遷移前的資料庫備份（見 docs/14-postgresql-migration-plan.md
+# P0-4）。檔名是 app.db.<日期>，結尾不是 .db，比對不到上面的 *.db 規則，要另外列。
+/backup/
+
 # API 金鑰等敏感設定，不進版控
 .env
 
