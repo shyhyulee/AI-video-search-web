@@ -11,8 +11,21 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.get("", response_model=list[JobOut])
-def list_jobs(video_id: int | None = None) -> list[JobOut]:
-    return [JobOut.from_record(j) for j in job_manager.list_jobs(video_id=video_id)]
+def list_jobs(
+    video_id: int | None = None, active: bool = False, job_type: str | None = None
+) -> list[JobOut]:
+    """`active=true` 只回還沒到終態（queued／running）的工作。
+
+    前端載入「影片與分析」頁時用 `?active=true&job_type=analysis` 把進行中的
+    分析接回進度顯示——追蹤清單原本只活在 React state，重新整理就沒了。
+    active 與 video_id 不併用（前端只需要其中一種查法），給了 active 就以它為準。
+    """
+    records = (
+        job_manager.list_active_jobs(job_type=job_type)
+        if active
+        else job_manager.list_jobs(video_id=video_id)
+    )
+    return [JobOut.from_record(j) for j in records]
 
 
 @router.get("/{job_id}", response_model=JobOut)

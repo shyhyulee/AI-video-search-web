@@ -239,6 +239,77 @@ def test_delete_video_missing_id_returns_none(temp_db):
 
 
 # ----------------------------------------------------------------------
+# segments_fts 同步：FTS 表沒有用 external content，rowid 靠呼叫端自己維護，
+# 每一條刪除片段的路徑都必須把對應的 FTS 列一起清掉。殘留列會佔掉
+# fts_bm25_search() 的前 200 名額，把真正命中的片段擠出候選集。
+# ----------------------------------------------------------------------
+def _count_orphan_fts() -> int:
+    with db.get_connection() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS c FROM segments_fts WHERE rowid NOT IN (SELECT id FROM segments)"
+        ).fetchone()["c"]
+
+
+def _insert_searchable_segment(video_id: int, transcript: str) -> int:
+    return db.insert_segment(
+        video_id=video_id, start_sec=0.0, end_sec=1.0,
+        transcript=transcript, visual_description=None, ocr_text=None,
+        transcript_embedding=None, visual_embedding=None,
+        asr_model=None, vlm_model=None, embedding_model=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "delete_path",
+    [db.reset_to_pending, db.delete_video, db.clear_analysis_output],
+    ids=["reset_to_pending", "delete_video", "clear_analysis_output"],
+)
+def test_deleting_segments_also_clears_fts_rows(temp_db, delete_path):
+    video_id = _make_video()
+    _insert_searchable_segment(video_id, "獨特關鍵字內容")
+    assert db.fts_bm25_search(["獨特關鍵字內容"]) != []
+
+    delete_path(video_id)
+
+    assert db.fts_bm25_search(["獨特關鍵字內容"]) == []
+    assert _count_orphan_fts() == 0
+
+
+def test_clear_analysis_output_keeps_video_columns(temp_db):
+    """跟 reset_to_pending() 的差別：只清片段，videos 表一個欄位都不動——
+    重新分析時 analyzer 靠它換掉舊索引，影片本身的狀態不歸它管。"""
+    video_id = _make_video()
+    _insert_searchable_segment(video_id, "舊的內容")
+    db.mark_video_analyzed(
+        video_id=video_id, segment_count=1, cost_usd=0.05,
+        asr_model="a", vlm_model="v", embedding_model="e", summary="摘要", summary_model="m",
+    )
+
+    db.clear_analysis_output(video_id)
+
+    assert db.list_segments_for_video(video_id) == []
+    video = db.get_video(video_id)
+    assert video.status == db.STATUS_ANALYZED
+    assert video.summary == "摘要"
+    assert video.analyzed_at is not None
+
+
+def test_prune_orphan_fts_removes_rows_without_segment(temp_db):
+    """修既有資料庫：delete_for_video() 出現之前留下的殘留列由 init_db() 清掉。"""
+    video_id = _make_video()
+    segment_id = _insert_searchable_segment(video_id, "會被偷偷刪掉的片段")
+    # 模擬舊版行為：只刪 segments，不管 segments_fts。
+    with db.get_connection() as conn:
+        conn.execute("DELETE FROM segments WHERE id = ?", (segment_id,))
+    assert _count_orphan_fts() == 1
+
+    with db.get_connection() as conn:
+        assert db.segments.prune_orphan_fts(conn) == 1
+
+    assert _count_orphan_fts() == 0
+
+
+# ----------------------------------------------------------------------
 # 影片列表查詢（狀態篩選）
 # ----------------------------------------------------------------------
 
@@ -252,22 +323,33 @@ def test_list_library_videos_includes_analyzed_and_failed_excludes_pending(temp_
     )
     failed_id = _make_video(title="failed")
     db.update_video_status(failed_id, db.STATUS_FAILED, "分析失敗：模擬錯誤")
+    analyzing_id = _make_video(title="analyzing")
+    db.update_video_status(analyzing_id, db.STATUS_ANALYZING, "場景切分中")
 
     library_ids = {v.id for v in db.list_library_videos()}
     assert library_ids == {analyzed_id, failed_id}
     assert pending_id not in library_ids
+    # 分析中的影片還沒有結果可看，不進影片庫——它待在
+    # list_unanalyzed_videos()，兩個清單合起來必須涵蓋全部四種狀態。
+    assert analyzing_id not in library_ids
 
 
-def test_list_pending_videos_only_returns_pending(temp_db):
+def test_list_unanalyzed_videos_returns_pending_and_analyzing(temp_db):
+    """分析中的影片必須留在「影片與分析」的清單裡。漏掉 analyzing 的話，影片
+    會在整段分析期間從待分析清單與影片庫同時消失。"""
     pending_id = _make_video(title="pending")
+    analyzing_id = _make_video(title="analyzing")
+    db.update_video_status(analyzing_id, db.STATUS_ANALYZING, "場景切分中")
     analyzed_id = _make_video(title="analyzed")
     db.mark_video_analyzed(
         video_id=analyzed_id, segment_count=1, cost_usd=0.01,
         asr_model="a", vlm_model="v", embedding_model="e",
     )
+    failed_id = _make_video(title="failed")
+    db.update_video_status(failed_id, db.STATUS_FAILED, "分析失敗：模擬錯誤")
 
-    pending_ids = {v.id for v in db.list_pending_videos()}
-    assert pending_ids == {pending_id}
+    unanalyzed_ids = {v.id for v in db.list_unanalyzed_videos()}
+    assert unanalyzed_ids == {pending_id, analyzing_id}
 
 
 def test_get_header_stats(temp_db):
@@ -283,6 +365,28 @@ def test_get_header_stats(temp_db):
     assert stats.analyzed_count == 1
     assert stats.segment_count == 5
     assert stats.total_cost_usd == pytest.approx(0.10)
+
+
+def test_get_header_stats_counts_analyzing_as_pending(temp_db):
+    """分析中的影片算進 pending_count。只算 pending 的話，Header 的總數會在
+    分析的那一分鐘裡短少一支（既不在「待分析」也還沒進「已分析」）。"""
+    pending_id = _make_video(title="pending")
+    analyzing_id = _make_video(title="analyzing")
+    db.update_video_status(analyzing_id, db.STATUS_ANALYZING, "場景切分中")
+
+    stats = db.get_header_stats()
+    assert stats.pending_count == 2
+    assert stats.analyzed_count == 0
+
+    # 分析完成後它離開 pending_count、進入 analyzed_count，總數全程不變。
+    db.mark_video_analyzed(
+        video_id=analyzing_id, segment_count=3, cost_usd=0.05,
+        asr_model="a", vlm_model="v", embedding_model="e",
+    )
+    stats = db.get_header_stats()
+    assert stats.pending_count == 1
+    assert stats.analyzed_count == 1
+    assert pending_id in {v.id for v in db.list_unanalyzed_videos()}
 
 
 # ----------------------------------------------------------------------

@@ -105,6 +105,24 @@ def list_jobs(
         return [_row_to_record(row) for row in rows]
 
 
+def list_active_jobs(job_type: str | None = None) -> list[JobRecord]:
+    """所有還沒到終態（queued／running）的工作。
+
+    前端重新整理後要靠這個把「進行中的分析」重新接回來：進度追蹤原本只活在
+    React state，F5 之後即使分析還在跑也看不到任何進度。`list_jobs()` 的
+    status 參數一次只能給一個值，這裡要的是兩個狀態的聯集，所以獨立一支。
+    """
+    query = "SELECT * FROM jobs WHERE status IN (?, ?)"
+    params: list[object] = [JOB_STATUS_QUEUED, JOB_STATUS_RUNNING]
+    if job_type is not None:
+        query += " AND job_type = ?"
+        params.append(job_type)
+    query += " ORDER BY created_at DESC"
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+        return [_row_to_record(row) for row in rows]
+
+
 def has_active_analysis_job(video_id: int) -> bool:
     """是否已有排隊中／進行中的分析 job，供 submit 端擋重複觸發同一支影片。"""
     with get_connection() as conn:

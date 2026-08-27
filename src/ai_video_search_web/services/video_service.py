@@ -68,8 +68,8 @@ def register_uploaded_video(title: str, file_path: Path, duration_sec: int | Non
     )
 
 
-def list_pending_videos() -> list[db.VideoRecord]:
-    return db.list_pending_videos()
+def list_unanalyzed_videos() -> list[db.VideoRecord]:
+    return db.list_unanalyzed_videos()
 
 
 def list_library_videos() -> list[db.VideoRecord]:
@@ -118,6 +118,25 @@ def delete_video(video_id: int) -> tuple[db.VideoRecord | None, str | None]:
 
 def reset_to_pending(video_id: int) -> None:
     db.reset_to_pending(video_id)
+
+
+def prepare_reanalysis(video: db.VideoRecord) -> None:
+    """把影片切到「準備重新分析」的狀態，供 submit_analysis() 接手。
+
+    分兩種情況，差別在這支影片有沒有產出過結果：
+
+    - 已經分析成功過（`analyzed_at` 有值）：只改 status，segments 與所有分析
+      欄位原封不動。影片留在影片庫、舊結果照樣搜得到，直到 analyzer 寫入新
+      片段時才換掉（見 `analyzer._write_segments()`）。若清空後才開始跑，影片
+      會在整段重新分析期間變成一支查不到東西的空殼，還會因為 `analyzed_at`
+      被清掉而從影片庫掉到「影片與分析」再跳回來。
+    - 從沒成功過（第一次就失敗）：`reset_to_pending()`，清掉部分寫入的殘骸。
+      它本來就沒有可保留的結果，而回到 pending 也正確反映了「這支還沒有東西」。
+    """
+    if video.analyzed_at is not None:
+        db.update_video_status(video.id, db.STATUS_ANALYZING, "等待重新分析")
+    else:
+        db.reset_to_pending(video.id)
 
 
 def regenerate_summary(video_id: int, segments: list[db.SegmentRecord]) -> summary_pipeline.SummaryResult:

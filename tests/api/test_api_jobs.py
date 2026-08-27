@@ -65,6 +65,23 @@ def test_list_jobs_empty(client):
     assert client.get("/api/v1/jobs").json() == []
 
 
+def test_list_active_jobs_returns_only_unfinished(client, monkeypatch):
+    """`?active=true` 是前端重新整理後還原進度追蹤的入口：只能回 queued／
+    running，已經到終態的不能混進來，否則畫面會重新掛上早就結束的工作。"""
+    monkeypatch.setattr(job_manager.analyzer, "start_analysis", _fake_start_analysis_never_completes)
+    running_video = make_video()
+    running_job_id = client.post(f"/api/v1/videos/{running_video}/analyze").json()["id"]
+    finished_job_id = db.insert_job(job_type=db.JOB_TYPE_ANALYSIS, video_id=make_video())
+    db.mark_job_completed(finished_job_id)
+
+    active_ids = [j["id"] for j in client.get("/api/v1/jobs?active=true&job_type=analysis").json()]
+
+    assert active_ids == [running_job_id]
+    assert finished_job_id not in active_ids
+    # 不帶 active 的查法維持原樣：兩筆都要回。
+    assert len(client.get("/api/v1/jobs").json()) == 2
+
+
 def test_get_job_not_found_returns_404(client):
     resp = client.get("/api/v1/jobs/999")
     assert resp.status_code == 404

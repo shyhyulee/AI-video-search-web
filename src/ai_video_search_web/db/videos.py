@@ -5,7 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 
-from . import get_connection
+from . import get_connection, segments
 
 STATUS_PENDING = "pending"
 STATUS_ANALYZING = "analyzing"
@@ -113,25 +113,48 @@ def find_by_source_url(source_url: str) -> VideoRecord | None:
         return _row_to_record(row) if row else None
 
 
-def list_pending_videos() -> list[VideoRecord]:
+# 一支影片在任何時刻都恰好屬於兩個清單的其中一個。分界是 analyzed_at：
+# 有值＝這支影片已經產出過可搜尋的結果，永遠屬於影片庫；沒有值＝還沒產出過，
+# 屬於「影片與分析」。status 只決定那一列長什麼樣子，不決定它在哪一頁。
+#
+# 這條規則是為了讓 analyzing 有地方去。原本的切法是「pending 在工作區、
+# analyzed／failed 在影片庫」，中間的 analyzing 兩邊都不收——analyzer 一開始
+# 跑就把狀態改成 analyzing，影片會在整段分析期間（實測 43～93 秒）從兩個頁籤
+# 同時消失，連那一列上的進度顯示一起帶走。分成兩種 analyzing 之後：
+#   第一次分析（analyzed_at IS NULL）→ 留在「影片與分析」原地跑完
+#   重新分析（analyzed_at IS NOT NULL）→ 留在「影片庫」原地跑完
+_UNANALYZED_WHERE = f"(status = '{STATUS_PENDING}' OR (status = '{STATUS_ANALYZING}' AND analyzed_at IS NULL))"
+_LIBRARY_WHERE = (
+    f"(status IN ('{STATUS_ANALYZED}', '{STATUS_FAILED}') "
+    f"OR (status = '{STATUS_ANALYZING}' AND analyzed_at IS NOT NULL))"
+)
+
+
+def list_unanalyzed_videos() -> list[VideoRecord]:
+    """「影片與分析」頁籤用：還沒產出過分析結果的影片（pending＋第一次分析中）。"""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM videos WHERE status = ? ORDER BY created_at DESC", (STATUS_PENDING,)
+            f"SELECT * FROM videos WHERE {_UNANALYZED_WHERE} ORDER BY created_at DESC"
         ).fetchall()
         return [_row_to_record(row) for row in rows]
 
 
 def get_header_stats() -> HeaderStatsData:
     with get_connection() as conn:
+        # 兩個數字各自對齊一個清單，加起來永遠等於影片總數（除了分析失敗的）。
+        # 分開算 pending／analyzed 的話，分析中的那段時間裡影片兩邊都不算，
+        # Header 的總數會短少一支。
         pending_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM videos WHERE status = ?", (STATUS_PENDING,)
+            f"SELECT COUNT(*) AS c FROM videos WHERE {_UNANALYZED_WHERE}"
         ).fetchone()["c"]
+        # 重新分析中的影片一樣算進「已分析」：舊的 segments 還在庫裡、還搜得到，
+        # 統計數字要反映資料庫實際有什麼，不是反映有沒有工作在跑。
         row = conn.execute(
             """
             SELECT COUNT(*) AS c, COALESCE(SUM(segment_count), 0) AS s, COALESCE(SUM(cost_usd), 0) AS cost
-            FROM videos WHERE status = ?
+            FROM videos WHERE analyzed_at IS NOT NULL AND status IN (?, ?)
             """,
-            (STATUS_ANALYZED,),
+            (STATUS_ANALYZED, STATUS_ANALYZING),
         ).fetchone()
         return HeaderStatsData(
             pending_count=pending_count,
@@ -150,11 +173,15 @@ def list_analyzed_videos() -> list[VideoRecord]:
 
 
 def list_library_videos() -> list[VideoRecord]:
-    """「影片庫」頁籤用：分析完成與分析失敗的影片都要能看到。"""
+    """「影片庫」頁籤用：分析完成、分析失敗，以及正在重新分析的影片。
+
+    重新分析中的影片留在這裡（不是跳回「影片與分析」再跳回來）：它的舊
+    segments 還在、還搜得到，對使用者來說它一直都是庫裡的影片，只是正在
+    更新。見 _UNANALYZED_WHERE 上面那段分界說明。
+    """
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM videos WHERE status IN (?, ?) ORDER BY analyzed_at DESC, created_at DESC",
-            (STATUS_ANALYZED, STATUS_FAILED),
+            f"SELECT * FROM videos WHERE {_LIBRARY_WHERE} ORDER BY analyzed_at DESC, created_at DESC"
         ).fetchall()
         return [_row_to_record(row) for row in rows]
 
@@ -172,16 +199,29 @@ def update_video_summary(video_id: int, summary: str, summary_model: str, additi
         )
 
 
+def clear_analysis_output(video_id: int) -> None:
+    """只刪掉既有的 segments 與 ocr_events，videos 表的欄位一個都不動。
+
+    給重新分析用：舊索引要留到新結果真的要寫入的前一刻才換掉（由
+    `analyzer._write_segments()` 呼叫），影片在重新分析的整段期間都還搜得到
+    舊結果。如果連這個都不做、直接在開始時清空，重新分析就會在那一分鐘裡
+    把影片變成一支查不到任何東西的空殼。
+    """
+    with get_connection() as conn:
+        segments.delete_for_video(conn, video_id)
+        conn.execute("DELETE FROM ocr_events WHERE video_id = ?", (video_id,))
+
+
 def reset_to_pending(video_id: int) -> None:
     """把卡住／失敗的分析還原成 pending：清掉部分寫入的 segments、ocr_events 與所有分析欄位。
 
-    直接用 DELETE FROM segments／ocr_events（不是呼叫 segments.py／
-    ocr_events.py 的函式）是刻意的：這樣才能跟 videos 表的 UPDATE 落在
-    同一個 get_connection() 交易裡，video 更新失敗時 segments／ocr_events
-    的刪除也會一起回滾，維持原子性。
+    segments 的刪除委派給 `segments.delete_for_video()`（它會連 segments_fts
+    一起清），ocr_events 則直接 DELETE——兩者都傳同一個 conn，跟 videos 表的
+    UPDATE 落在同一個 get_connection() 交易裡，video 更新失敗時前面的刪除
+    也會一起回滾，維持原子性。
     """
     with get_connection() as conn:
-        conn.execute("DELETE FROM segments WHERE video_id = ?", (video_id,))
+        segments.delete_for_video(conn, video_id)
         conn.execute("DELETE FROM ocr_events WHERE video_id = ?", (video_id,))
         conn.execute(
             """
@@ -196,12 +236,12 @@ def reset_to_pending(video_id: int) -> None:
 
 
 def delete_video(video_id: int) -> VideoRecord | None:
-    """同樣直接用 DELETE FROM segments／ocr_events，理由見 reset_to_pending()。"""
+    """同樣把三張表的刪除放在同一個交易裡，理由見 reset_to_pending()。"""
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)).fetchone()
         if row is None:
             return None
-        conn.execute("DELETE FROM segments WHERE video_id = ?", (video_id,))
+        segments.delete_for_video(conn, video_id)
         conn.execute("DELETE FROM ocr_events WHERE video_id = ?", (video_id,))
         conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
         return _row_to_record(row)

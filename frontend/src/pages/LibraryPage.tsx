@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpDown } from 'lucide-react'
-import { listVideos, reanalyzeVideo, regenerateSummary } from '../api/client'
-import type { Video } from '../api/types'
+import { listActiveJobs, listVideos, reanalyzeVideo, regenerateSummary } from '../api/client'
+import type { Job, Video } from '../api/types'
 import { Button, IconButton } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
@@ -14,6 +14,7 @@ import { VideoListItem } from '../components/VideoListItem'
 import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { useJobPolling } from '../lib/useJobPolling'
+import { useToast } from '../lib/useToast'
 
 // 篩選只留分析狀態。原本還有「無字幕」（`!has_transcript`）與「純畫面」
 // （`!has_transcript && !has_ocr`）兩個模態篩選，已移除，見 docs/11 §8.7。
@@ -26,6 +27,10 @@ const FILTERS: { key: FilterKind; label: string }[] = [
   { key: 'failed', label: '分析失敗' },
 ]
 
+/** 重新分析進行中時，清單與 job 狀態的重取間隔。跟「影片與分析」頁同一個
+ * 節奏——那頁的說明見 VideosPage 的 LIST_POLL_MS。 */
+const LIBRARY_POLL_MS = 3000
+
 const SORT_LABEL: Record<SortColumn, string> = {
   title: '影片名稱',
   segment_count: '片段數',
@@ -33,7 +38,13 @@ const SORT_LABEL: Record<SortColumn, string> = {
   analyzed_at: '分析日期',
 }
 
-const STATUS_LABEL: Record<string, string> = { analyzed: '分析完成', failed: '分析失敗' }
+// analyzing 也會出現在影片庫：分析成功過的影片按「重新分析」時留在原地跑完，
+// 不會跳去「影片與分析」再跳回來（見後端 db.list_library_videos()）。
+const STATUS_LABEL: Record<string, string> = {
+  analyzed: '分析完成',
+  failed: '分析失敗',
+  analyzing: '重新分析中',
+}
 
 /** 「影片庫」頁面，對齊 ui/library_tab.py：篩選／排序列表 + 詳細資訊面板，
  * 見 docs/07-ui-structure-and-features.md 6.2 節。排序改用明確的下拉＋方向切換，
@@ -52,12 +63,29 @@ export function LibraryPage() {
     isLoading: videosLoading,
     isError: videosError,
     refetch: refetchVideos,
-  } = useQuery({ queryKey: ['videos', 'library'], queryFn: () => listVideos() })
+  } = useQuery({
+    queryKey: ['videos', 'library'],
+    queryFn: () => listVideos(),
+    // 有影片在重新分析時清單要跟著重取：`status` 什麼時候變回 analyzed、片段數
+    // 與成本什麼時候換成新一輪的，只有清單知道，job 輪詢看不到。
+    refetchInterval: (query) =>
+      query.state.data?.some((v) => v.status === 'analyzing') ? LIBRARY_POLL_MS : false,
+  })
+
+  // 重新分析的進度來源。跟「影片與分析」頁共用同一個 query key，兩頁只會有
+  // 一份快取、一組請求；重新整理後也是靠它把進行中的工作接回來。
+  const { data: activeJobs } = useQuery({
+    queryKey: ['jobs', 'active', 'analysis'],
+    queryFn: () => listActiveJobs('analysis'),
+    refetchInterval: LIBRARY_POLL_MS,
+  })
 
   const rows = useMemo(() => {
     if (!videos) return []
     let filtered = videos
-    if (filter === 'analyzed') filtered = videos.filter((v) => v.status === 'analyzed')
+    // 「分析完成」也收 analyzing：重新分析中的影片手上還有上一輪的結果，
+    // 用這個篩選找它是找得到的，不該因為正在更新就整支消失。
+    if (filter === 'analyzed') filtered = videos.filter((v) => v.status !== 'failed')
     else if (filter === 'failed') filtered = videos.filter((v) => v.status === 'failed')
 
     const key = (v: Video): string | number => {
@@ -164,8 +192,13 @@ export function LibraryPage() {
             flex column，只有最下面的摘要在真的太長時才內部捲動，整張卡片不捲。 */}
         <Card className="w-full min-w-0 md:min-h-0 md:w-1/2 md:overflow-hidden">
           {selected ? (
+            // key 讓換一支影片時整個面板重新掛載。沒有它的話 React 會沿用同一個
+            // 元件實例，`reanalysisJobId`／`summaryStatus` 會留在上面——切到另一支
+            // 影片時，會把前一支的重新分析進度顯示在新選的影片身上。
             <VideoDetailPanel
+              key={selected.id}
               video={selected}
+              activeJob={activeJobs?.find((j) => j.video_id === selected.id)}
               onSearchInVideo={(v) => navigate(`/search?video_id=${v.id}&video_title=${encodeURIComponent(v.title)}`)}
             />
           ) : (
@@ -179,8 +212,19 @@ export function LibraryPage() {
   )
 }
 
-function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchInVideo: (video: Video) => void }) {
+function VideoDetailPanel({
+  video,
+  activeJob,
+  onSearchInVideo,
+}: {
+  video: Video
+  /** 後端回報的、這支影片進行中的分析工作。重新整理後靠它把進度接回來——
+   * `reanalysisJobId` 只活在 React state，F5 就沒了。 */
+  activeJob: Job | undefined
+  onSearchInVideo: (video: Video) => void
+}) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [summaryStatus, setSummaryStatus] = useState('')
   const [reanalysisJobId, setReanalysisJobId] = useState<number | null>(null)
 
@@ -196,8 +240,18 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
 
   const reanalyzeMutation = useMutation({
     mutationFn: () => reanalyzeVideo(video.id),
-    onSuccess: (job) => setReanalysisJobId(job.id),
+    onSuccess: (job) => {
+      setReanalysisJobId(job.id)
+      queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
+    },
   })
+
+  useEffect(() => {
+    // 把後端撈回來的進行中工作接上輪詢。接上之後就交給 useJobPolling——
+    // job 到終態會離開 activeJob，但 reanalysisJobId 留著，才顯示得出結果。
+    // oxlint-disable-next-line react/set-state-in-effect
+    if (activeJob && activeJob.id !== reanalysisJobId) setReanalysisJobId(activeJob.id)
+  }, [activeJob, reanalysisJobId])
 
   const jobQuery = useJobPolling(reanalysisJobId)
   const job = jobQuery.data
@@ -208,14 +262,20 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
     if (job && (job.status === 'completed' || job.status === 'failed')) {
       queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
+      toast.show(
+        job.status === 'completed' ? `「${video.title}」重新分析完成` : `「${video.title}」重新分析失敗`,
+        job.status === 'completed' ? 'success' : 'error',
+      )
     }
-  }, [job, queryClient])
+  }, [job, queryClient, toast, video.title])
 
-  const busy =
-    summaryMutation.isPending || reanalyzeMutation.isPending || (job ? job.status === 'running' || job.status === 'queued' : false)
+  // 影片自己的 status 也算 busy：重新整理後 job 還沒接回來的那幾秒，按鈕
+  // 不能是可按的——後端會回 409，而且摘要／搜尋這時看到的是上一輪的結果。
+  const analyzing = video.status === 'analyzing' || job?.status === 'running' || job?.status === 'queued'
+  const busy = summaryMutation.isPending || reanalyzeMutation.isPending || analyzing
 
   return (
-    <div key={video.id} className="flex flex-col gap-3 md:h-full">
+    <div className="flex flex-col gap-3 md:h-full">
       {/* 縮圖回到滿版寬度（並排版把它壓到只剩約 256px，太小），改用 max-h 綁住
           高度來換取「面板不捲動」：`aspect-video w-full` 決定寬度與比例，
           `md:max-h-[34vh]` 在矮螢幕自動把它壓回來、`object-cover` 負責裁切。
@@ -252,13 +312,16 @@ function VideoDetailPanel({ video, onSearchInVideo }: { video: Video; onSearchIn
         </Button>
       </div>
 
-      {job && (
+      {/* analyzing 也要顯示，不能只看 job：重新整理之後 job 還沒接回來，
+          但影片的 status 已經說得很清楚。階段文字優先用 job 的（比較即時），
+          沒有就退回 videos.pipeline_stage（analyzer 每個階段都會寫進 DB）。 */}
+      {(job || analyzing) && (
         <p className="shrink-0 text-sm text-text-secondary" aria-live="polite">
-          {job.status === 'completed'
+          {job?.status === 'completed'
             ? '✓ 重新分析完成'
-            : job.status === 'failed'
+            : job?.status === 'failed'
               ? `重新分析失敗：${job.error_message}`
-              : `重新分析中…${job.stage ?? ''}`}
+              : `重新分析中…${job?.stage ?? video.pipeline_stage ?? ''}`}
         </p>
       )}
 

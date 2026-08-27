@@ -106,6 +106,36 @@ def backfill_fts(conn: sqlite3.Connection) -> None:
     )
 
 
+def delete_for_video(conn: sqlite3.Connection, video_id: int) -> None:
+    """刪掉一支影片的所有片段，連 segments_fts 的對應列一起。
+
+    收 conn 而不是自己開連線：呼叫端（reset_to_pending／delete_video／
+    clear_analysis_output）都要把它跟 videos 表的更新綁在同一個交易裡。
+
+    segments_fts 一定要一起刪。它沒有用 FTS5 的 external content 語法，
+    rowid 靠呼叫端自己同步（見 create_table 的說明），所以只 DELETE segments
+    的話，FTS 索引會留下一堆對不到片段的殘留列——而 fts_bm25_search() 是
+    「先取 bm25 前 200 名、再由 sparse.py 過濾掉不存在的 id」，殘留列會佔掉
+    那 200 個名額，把真正命中的片段擠出候選集。實測一支用了一陣子的 app.db
+    有 925/1795（52%）是殘留列。
+    """
+    conn.execute(
+        "DELETE FROM segments_fts WHERE rowid IN (SELECT id FROM segments WHERE video_id = ?)",
+        (video_id,),
+    )
+    conn.execute("DELETE FROM segments WHERE video_id = ?", (video_id,))
+
+
+def prune_orphan_fts(conn: sqlite3.Connection) -> int:
+    """清掉 segments_fts 裡對不到 segments 的殘留列，回傳刪除筆數。
+
+    `backfill_fts()` 的反向操作，同樣冪等、每次 init_db() 都可以安全重跑：
+    負責修既有資料庫在 delete_for_video() 之前累積下來的殘留列。
+    """
+    cursor = conn.execute("DELETE FROM segments_fts WHERE rowid NOT IN (SELECT id FROM segments)")
+    return cursor.rowcount
+
+
 def insert_segment(
     video_id: int,
     start_sec: float,

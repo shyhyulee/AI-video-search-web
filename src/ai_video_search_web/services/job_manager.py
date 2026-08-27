@@ -42,6 +42,11 @@ def list_jobs(video_id: int | None = None) -> list[db.JobRecord]:
     return db.list_jobs(video_id=video_id)
 
 
+def list_active_jobs(job_type: str | None = None) -> list[db.JobRecord]:
+    """queued＋running 的工作，給前端重新整理後還原進度追蹤用。"""
+    return db.list_active_jobs(job_type=job_type)
+
+
 def get_job_or_raise(job_id: int) -> db.JobRecord:
     """讀取工作，找不到就丟 JobNotFoundError（API 層對映成 404）。
 
@@ -62,9 +67,14 @@ _analysis_lock = threading.Lock()
 _analysis_running = False
 
 
-def submit_analysis(video_id: int) -> int:
+def submit_analysis(video_id: int, *, reanalysis: bool = False) -> int:
     """驗證後建立一筆 analysis job；驗證邏輯直接搬用既有 video_service 函式，
     不重新實作。回傳 job_id。
+
+    `reanalysis=True` 會在驗證通過後、建立 job 之前把影片切到重新分析的狀態
+    （見 `video_service.prepare_reanalysis()`）。狀態變更一定要排在三個驗證
+    之後：先改狀態再驗證的話，任何一個驗證失敗都會留下一支狀態已經被改掉、
+    卻沒有任何工作在跑的影片，畫面上會永遠停在「等待重新分析」。
     """
     video = video_service.get_video(video_id)
     if video is None:
@@ -75,6 +85,9 @@ def submit_analysis(video_id: int) -> int:
         raise DurationLimitExceededError(
             f"影片長度超過 {video_service.max_duration_minutes()} 分鐘限制"
         )
+
+    if reanalysis:
+        video_service.prepare_reanalysis(video)
 
     job_id = db.insert_job(job_type=db.JOB_TYPE_ANALYSIS, video_id=video_id)
     _try_dispatch_next_analysis()

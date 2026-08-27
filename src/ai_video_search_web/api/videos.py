@@ -38,7 +38,11 @@ def _get_video_or_raise(video_id: int) -> db_videos.VideoRecord:
 
 @router.get("", response_model=list[VideoOut])
 def list_videos(status: str | None = None) -> list[VideoOut]:
-    records = video_service.list_pending_videos() if status == "pending" else video_service.list_library_videos()
+    # `status=pending` ＝「影片與分析」頁的清單，包含 pending 與 analyzing 兩種
+    # 狀態（查詢字串沿用 pending 這個值，語意是「還沒進影片庫」）；不給 status
+    # ＝「影片庫」的 analyzed／failed。分析中的影片一定要留在前者，否則會在整段
+    # 分析期間從兩個頁籤同時消失，見 db.list_unanalyzed_videos()。
+    records = video_service.list_unanalyzed_videos() if status == "pending" else video_service.list_library_videos()
     # 三個模態旗標一次聚合查完，不要逐支影片載入全部 segment（那會連 embedding
     # BLOB 一起讀出來，只為了算三個布林值）。
     flags = video_service.modality_flags([v.id for v in records])
@@ -94,9 +98,11 @@ def analyze_video(video_id: int) -> JobOut:
 
 @router.post("/{video_id}/reanalyze", response_model=JobOut, status_code=202)
 def reanalyze_video(video_id: int) -> JobOut:
-    video = _get_video_or_raise(video_id)
-    video_service.reset_to_pending(video_id)
-    job_id = job_manager.submit_analysis(video_id)
+    """重新分析。狀態怎麼切、舊結果什麼時候清，見
+    `video_service.prepare_reanalysis()`——重點是分析成功過的影片會留在影片庫
+    原地跑完，不會跳去「影片與分析」再跳回來，舊片段也還搜得到。"""
+    _get_video_or_raise(video_id)
+    job_id = job_manager.submit_analysis(video_id, reanalysis=True)
     return JobOut.from_record(job_manager.get_job_or_raise(job_id))
 
 

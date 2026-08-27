@@ -82,6 +82,13 @@ export function listJobs(videoId?: number): Promise<Job[]> {
   return request<Job[]>(`/jobs${query}`)
 }
 
+/** 還沒到終態（queued／running）的工作。「影片與分析」頁靠它在重新整理後把
+ * 進行中的分析接回進度顯示——追蹤清單本身只活在 React state，F5 就沒了。 */
+export function listActiveJobs(jobType?: 'analysis' | 'download'): Promise<Job[]> {
+  const query = jobType ? `?active=true&job_type=${jobType}` : '?active=true'
+  return request<Job[]>(`/jobs${query}`)
+}
+
 export function getJob(jobId: number): Promise<Job> {
   return request<Job>(`/jobs/${jobId}`)
 }

@@ -757,3 +757,121 @@ overflow 就悄悄跑掉。
 **驗證**：前端 `tsc -b`／`oxlint` 全過。**沒有實際在瀏覽器裡驗證過上限行為**——`app.db` 目前只有
 3 支待分析影片，湊不到 6 支去觸發第 6 個 checkbox 停用。實際跑起來時要確認的是：勾滿 5 支之後其餘
 checkbox 變灰且點不動、已勾選的仍可取消、計數文字正確。
+
+### 8.15 影片在分析期間不再從畫面上消失（2026-08-27）
+
+**需求**：使用者回報「按下開始分析後，影片會從『影片與分析』消失一段時間，大約一分鐘後才出現在
+影片庫」。
+
+**根因**：`videos.status` 有四個狀態，但兩個清單只切了三個——
+
+| 狀態 | 影片與分析 | 影片庫 |
+|---|---|---|
+| `pending` | ✅ | ❌ |
+| **`analyzing`** | **❌** | **❌** ← 空窗 |
+| `analyzed`／`failed` | ❌ | ✅ |
+
+`db.list_pending_videos()` 是 `WHERE status = 'pending'`、`db.list_library_videos()` 是
+`WHERE status IN ('analyzed','failed')`，而 `analyzer._run_analysis()` 一開頭就
+`update_video_status(video_id, STATUS_ANALYZING, "場景切分中")`。所以影片在整段分析期間不屬於任何
+清單。那「大約一分鐘」就是分析本身的耗時——`app.db` 的 analysis job 實測 `started_at`→`completed_at`
+落在 **43／66／71／83／93 秒**（另有一筆 405 秒的長片離群值）。
+
+`get_header_stats()` 漏的是同一格：`pending_count` 只算 `pending`、`analyzed_count` 只算 `analyzed`，
+分析中的影片兩邊都不算，Header 的總數在那一分鐘裡會短少一支。
+
+**新的分界規則**：`analyzed_at` 決定影片屬於哪一頁，`status` 只決定那一列長什麼樣子。
+
+```
+影片與分析 = status='pending' OR (status='analyzing' AND analyzed_at IS NULL)   ← 第一次分析
+影片庫     = status IN ('analyzed','failed') OR (status='analyzing' AND analyzed_at IS NOT NULL)
+                                                                                ← 重新分析
+```
+
+兩個集合互斥且涵蓋全部狀態組合。實作在 `db/videos.py` 的 `_UNANALYZED_WHERE`／`_LIBRARY_WHERE`
+兩個常數，兩個清單函式與 `get_header_stats()` 共用同一份定義。
+
+**修改**（分四段做，後端 → 前端）：
+
+1. **後端清單與統計**：`db.list_pending_videos()` 更名為 `list_unanalyzed_videos()`（名字要跟著語意
+   走，它已經不只回 pending 了），連帶 `db/__init__.py` 的匯出、`video_service`、`api/videos.py`。
+   `GET /videos?status=pending` 的查詢字串值刻意沒改——它現在的語意是「還沒進影片庫」。
+2. **前端顯示分析中**：`VideosPage` 把清單拆成「分析中／待分析」兩段（只有兩段都有東西時才出標題），
+   analyzing 的列 checkbox 停用（理由 tooltip「分析中，無法勾選」）、顯示階段＋進度＋已耗時，完成時
+   跳 toast「『X』分析完成，已移到影片庫」。
+3. **重新整理後仍能追蹤**：新增 `GET /api/v1/jobs?active=true&job_type=analysis`（`db.list_active_jobs()`
+   ＋API 的 `active`／`job_type` 參數）。`VideosPage` 與 `LibraryPage` 用同一個 query key
+   `['jobs','active','analysis']`，所以兩頁只有一份快取、一組請求。
+4. **重新分析不再閃爍**：`api/videos.py` 的 `reanalyze` 改走
+   `job_manager.submit_analysis(video_id, reanalysis=True)` → `video_service.prepare_reanalysis()`。
+   分析成功過的影片只改 status、留在影片庫；舊 segments 留到 `analyzer._write_segments()` 寫新結果
+   前才由 `db.clear_analysis_output()` 換掉。`LibraryPage` 的 `VideoDetailPanel` 加上
+   `key={selected.id}`。
+
+**五點要記清楚**：
+
+1. **`analyzer` 一開始就寫 `analyzing`，前端的「消失」時間點卻由 react-query 決定**。`main.tsx` 的
+   `staleTime: 10_000` ＋ 預設的 `refetchOnWindowFocus: true`，所以按完分析就切視窗／切頁籤再回來
+   那一列立刻沒了；完全不動的話會靠快取撐到分析完成才消失。這只影響症狀出現得多快，不影響根因。
+2. **進度文字有兩個來源，順序不能反**。優先用 job 的 `stage`（比較即時），沒有才退回
+   `video.pipeline_stage`——後者是 `_AnalysisContext.enter_stage()` 每個階段都寫進 DB 的，重新整理
+   之後 job 還沒接回來的那幾秒就靠它。已耗時只有 job 算得出來（`started_at` 在 job 上），沒有 job
+   時整個不顯示，不要拿 `null` 去算出一個停在 `0:00` 的假計時。
+3. **`analysisJobs` 追蹤清單刻意不清掉已完成的 job**。`useJobsPolling` 對終態 job 會停止輪詢
+   （`refetchInterval` 回 `false`），留著不花成本，而且要留著才顯示得出「✓ 分析完成」與失敗時的
+   重試。這也是那個 `setState` 必須放在 effect 裡的原因：job 一到終態就離開 `activeJobs`，改成 render
+   期間推導的話會連帶消失。
+4. **重新分析的狀態變更一定要排在三個驗證之後**。`submit_analysis()` 先做
+   找不到影片／已有進行中工作／超過長度限制三道檢查，通過了才呼叫 `prepare_reanalysis()`。順序反過來
+   的話，任何一個驗證失敗都會留下一支狀態已經被改掉、卻沒有任何工作在跑的影片，畫面上會永遠停在
+   「等待重新分析」。有測試鎖住這件事
+   （`test_reanalyze_rejected_by_validation_leaves_status_untouched`）。
+5. **第一次分析就失敗的影片按「重新分析」仍會回到 pending、暫時離開影片庫**。它沒有可保留的結果，
+   `reset_to_pending()` 順便清掉部分寫入的殘骸，回到 pending 也正確反映「這支還沒有東西」。只有
+   `analyzed_at` 有值的影片才走「留在原地」那條路。
+
+**順帶修掉的 bug：`segments_fts` 殘留列**（跟本節同一條刪除路徑，一起做掉）
+
+`segments_fts` 沒有用 FTS5 的 external content 語法，rowid 靠呼叫端自己同步（見 `db/segments.py`
+`create_table()` 的說明），但 `reset_to_pending()`／`delete_video()` 只 `DELETE FROM segments`，
+從來沒清過 FTS 表。**實測 `app.db` 的 1795 筆 FTS 列裡有 925 筆（52%）對不到任何片段。**
+
+影響不是「查到不存在的片段」——`sparse.py` 的 `_sparse_scores()` 會用 `if seg_id in valid_ids` 過濾
+掉。真正的傷害是 `fts_bm25_search()` 是**先取 bm25 前 200 名、再過濾**，殘留列一直在佔那 200 個名額，
+把真正命中的片段擠出候選集，等於長期壓著 sparse channel 的召回率。
+
+修法：新增 `segments.delete_for_video(conn, video_id)`（收 conn，跟呼叫端的 videos 更新同一個交易），
+`reset_to_pending()`／`delete_video()`／新的 `clear_analysis_output()` 三條路徑統一走它；另外新增
+`segments.prune_orphan_fts(conn)`，由 `init_db()` 呼叫（`backfill_fts()` 的反向，同樣冪等），修既有
+資料庫累積下來的殘留列。demo 資料庫啟動時 log 顯示 `清掉 925 筆對不到片段的 FTS 殘留列`。
+
+**副作用與已知取捨**：
+
+- **刪舊片段與寫新片段不在同一個交易裡**。`insert_segment()` 是逐筆各自開連線，所以
+  `clear_analysis_output()` 與後續的 insert 之間有空窗，長度是「寫入索引」那幾百毫秒。真的在中間
+  爆掉的話，影片會被標記 `failed`、片段殘缺——跟既有的分析中途失敗是同一種結果，一樣靠重新分析復原。
+- **`VideosPage` 的「重試」按鈕在實務上幾乎按不到**。job 一失敗，影片就變 `failed` 移去影片庫，那一列
+  當場消失。這在本節之前就是如此，沒有一併移除：影片庫的「重新分析」已經涵蓋這條路。
+- **影片庫的「分析完成」篩選改成 `v.status !== 'failed'`**，所以重新分析中的影片也留在這個篩選裡。
+  它手上還有上一輪的結果，不該因為正在更新就整支消失。
+- 多了兩組輪詢：清單在有 analyzing 時每 3 秒重取（`LIST_POLL_MS`／`LIBRARY_POLL_MS`），active jobs
+  查詢在閒置時每 8 秒一次（`ACTIVE_JOBS_DISCOVERY_MS`）。react-query 預設
+  `refetchIntervalInBackground: false`，視窗沒有 focus 時會停。
+
+**驗證**：後端全套測試 **337 passed**（1 deselected），前端 `tsc -b`／`vite build`／`oxlint` 全過。
+
+**實際跑起來驗證過**（用 `app.db` 的 `sqlite3.backup()` 副本＋ port 8010，沒有動正式資料庫，也沒有
+碰使用者自己跑在 8000 的後端；前端跑 build 好的 `dist`，因為 `vite.config.ts` 的 proxy 目標寫死 8000）：
+
+| 驗收點 | 結果 |
+|---|---|
+| 第一次分析中的影片 | 留在「影片與分析」的「分析中」段，顯示 `畫面分析中`／`40% ・ 2:29`，checkbox 停用 |
+| 重新分析中的影片 | 留在「影片庫」，`20 個片段`與摘要都還在，三個按鈕都停用 |
+| 重新分析期間搜尋該影片 | `POST /search` 回傳 3 筆結果（舊索引還在，沒有變成空殼） |
+| Header 統計 | `2 待分析 + 16 已分析` = 18 支，全程不短少 |
+| Console errors | 無 |
+
+**還沒驗證過的**：全部是用「直接把 DB 改成 analyzing ＋插一筆 running job」模擬的靜態畫面，**沒有跑
+過一次真實的分析**（會呼叫 OpenAI、要花錢）。所以「完成瞬間影片從這一頁移到影片庫並跳 toast」這個
+轉場、以及 `_write_segments()` 換掉舊片段的那一刻，都還沒有在真實流程裡看過。下次真的跑一支影片時
+應該回來對一次。

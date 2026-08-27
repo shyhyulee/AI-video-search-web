@@ -7,6 +7,7 @@ import io
 
 from ai_video_search_web import db
 from ai_video_search_web.pipeline import analyzer
+from ai_video_search_web.services import job_manager
 
 from conftest import make_video
 
@@ -29,6 +30,21 @@ def test_list_videos_empty(client):
     resp = client.get("/api/v1/videos")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+def test_analyzing_video_stays_in_pending_list_and_out_of_library(client):
+    """驗收條件：分析中的影片在任何時刻都至少屬於一個清單。
+
+    `?status=pending` ＝「影片與分析」頁，不帶 status ＝「影片庫」。analyzing
+    落在前者；兩個端點都不收的話，影片會在整段分析期間從畫面上消失。
+    """
+    analyzing_id = make_video(status=db.STATUS_ANALYZING)
+
+    pending_ids = [v["id"] for v in client.get("/api/v1/videos?status=pending").json()]
+    library_ids = [v["id"] for v in client.get("/api/v1/videos").json()]
+
+    assert analyzing_id in pending_ids
+    assert analyzing_id not in library_ids
 
 
 # ----------------------------------------------------------------------
@@ -111,6 +127,70 @@ def test_delete_video_removes_record(client):
     assert resp.status_code == 200
     assert resp.json() == {"deleted": True}
     assert client.get(f"/api/v1/videos/{video_id}").status_code == 404
+
+
+# ----------------------------------------------------------------------
+# 重新分析：分析成功過的影片留在影片庫原地跑完，舊片段留到新結果寫入前才換掉；
+# 從沒成功過的（第一次就失敗）才回到 pending。見 video_service.prepare_reanalysis()。
+# ----------------------------------------------------------------------
+def _stub_analysis_that_never_completes(monkeypatch):
+    import threading
+
+    def _start(video_id, q):
+        thread = threading.Thread(target=lambda: None, daemon=True)
+        thread.start()
+        return thread
+
+    monkeypatch.setattr(job_manager.analyzer, "start_analysis", _start)
+
+
+def test_reanalyze_analyzed_video_stays_in_library_and_keeps_segments(client, monkeypatch):
+    _stub_analysis_that_never_completes(monkeypatch)
+    video_id = make_video()
+    _add_segment(video_id, transcript="舊的分析結果")
+    db.mark_video_analyzed(
+        video_id=video_id, segment_count=1, cost_usd=0.05,
+        asr_model="a", vlm_model="v", embedding_model="e",
+    )
+
+    assert client.post(f"/api/v1/videos/{video_id}/reanalyze").status_code == 202
+
+    assert db.get_video(video_id).status == db.STATUS_ANALYZING
+    # 舊片段還在，重新分析期間影片照樣搜得到——analyzer 要到寫入索引那一刻
+    # 才換掉它們。
+    assert len(db.list_segments_for_video(video_id)) == 1
+    assert video_id in [v["id"] for v in client.get("/api/v1/videos").json()]
+    assert video_id not in [v["id"] for v in client.get("/api/v1/videos?status=pending").json()]
+
+
+def test_reanalyze_never_analyzed_video_goes_back_to_pending(client, monkeypatch):
+    """第一次分析就失敗的影片沒有可保留的結果，回到 pending 才正確反映
+    「這支還沒有東西」，也順便清掉部分寫入的殘骸。"""
+    _stub_analysis_that_never_completes(monkeypatch)
+    video_id = make_video()
+    _add_segment(video_id, transcript="失敗前寫到一半的片段")
+    db.update_video_status(video_id, db.STATUS_FAILED, "分析失敗：模擬錯誤")
+
+    assert client.post(f"/api/v1/videos/{video_id}/reanalyze").status_code == 202
+
+    assert db.list_segments_for_video(video_id) == []
+    assert video_id in [v["id"] for v in client.get("/api/v1/videos?status=pending").json()]
+
+
+def test_reanalyze_rejected_by_validation_leaves_status_untouched(client):
+    """驗證失敗時不能留下「狀態被改掉、卻沒有工作在跑」的影片——那會讓它
+    永遠停在分析中。這裡用重複觸發（409）當驗證失敗的代表。"""
+    video_id = make_video()
+    db.mark_video_analyzed(
+        video_id=video_id, segment_count=1, cost_usd=0.05,
+        asr_model="a", vlm_model="v", embedding_model="e",
+    )
+    db.insert_job(job_type=db.JOB_TYPE_ANALYSIS, video_id=video_id)  # 已有排隊中的工作
+
+    resp = client.post(f"/api/v1/videos/{video_id}/reanalyze")
+
+    assert resp.status_code == 409
+    assert db.get_video(video_id).status == db.STATUS_ANALYZED
 
 
 def test_analyze_video_not_found_returns_404(client):

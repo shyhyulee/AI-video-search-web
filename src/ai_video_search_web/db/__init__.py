@@ -16,8 +16,11 @@ get_connection() 開 WAL mode＋較長的 busy_timeout：這個 app 的並發模
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DB_PATH = PROJECT_ROOT / "app.db"
@@ -45,6 +48,7 @@ from .videos import (
     STATUS_PENDING,
     HeaderStatsData,
     VideoRecord,
+    clear_analysis_output,
     delete_video,
     find_by_source_url,
     get_header_stats,
@@ -52,7 +56,7 @@ from .videos import (
     insert_video,
     list_analyzed_videos,
     list_library_videos,
-    list_pending_videos,
+    list_unanalyzed_videos,
     mark_video_analyzed,
     reset_to_pending,
     update_video_status,
@@ -88,6 +92,7 @@ from .jobs import (
     has_active_analysis_job,
     has_active_download_job,
     insert_job,
+    list_active_jobs,
     list_jobs,
     mark_job_completed,
     mark_job_failed,
@@ -107,9 +112,9 @@ __all__ = [
     "STATUS_PENDING", "STATUS_ANALYZING", "STATUS_ANALYZED", "STATUS_FAILED",
     "SOURCE_YOUTUBE", "SOURCE_LOCAL",
     "VideoRecord", "HeaderStatsData", "SegmentRecord", "ModalityFlags", "OcrEventRecord",
-    "insert_video", "get_video", "find_by_source_url", "list_pending_videos",
+    "insert_video", "get_video", "find_by_source_url", "list_unanalyzed_videos",
     "get_header_stats", "list_analyzed_videos", "list_library_videos",
-    "update_video_summary", "reset_to_pending", "delete_video",
+    "update_video_summary", "reset_to_pending", "delete_video", "clear_analysis_output",
     "update_video_status", "mark_video_analyzed",
     "insert_segment", "list_segments_for_video", "list_all_segments", "modality_flags_by_video",
     "fts_bm25_search", "fts_like_search",
@@ -117,7 +122,7 @@ __all__ = [
     "insert_search_log",
     "JobRecord", "JOB_TYPE_ANALYSIS", "JOB_TYPE_DOWNLOAD",
     "JOB_STATUS_QUEUED", "JOB_STATUS_RUNNING", "JOB_STATUS_COMPLETED", "JOB_STATUS_FAILED",
-    "insert_job", "get_job", "list_jobs", "has_active_analysis_job",
+    "insert_job", "get_job", "list_jobs", "list_active_jobs", "has_active_analysis_job",
     "has_active_download_job", "mark_job_running", "update_job_progress",
     "set_job_video_id", "mark_job_completed", "mark_job_failed", "fail_all_running_jobs",
     "ConversationRecord", "insert_conversation", "get_conversation", "update_conversation",
@@ -135,3 +140,8 @@ def init_db() -> None:
         videos.migrate_columns(conn)
         segments.migrate_columns(conn)
         segments.backfill_fts(conn)
+        # backfill 的反向：補進漏掉的、清掉多出來的。既有資料庫在
+        # segments.delete_for_video() 出現之前累積的 FTS 殘留列在這裡一次清乾淨。
+        pruned = segments.prune_orphan_fts(conn)
+        if pruned:
+            logger.info("清掉 %d 筆對不到片段的 FTS 殘留列", pruned)

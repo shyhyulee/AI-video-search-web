@@ -615,8 +615,18 @@ def _embed_segment_texts(
 
 
 def _write_segments(ctx: _AnalysisContext, segment_rows: list[_SegmentRow]) -> list[int]:
-    """Phase D：把所有片段一次寫入 segments 表，回傳依序對應的 segment_id 清單。"""
+    """Phase D：把所有片段一次寫入 segments 表，回傳依序對應的 segment_id 清單。
+
+    寫入前先清掉這支影片既有的片段。第一次分析時是沒有作用的 no-op；重新分析
+    時它是「換掉舊索引」的那一刻——舊片段刻意留到這裡才刪，影片在重新分析的
+    整段期間都還搜得到舊結果，而不是變成一支查不到東西的空殼。
+
+    刪除與後面的 insert 不在同一個交易裡（`insert_segment()` 逐筆各自開連線），
+    中間那個空窗只有寫入索引這幾百毫秒。真的在這中間爆掉的話，影片會被標記成
+    failed、片段殘缺，跟既有的分析中途失敗是同一種結果，一樣靠重新分析復原。
+    """
     ctx.enter_stage("寫入索引")
+    db.clear_analysis_output(ctx.video_id)
 
     segment_ids: list[int] = []
     for row in segment_rows:

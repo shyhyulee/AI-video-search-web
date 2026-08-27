@@ -80,10 +80,10 @@ def test_max_duration_minutes_matches_analyzer_constant():
     assert video_service.max_duration_minutes() == video_service.analyzer.MAX_DURATION_SEC // 60
 
 
-def test_list_pending_videos_delegates_to_db(monkeypatch):
+def test_list_unanalyzed_videos_delegates_to_db(monkeypatch):
     sentinel = [object()]
-    monkeypatch.setattr(video_service.db, "list_pending_videos", lambda: sentinel)
-    assert video_service.list_pending_videos() is sentinel
+    monkeypatch.setattr(video_service.db, "list_unanalyzed_videos", lambda: sentinel)
+    assert video_service.list_unanalyzed_videos() is sentinel
 
 
 def test_list_library_videos_delegates_to_db(monkeypatch):
