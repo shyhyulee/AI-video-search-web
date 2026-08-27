@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { ToastContext, type ToastKind } from '../lib/useToast'
 
 interface ToastItem {
@@ -29,8 +29,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }, 4000)
   }, [])
 
+  // context value 一定要是穩定的物件，不能寫成 `value={{ show }}`。
+  //
+  // 每跳一則通知都會 setItems、讓這個 component 重繪，物件字面值就會換成新的
+  // reference，所有 useToast() 的消費者跟著看到「toast 變了」。只要有任何一個
+  // effect 把 toast 放進依賴陣列（VideosPage 就有），它就會被重跑——如果那個
+  // effect 自己又會跳通知，就變成「跳通知 → 重繪 → 依賴變了 → 再跳通知」的
+  // 無限迴圈，同一則訊息會把畫面疊滿。4 秒後自動消失的 setTimeout 同樣會
+  // setItems，也會餵同一個迴圈。
+  //
+  // show 是 useCallback([]) 的常數，所以這個 useMemo 實際上永遠不會重算。
+  const value = useMemo(() => ({ show }), [show])
+
   return (
-    <ToastContext.Provider value={{ show }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col gap-2">
         {items.map((item) => (
