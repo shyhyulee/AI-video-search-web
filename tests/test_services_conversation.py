@@ -12,12 +12,6 @@ from ai_video_search_web.pipeline.conversation import ConversationState, Convers
 from ai_video_search_web.services import conversation_service
 
 
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    db.init_db()
-
-
 def test_start_conversation_creates_empty_state(temp_db):
     conversation_id = conversation_service.start_conversation()
 

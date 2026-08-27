@@ -71,12 +71,6 @@ def fake_openai(monkeypatch):
     return embedder
 
 
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    db.init_db()
-
-
 def _add_video(title: str = "測試影片", summary: str | None = None) -> int:
     video_id = db.insert_video(
         title=title, source=db.SOURCE_LOCAL, source_url=None,

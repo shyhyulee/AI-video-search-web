@@ -1,22 +1,16 @@
-"""db.py 的特徵測試（characterization tests）：鎖住現有的 schema、migration、
-COALESCE 寫入語意、級聯刪除、CRUD 行為，做為之後拆分 db.py 的安全網。
+"""db 套件的特徵測試（characterization tests）：鎖住現有的 schema、
+COALESCE 寫入語意、級聯刪除、CRUD 行為，做為之後改動 db 套件的安全網。
 
-每個測試都用 monkeypatch 把 db.DB_PATH 導向 pytest 的 tmp_path（每個測試
-獨立的臨時目錄），測試結束後 monkeypatch 自動還原，不會動到使用者的
-app.db，也不會互相汙染。
+隔離方式見 tests/conftest.py：整個 session 共用一個獨立的**測試資料庫**
+（`avs_test`），每個測試開始前由 `temp_db` fixture TRUNCATE 清空。
+遷移到 PostgreSQL 之前這裡用的是「每個測試一個臨時 SQLite 檔案」，
+效果相同（空表、id 從 1 開始），而且一樣碰不到正式資料庫。
 """
 from __future__ import annotations
 
 import pytest
 
 from ai_video_search_web import db
-
-
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    """初始化一個獨立的臨時 DB，每個測試都是全新檔案。"""
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    db.init_db()
 
 
 def _make_video(title: str = "測試影片", duration_sec: int = 100) -> int:
@@ -31,25 +25,46 @@ def _make_video(title: str = "測試影片", duration_sec: int = 100) -> int:
 # ----------------------------------------------------------------------
 
 
-def test_init_db_creates_all_tables(temp_db):
+def _table_names() -> set[str]:
     with db.get_connection() as conn:
-        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"videos", "segments", "ocr_events", "search_log"} <= tables
+        return {row["tablename"] for row in conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
+
+
+def _column_names(table: str) -> set[str]:
+    with db.get_connection() as conn:
+        return {row["column_name"] for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s", (table,))}
+
+
+def test_init_db_creates_all_tables(temp_db):
+    assert {"videos", "segments", "ocr_events", "search_log"} <= _table_names()
 
 
 def test_init_db_is_idempotent(temp_db):
-    # 重複呼叫不該出錯（CREATE TABLE IF NOT EXISTS + migration 欄位已存在就跳過）
+    # 重複呼叫不該出錯（CREATE TABLE / CREATE INDEX / CREATE EXTENSION 都是 IF NOT EXISTS）
     db.init_db()
     db.init_db()
 
 
-def test_init_db_adds_migrated_columns(temp_db):
-    # asr_model 等欄位不在 CREATE TABLE 的原始 schema 裡，完全靠 migration 補上
-    with db.get_connection() as conn:
-        video_columns = {row["name"] for row in conn.execute("PRAGMA table_info(videos)")}
-        segment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(segments)")}
-    assert {"asr_model", "vlm_model", "embedding_model", "summary", "summary_model"} <= video_columns
-    assert {"no_speech_prob", "avg_logprob", "compression_ratio", "ocr_embedding", "vlm_frame_count"} <= segment_columns
+def test_init_db_creates_every_column_up_front(temp_db):
+    """SQLite 時期這些欄位是靠 migrate_columns() 對既有資料庫後補的，這支測試
+    當時叫 test_init_db_adds_migrated_columns。PostgreSQL 是全新資料庫，
+    create_table() 一次定義齊全，那個機制已經移除——但「這些欄位必須存在」
+    這件事本身還是要鎖住，所以測試留著、只換掉檢查方式。
+    """
+    assert {"asr_model", "vlm_model", "embedding_model", "summary", "summary_model"} <= _column_names("videos")
+    assert {"no_speech_prob", "avg_logprob", "compression_ratio", "ocr_embedding",
+            "vlm_frame_count"} <= _column_names("segments")
+
+
+def test_segments_fts_table_is_gone(temp_db):
+    """FTS5 虛擬表已經被 segments.content 這個 generated column 取代。
+    鎖住這件事，避免哪天有人「順手」把它加回來——那會讓同步問題重新出現。
+    """
+    assert "segments_fts" not in _table_names()
+    assert "content" in _column_names("segments")
 
 
 # ----------------------------------------------------------------------
@@ -239,17 +254,17 @@ def test_delete_video_missing_id_returns_none(temp_db):
 
 
 # ----------------------------------------------------------------------
-# segments_fts 同步：FTS 表沒有用 external content，rowid 靠呼叫端自己維護，
-# 每一條刪除片段的路徑都必須把對應的 FTS 列一起清掉。殘留列會佔掉
-# fts_bm25_search() 的前 200 名額，把真正命中的片段擠出候選集。
+# 檢索索引與片段的一致性。
+#
+# SQLite 時期這一節鎖的是「每一條刪除片段的路徑都必須記得把 segments_fts
+# 的對應列一起清掉」——那張 FTS5 虛擬表沒有用 external content，rowid 靠
+# 呼叫端自己維護，漏掉就會留下殘留列，佔掉 fts_bm25_search() 的前 200 名額、
+# 把真正命中的片段擠出候選集（實測曾有 925/1795、52% 是殘留列）。
+#
+# 遷移到 PostgreSQL 之後 content 是 segments 上的 generated column，跟著同一
+# 列生滅，殘留在結構上不可能發生。測試留著、意圖不變（刪掉片段就搜不到了），
+# 只是不再需要另外數殘留列——改成直接驗證那個結構性保證。
 # ----------------------------------------------------------------------
-def _count_orphan_fts() -> int:
-    with db.get_connection() as conn:
-        return conn.execute(
-            "SELECT COUNT(*) AS c FROM segments_fts WHERE rowid NOT IN (SELECT id FROM segments)"
-        ).fetchone()["c"]
-
-
 def _insert_searchable_segment(video_id: int, transcript: str) -> int:
     return db.insert_segment(
         video_id=video_id, start_sec=0.0, end_sec=1.0,
@@ -264,7 +279,7 @@ def _insert_searchable_segment(video_id: int, transcript: str) -> int:
     [db.reset_to_pending, db.delete_video, db.clear_analysis_output],
     ids=["reset_to_pending", "delete_video", "clear_analysis_output"],
 )
-def test_deleting_segments_also_clears_fts_rows(temp_db, delete_path):
+def test_deleting_segments_also_clears_search_index(temp_db, delete_path):
     video_id = _make_video()
     _insert_searchable_segment(video_id, "獨特關鍵字內容")
     assert db.fts_bm25_search(["獨特關鍵字內容"]) != []
@@ -272,7 +287,6 @@ def test_deleting_segments_also_clears_fts_rows(temp_db, delete_path):
     delete_path(video_id)
 
     assert db.fts_bm25_search(["獨特關鍵字內容"]) == []
-    assert _count_orphan_fts() == 0
 
 
 def test_clear_analysis_output_keeps_video_columns(temp_db):
@@ -294,19 +308,24 @@ def test_clear_analysis_output_keeps_video_columns(temp_db):
     assert video.analyzed_at is not None
 
 
-def test_prune_orphan_fts_removes_rows_without_segment(temp_db):
-    """修既有資料庫：delete_for_video() 出現之前留下的殘留列由 init_db() 清掉。"""
+def test_search_index_cannot_go_orphan(temp_db):
+    """取代 SQLite 時期的 test_prune_orphan_fts_removes_rows_without_segment()。
+
+    當時那支測試要證明的是「殘留列清得掉」，前提是殘留列有可能存在——繞過
+    insert_segment()／delete_for_video() 直接動 segments 表就會產生。現在
+    content 是同一列上的 generated column，用同樣的手法（直接下 SQL 刪除）
+    也不可能讓索引與片段脫節，所以改成證明這個結構性保證。
+    """
     video_id = _make_video()
     segment_id = _insert_searchable_segment(video_id, "會被偷偷刪掉的片段")
-    # 模擬舊版行為：只刪 segments，不管 segments_fts。
-    with db.get_connection() as conn:
-        conn.execute("DELETE FROM segments WHERE id = ?", (segment_id,))
-    assert _count_orphan_fts() == 1
+    assert db.fts_like_search("偷偷") == [segment_id]
 
+    # 完全繞過 db 模組的刪除路徑，直接對表下手——舊架構下這正是製造殘留列的方法。
     with db.get_connection() as conn:
-        assert db.segments.prune_orphan_fts(conn) == 1
+        conn.execute("DELETE FROM segments WHERE id = %s", (segment_id,))
 
-    assert _count_orphan_fts() == 0
+    assert db.fts_like_search("偷偷") == []
+    assert db.fts_bm25_search(["會被偷偷刪掉的片段"]) == []
 
 
 # ----------------------------------------------------------------------
@@ -468,7 +487,8 @@ def test_modality_flags_empty_id_list_returns_empty_dict_without_querying(temp_d
 
 
 # ----------------------------------------------------------------------
-# segments_fts（BM25 關鍵字檢索，見 docs/hybrid-retrieval-bm25-plan.md）
+# 關鍵字檢索（BM25，見 docs/hybrid-retrieval-bm25-plan.md）。
+# 底層從 SQLite FTS5 換成 pg_trgm＋SQL 手算 BM25，見 db/segments.py。
 # ----------------------------------------------------------------------
 
 
@@ -481,7 +501,11 @@ def _insert_segment_with_text(video_id: int, start_sec: float, end_sec: float, v
     )
 
 
-def test_insert_segment_syncs_fts_table(temp_db):
+def test_insert_segment_is_searchable_immediately(temp_db):
+    """SQLite 時期這支叫 test_insert_segment_syncs_fts_table：insert_segment()
+    必須記得多寫一筆進 segments_fts。現在 content 是 generated column，
+    插入片段就自動可搜尋——行為相同，但不再依賴呼叫端記得做什麼。
+    """
     video_id = _make_video()
     _insert_segment_with_text(video_id, 0.0, 5.0, "背景有幾輛汽車正在組裝")
 
@@ -499,17 +523,25 @@ def test_fts_bm25_search_ranks_more_specific_match_first(temp_db):
     assert ranked_ids[0] == exact_id  # 同時命中兩個詞，bm25 分數該排第一
 
 
-def test_fts_bm25_search_short_query_finds_nothing(temp_db):
-    # 鎖住 trigram tokenizer 的已知限制：<3 字元的查詢完全查不到任何結果
-    # （不是分數低，是 tokenizer 產生不出任何 trigram），即使內容裡確實
-    # 有這個字面文字——這是 search.py 需要 fts_like_search fallback 的原因，
-    # 見 db/segments.py create_table 的說明。這個測試如果哪天因為 SQLite
-    # 版本升級而失敗（trigram 開始支援 <3 字元），代表 search.py 那層
-    # fallback 可以評估要不要簡化。
+def test_fts_bm25_search_short_query_now_finds_results(temp_db):
+    """這支測試的斷言在遷移時**反過來了**，是刻意的。
+
+    SQLite 版本鎖的是 FTS5 trigram tokenizer 的硬限制：<3 字元的查詢完全查不到
+    任何結果（產不出 token），所以 sparse.py 才需要 fts_like_search() fallback。
+    當時的註解就預告了「如果哪天這個限制消失，代表那層 fallback 可以評估要不要
+    簡化」——遷移到 PostgreSQL 正是那一天：`ILIKE '%汽車%'` 本來就找得到，
+    只是 2 字元的 pattern 抽不出完整 trigram、用不到 GIN 索引而已（實測見
+    docs/14-postgresql-migration-plan.md §5.2.1、§10 的 EXPLAIN 結果）。
+
+    **但 sparse.py 這次刻意沒有跟著簡化**：讓短詞從「哨兵分數」變成「真實 IDF
+    分數」是搜尋排名的行為變更，會讓 golden set 的差異無法歸因於遷移本身。
+    這支測試存在的意義是把這個已知落差寫下來——之後真的要簡化 sparse.py 時，
+    這裡就是起點。
+    """
     video_id = _make_video()
     _insert_segment_with_text(video_id, 0.0, 5.0, "背景有幾輛汽車正在組裝")
 
-    assert db.fts_bm25_search(["汽車"]) == []
+    assert len(db.fts_bm25_search(["汽車"])) == 1
 
 
 def test_fts_like_search_finds_short_term(temp_db):
@@ -519,21 +551,19 @@ def test_fts_like_search_finds_short_term(temp_db):
     assert db.fts_like_search("汽車") == [seg_id]
 
 
-def test_backfill_fts_covers_pre_existing_rows(temp_db):
+def test_raw_insert_is_searchable_without_backfill(temp_db):
+    """取代 SQLite 時期的 test_backfill_fts_covers_pre_existing_rows()。
+
+    當時要證明的是 backfill_fts() 補得回來——因為繞過 insert_segment() 直接寫
+    segments 表，segments_fts 不會有對應的列，那筆片段就是搜不到。現在 content
+    是 generated column，資料庫在 INSERT 當下就算好了，不需要任何補救步驟。
+    """
     video_id = _make_video()
     with db.get_connection() as conn:
-        cursor = conn.execute(
+        segment_id = conn.execute(
             "INSERT INTO segments (video_id, start_sec, end_sec, visual_description, created_at) "
-            "VALUES (?, 0.0, 5.0, ?, datetime('now'))",
+            "VALUES (%s, 0.0, 5.0, %s, now()::text) RETURNING id",
             (video_id, "一隻雄獅站在淺水中"),
-        )
-        segment_id = cursor.lastrowid
-
-    with db.get_connection() as conn:
-        before = conn.execute("SELECT rowid FROM segments_fts WHERE rowid = ?", (segment_id,)).fetchone()
-    assert before is None  # 直接寫 segments 表繞過 insert_segment，segments_fts 還沒有這筆
-
-    with db.get_connection() as conn:
-        db.segments.backfill_fts(conn)
+        ).fetchone()["id"]
 
     assert db.fts_like_search("雄獅") == [segment_id]

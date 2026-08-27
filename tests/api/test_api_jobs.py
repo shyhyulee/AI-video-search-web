@@ -149,9 +149,9 @@ def test_second_analysis_job_waits_for_first_to_finish(client, monkeypatch):
     # 清理：放行第二個，並且「等到它真的完成」才讓測試函式返回——不能放行
     # 後就馬上結束測試，那樣 pump thread 的收尾（mark_job_completed +
     # _release_analysis_slot() 的 db.list_jobs() 查詢）會在背景繼續跑，
-    # 可能跨到下一個測試已經把 db.DB_PATH 換掉之後才執行，對舊路徑查詢會
-    # 直接炸掉（曾經實測炸出 "no such table: jobs"，跨測試污染，不是
-    # job_manager 本身的邏輯錯誤，是這個測試沒等背景工作收尾就返回）。
+    # 可能跨到下一個測試已經 TRUNCATE 測試資料庫之後才執行（SQLite 時期是
+    # 換掉 db.DB_PATH，曾經實測炸出 "no such table: jobs"）。跨測試污染，
+    # 不是 job_manager 本身的邏輯錯誤，是這個測試沒等背景工作收尾就返回。
     events[1].set()
 
     def _job2_completed() -> bool:

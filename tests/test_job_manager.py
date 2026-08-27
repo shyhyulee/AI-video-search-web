@@ -29,15 +29,14 @@ YOUTUBE_URL = "https://www.youtube.com/watch?v=abc12345678"
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    """獨立的臨時 DB 與影片目錄，並把 process 級的分析旗標重置成 False——
+def temp_db(clean_db, tmp_path, monkeypatch):
+    """覆寫 tests/conftest.py 的同名 fixture：資料庫的清空交給 `clean_db`，
+    這裡補上獨立的影片目錄，並把 process 級的分析旗標重置成 False——
     這個旗標是模組全域狀態，上一個測試如果留下 True，這個測試的 job 會直接
     卡在 queued，看起來像 dispatcher 壞掉。
     """
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(downloader, "VIDEO_DIR", tmp_path / "video")
     monkeypatch.setattr(job_manager, "_analysis_running", False)
-    db.init_db()
 
 
 class _FakeAnalysisStarter:
@@ -125,8 +124,9 @@ def _wait_for_analysis_idle() -> None:
 
     只等 job 變成終態不夠：`_pump_analysis()` 是先寫終態、才呼叫
     `_release_analysis_slot()`，而後者會再查一次 `db.list_jobs()`。測試如果
-    在這中間就返回，那次查詢會落在 monkeypatch 已經還原 DB_PATH 之後，變成
-    對別的資料庫查詢（實測會炸出 "no such table: jobs"）。
+    在這中間就返回，那次查詢會落在下一個測試的 `temp_db` fixture 已經
+    TRUNCATE 之後——SQLite 時期的症狀是炸出 "no such table: jobs"，改用
+    PostgreSQL 之後是讀到空表，更安靜但同樣是跨測試污染。
     """
     assert _wait_until(lambda: not job_manager._analysis_running), "分析 slot 應該被釋放"
     # 旗標翻回 False 之後，那條 pump thread 還要跑完「鏈式派發」才真的結束。
@@ -269,8 +269,10 @@ def test_analysis_slot_is_released_even_when_pump_write_fails(temp_db, fake_anal
     second_job = job_manager.submit_analysis(_make_video())
 
     # 用旗標控制假實作，不用 monkeypatch.undo()——undo() 會把這個測試的**全部**
-    # monkeypatch 一起撤掉，包含 fixture 設的 db.DB_PATH，後半段就會讀到真正的
-    # app.db（主目錄剛好有那個檔案，所以這個錯誤一度沒被發現）。
+    # monkeypatch 一起撤掉，包含 fixture 設的 VIDEO_DIR 與 _analysis_running。
+    # （SQLite 時期還會連 db.DB_PATH 一起撤掉、讓後半段讀到真正的 app.db，
+    # 那個錯誤一度沒被發現；現在測試資料庫是 session 層級設定的，不受 undo()
+    # 影響，但撤掉其餘 patch 一樣會讓這個測試失去隔離。）
     failing = {"on": True}
     real_mark_completed = db.mark_job_completed
 

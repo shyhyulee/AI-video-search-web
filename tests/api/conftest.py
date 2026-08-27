@@ -12,11 +12,14 @@ from ai_video_search_web.services import job_manager
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+def temp_db(clean_db, tmp_path, monkeypatch):
+    """覆寫 tests/conftest.py 的同名 fixture，補上這個目錄需要的額外隔離。
+
+    資料庫本身的清空交給 `clean_db`（見 tests/conftest.py）；這裡只多做
+    影片目錄與 job_manager 全域狀態的隔離。
+    """
     monkeypatch.setattr(downloader, "VIDEO_DIR", tmp_path / "video")
     monkeypatch.setattr(job_manager, "_analysis_running", False)
-    db.init_db()
 
 
 @pytest.fixture

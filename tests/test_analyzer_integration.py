@@ -26,12 +26,6 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    db.init_db()
-
-
-@pytest.fixture
 def synthetic_video(tmp_path) -> Path:
     """產生一支 6 秒的合成測試影片（純色背景＋靜音音軌），足夠讓完整分析
     流程跑過一輪。"""
