@@ -62,6 +62,9 @@ cd frontend && npm run dev
 打開 `http://127.0.0.1:5173` 使用。後端啟動時會自動建立資料表與索引（`init_db()` 是冪等的，
 每次啟動都會跑）；下載的影片檔放在專案根目錄的 `video/`，已加入 `.gitignore`。
 
+> 第一次啟動、或遇到 `docker: command not found`／`address already in use` 之類的卡點，
+> 詳細的前置設定、驗證指令與排查對照見 [`docs/15-local-startup-guide.md`](docs/15-local-startup-guide.md)。
+
 > port 用 5433 而不是預設的 5432，是為了避開機器上可能另外裝的 PostgreSQL。
 > 資料存在 Docker named volume `avs_pgdata`，容器砍掉重建資料還在。
 
@@ -154,5 +157,7 @@ docs/              # 開發文件、規劃記錄與 Golden Set
 - [`12-search-query-logic.md`](docs/12-search-query-logic.md) — 一次搜尋的完整處理順序、多關鍵字／複合搜尋的實際行為
 - [`07-ui-structure-and-features.md`](docs/07-ui-structure-and-features.md) — 已移除的 Tkinter UI 完整盤點（歷史記錄）
 - [`09-web-ui-migration-plan.md`](docs/09-web-ui-migration-plan.md) — Web UI 遷移計畫、架構決策、Job Manager 設計、各 Phase 驗收紀錄
+- [`14-postgresql-migration-plan.md`](docs/14-postgresql-migration-plan.md) — SQLite → PostgreSQL 遷移計畫與執行紀錄
+- [`15-local-startup-guide.md`](docs/15-local-startup-guide.md) — 本機啟動完整步驟、驗證指令、卡點排查、用 pgAdmin 看資料
 
 `docs/` 底下其餘檔案是各功能主題的原始規劃文件與逐日開發紀錄，仍會持續被程式碼註解引用，保留原樣不動。
