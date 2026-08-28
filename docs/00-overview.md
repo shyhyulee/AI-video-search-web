@@ -1,26 +1,21 @@
 # AI 影片搜尋 — 專案總覽
 
+> **類型**：現況參考｜**狀態**：維護中，跟著程式碼更新
+> 分類說明與完整索引見 [`README.md`](README.md)。
+
 ## 1. 文件目的
 
-這個資料夾（`docs/organize-docs/`）把 `docs/` 底下累積的 16 份開發紀錄、規劃文件與使用者原始需求 prompt，依主題重新整理成 6 份可獨立閱讀的技術文件。目標是讓之後接手的人（不論是人類或 AI Coding Agent）**只需要讀這個資料夾，就能掌握專案的完整脈絡與現況**，不需要再去拼湊原本散落各處的 16 份文件。
+這份文件是專案的**總覽層**：系統現在長什麼樣、資料怎麼流、成本與限制在哪裡。想知道「這個資料夾其他文件各自負責什麼」請看 [`README.md`](README.md)，那裡有完整的分類索引。
 
-原始的 16 份文件（`docs/*.md`、`docs/changelog/*.md`）**保持原封不動、不刪除也不搬移**：其中 7 份被 `src/`／`tests/`／`scripts/` 的程式碼註解以精確檔名引用了共 39 處（例如 `pipeline/search.py` 開頭的模組說明就寫著「見 `docs/hybrid-retrieval-bm25-plan.md`」），這些引用必須繼續有效。原始文件之後仍會是程式碼註解與新規劃文件互相參照的對象；這個資料夾是額外整理出來的「總覽層」，不是取代品。
-
-本資料夾其餘 5 份文件：
-
-| 文件 | 內容 |
-|---|---|
-| [`01-development-timeline.md`](01-development-timeline.md) | 依日期（08-18／08-19／08-20）彙整已完成的開發內容，含目前散落在各文件狀態列、還沒有 changelog 條目的 08-20 工作 |
-| [`02-technical-decisions.md`](02-technical-decisions.md) | 依主題整理每個技術決策的背景、比較過的選項、實測數據與最終結論 |
-| [`03-excluded-approaches.md`](03-excluded-approaches.md) | 已經嘗試但放棄／不採用的方案，附實測數據與放棄原因，避免以後重複踩同一個坑 |
-| [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md) | 測試套件結構、Golden Set 與 evaluator 設計、目前的評測 baseline 數字 |
-| [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md) | 已知限制、待辦事項、待確認事項 |
+其餘文件依性質分成三類，`README.md` 有逐份說明：**現況參考**（會跟著程式碼持續維護）、**執行紀錄**（任務已結束，唯讀）、**原始需求 prompt**（使用者當初交付的規格原文，唯讀）。
 
 ## 2. 背景與需求
 
-這個專案由使用者以三份原始 prompt 文件依序交付給 Claude Code 執行（`docs/ui-reference/ui_prompt.md`、`docs/Claude_Code_OCR_影片搜尋開發規劃.md`、`docs/AI_Video_Search_搜尋準確率提升規劃.md`），三份文件原文保留不動，以下是三者實際要求的整理版。
+這個專案由使用者以三份原始 prompt 文件依序交付給 Claude Code 執行：UI 需求、OCR 功能需求、搜尋準確率提升需求。以下是三者實際要求的整理版。
 
-### 2.1 產品定位與 UI 需求（來自 `ui_prompt.md`）
+> **原始檔案的現況**：三份裡只有 UI 需求那份的原文還在版控裡（[`ui-reference/ui_prompt.md`](ui-reference/ui_prompt.md)）。OCR 與搜尋準確率那兩份（早期文字曾以 `Claude_Code_OCR_影片搜尋開發規劃.md`、`AI_Video_Search_搜尋準確率提升規劃.md` 稱呼）**從未進過版控、目前不存在**，本節的整理版與 [`02-technical-decisions.md`](02-technical-decisions.md) 是它們僅存的記錄。
+
+### 2.1 產品定位與 UI 需求（來自 [`ui-reference/ui_prompt.md`](ui-reference/ui_prompt.md)）
 
 一套本機執行的 Tkinter 桌面應用，讓使用者上傳／下載影片後，用自然語言描述（人物、動作、物件、教學內容）搜尋影片中的關鍵時刻，取代人工逐格瀏覽。四個頁籤：
 
@@ -33,7 +28,7 @@
 
 > **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)（設計）與 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)（Tkinter UI 完整盤點，含此落差的記錄）。**這份 Tkinter 實作後來整個被 Web UI（React + FastAPI）取代並移除**，`07-ui-structure-and-features.md` 保留下來作為歷史設計記錄，實際程式碼已經不存在，見 3.5 節與 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
 
-### 2.2 OCR 功能需求（來自 `Claude_Code_OCR_影片搜尋開發規劃.md`）
+### 2.2 OCR 功能需求
 
 要求系統能辨識畫面上的文字、保存文字出現的時間區間，並支援文字與語意搜尋，**限定用本地開源引擎**（EasyOCR 為主辨識引擎，Tesseract 為條件式複核引擎，處理型號／比分／數字等規則化文字），明確**不得依賴 Google Cloud Vision、Azure AI Vision 等付費雲端 OCR API**。要求：
 
@@ -46,7 +41,7 @@
 
 **已確認的實際落地方式與原始需求的差異**：專案原本已經用 GPT-4o-mini structured output 在既有 VLM 呼叫裡「順便」取得畫面文字（VLM-OCR），這跟本文件要求的「本地開源雙引擎」精神有衝突（本質上是付費雲端 API 做 OCR）。使用者拍板：VLM-OCR 保留不動，新增的 EasyOCR／Tesseract 本地雙引擎定位成**互補**（VLM 只在場景中點抽一張畫面，本地引擎補中點以外時間點的文字），不是取代或比賽準確度。詳見 [`02-technical-decisions.md`](02-technical-decisions.md#本地-ocr-雙引擎easyocrphase-1)。
 
-### 2.3 搜尋準確率提升需求（來自 `AI_Video_Search_搜尋準確率提升規劃.md`）
+### 2.3 搜尋準確率提升需求
 
 目標指標：
 
@@ -145,7 +140,8 @@ flowchart TD
 
 ### 3.4 成本與限制現況
 
-- 每支影片分析硬上限 **US$0.30**（VLM 條件式多幀取樣上線後調高，原本 US$0.20，見 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣phase-1-規劃定案尚未實作)），只分析 **1 小時以內**的影片（2026-08-26 由 20 分鐘放寬，見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.11；超過會被 API 擋下回 422，不會嘗試分析後才中止）。**`BUDGET_USD` 沒有跟著調高**，60 分鐘的影片很可能先撞到 US$0.30 而變成部分完成。
+- 每支影片分析硬上限 **US$0.80**（`analyzer.BUDGET_USD`），只分析 **1 小時以內**的影片（`analyzer.MAX_DURATION_SEC`，超過會被 API 擋下回 422，不會嘗試分析後才中止）。兩個數字的演進：預算 US$0.20 →（VLM 條件式多幀取樣上線）US$0.30 →（長度上限放寬後補調）**US$0.80**；長度上限 20 分鐘 →（2026-08-26）**1 小時**。見 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣) 與 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.11、§8.12。
+- **預算與長度上限仍可能衝突**：`BUDGET_USD` 是「跑到哪累加到哪、超過就停」的即時金額，60 分鐘影片的餘裕只有 4.6%（最壞情況外推 $0.765，未實測），撞到上限就變成部分完成——前面的片段仍可搜尋，後半段沒有索引。
 - 實測 4～7 支已分析影片（69～160 個場景）的實際花費落在 **US$0.0965～US$0.1885**，都在預算內，沒有觸發過部分完成。
 - 搜尋每次呼叫（翻譯＋embedding）都會寫入 `search_log` 表並在 UI 顯示花費，但目前沒有上限或警示機制。
 
@@ -157,7 +153,7 @@ flowchart TD
 
 **~~已知限制~~（2026-08-26 應已解決、待實測確認）**：原本分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，分析中途切去別的頁籤進度顯示就會遺失。`App.tsx` 改用 keep-alive（造訪過的頁籤留在 DOM 裡不卸載，只是隱藏）之後，五個頁籤切走再切回來狀態都不變，這個限制的根因已經移除；但沒有實跑一輪真實分析確認過，詳見 `11-web-ui-warm-redesign-plan.md` §8.3 與 `09-web-ui-migration-plan.md` 第 9 節。
 
-### 3.6 UI 暖色改版（進行中）
+### 3.6 UI 暖色改版（已完成）
 
 Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色響應式設計規格，對同一套四頁面
 進行純視覺／互動層美化（不動 API、資料庫、搜尋邏輯）。分階段執行、技術選型決策、逐項驗收結果見
@@ -176,14 +172,6 @@ Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色�
 影片庫只剩「在此影片內搜尋」，它帶 `?video_id=` 設定搜尋範圍、不帶查詢字串。五個頁籤現在依序是
 YouTube 搜尋／影片與分析／影片庫／搜尋影片／對話搜尋（`/search` 路由未改名）。
 
-## 4. 如何使用這個資料夾
+## 4. 接下來看哪一份
 
-- 想知道「現在做到哪裡」→ 看 [`01-development-timeline.md`](01-development-timeline.md)。
-- 想知道「某個功能為什麼這樣設計」→ 看 [`02-technical-decisions.md`](02-technical-decisions.md)。
-- 想知道「已經試過但不要再試一次的做法」→ 看 [`03-excluded-approaches.md`](03-excluded-approaches.md)。
-- 想知道「測試怎麼跑、品質怎麼量」→ 看 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md)。
-- 想知道「還有什麼沒做完、哪些數字還不能全信」→ 看 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
-- 想知道「對話搜尋怎麼設計的」→ 看 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)。
-- 想知道「已移除的 Tkinter UI 每個頁籤的功能與結構（歷史記錄）」→ 看 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)。
-- 想知道「Web UI 遷移進度、架構決策、Job Manager 設計」→ 看 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)（`08-web-ui-migration-design.md` 是尚未盤點現有程式碼前的原始參考稿，`09` 才是實際採用、持續更新的計畫）。
-- 想知道「UI 暖色改版做到哪個階段、技術選型為什麼這樣決定」→ 看 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md)（`10-web-ui-ux-warm-responsive-design.md` 是設計規格原稿，`11` 才是依現況盤點後實際採用、持續更新的計畫，跟 `08`／`09` 是同樣的關係）。
+依「你想問什麼」導覽的完整索引在 [`README.md`](README.md)，那份文件同時說明了每份文件的性質（現況參考／執行紀錄／原始需求）與是否仍在維護。

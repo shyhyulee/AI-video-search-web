@@ -1,14 +1,17 @@
 # 技術決策紀錄
 
+> **類型**：現況參考｜**狀態**：維護中，跟著程式碼更新
+> 分類說明與完整索引見 [`README.md`](README.md)。
+
 依主題整理每個技術決策的背景、比較過的選項、實測數據與最終結論。時間順序見 [`01-development-timeline.md`](01-development-timeline.md)；已經嘗試但放棄的方案見 [`03-excluded-approaches.md`](03-excluded-approaches.md)。
 
 ## 基礎架構決策
 
 - **Provider 只用 OpenAI（V0 起）**：ASR＝Whisper、VLM＝GPT-4o-mini、Embedding＝`text-embedding-3-small`。三個模組（`asr.py`／`vlm.py`／`embedding.py`）對外只暴露跟供應商無關的函式簽名，orchestrator（`analyzer.py`）不直接呼叫 OpenAI SDK，之後要加 Gemini 只需要在模組內部加分支。`segments` 表記錄每筆資料用哪個模型版本產生。
 - **每支影片分析預算 US$0.20，只分析 20 分鐘以內的影片**：時長限制在 UI 層擋（`video_tab.py`），超過的影片不會呼叫 `start_analysis()`；預算是「跑到哪累加到哪」的即時金額，每處理完一個片段才檢查一次，超過就 `break`，已處理的片段不浪費。
-  - **現況（原始決策的兩處已變更）**：預算調高到 **US$0.30**（VLM 條件式多幀取樣上線後，見本文件「VLM 條件式多幀取樣」）；長度上限 2026-08-26 放寬到 **1 小時**（`analyzer.MAX_DURATION_SEC`，見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.11）。強制執行點也已從 UI 層搬到 API 層（`job_manager.submit_analysis()`，Tkinter 的 `video_tab.py` 已刪除）。**「跑到哪累加到哪」的預算機制本身沒變**——這正是為什麼放寬長度上限之後，60 分鐘的影片很可能先撞到 US$0.30 而變成部分完成。
+  - **現況（原始決策的兩處已變更）**：預算目前是 **US$0.80**，經過兩次調整——先因 VLM 條件式多幀取樣上線由 US$0.20 調到 US$0.30（見本文件「VLM 條件式多幀取樣」），再因長度上限放寬而補調到 US$0.80（見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12）；長度上限 2026-08-26 放寬到 **1 小時**（`analyzer.MAX_DURATION_SEC`，見同文件 §8.11）。強制執行點也已從 UI 層搬到 API 層（`job_manager.submit_analysis()`，Tkinter 的 `video_tab.py` 已刪除）。**「跑到哪累加到哪」的預算機制本身沒變**——60 分鐘影片對 US$0.80 的餘裕只有 4.6%，仍有先撞上限變成部分完成的可能。
 - **場景切分選 PySceneDetect，不用固定間隔抽幀**：本機運算免費，且技術評估認為是低風險選項。
-- **字幕／畫面描述／OCR 文字分開存、分開建 embedding**：不合併成一段文字只建一個向量——這是 `AI_Video_Search_搜尋準確率提升規劃.md` 明確要求的原則，V0 開始就遵守，之後所有搜尋相關改動都維持這個設計。
+- **字幕／畫面描述／OCR 文字分開存、分開建 embedding**：不合併成一段文字只建一個向量——這是搜尋準確率提升需求（見 [`00-overview.md`](00-overview.md#23-搜尋準確率提升需求)）明確要求的原則，V0 開始就遵守，之後所有搜尋相關改動都維持這個設計。
 
 ## 場景切分
 
@@ -84,7 +87,7 @@
 
 ### 本地 OCR 雙引擎（EasyOCR，Phase 1）
 
-**與原始需求的差異**：原始需求（`Claude_Code_OCR_影片搜尋開發規劃.md`）假設 OCR 完全還沒做，要求本地開源雙引擎（EasyOCR＋Tesseract）取代雲端方案。但 VLM-OCR 已經先上線。使用者拍板：**VLM-OCR 保留不動，本地雙引擎定位成互補**——VLM 只在場景中點抽一張畫面，本地引擎在同一場景內多看幾張畫面，抓 VLM 抽幀方式漏掉的文字，不是取代或比賽準確度。
+**與原始需求的差異**：原始需求（OCR 功能需求，見 [`00-overview.md`](00-overview.md#22-ocr-功能需求)）假設 OCR 完全還沒做，要求本地開源雙引擎（EasyOCR＋Tesseract）取代雲端方案。但 VLM-OCR 已經先上線。使用者拍板：**VLM-OCR 保留不動，本地雙引擎定位成互補**——VLM 只在場景中點抽一張畫面，本地引擎在同一場景內多看幾張畫面，抓 VLM 抽幀方式漏掉的文字，不是取代或比賽準確度。
 
 **資料模型**：獨立 `ocr_events` 表（`video_id`／`segment_id`／時間範圍／`raw_text`／`resolved_text`／`confidence`／`bbox`／`primary_engine`／`embedding`），Phase 1 只做精簡欄位，原始需求要求的 `quality_status`／`resolution_method`／`preprocessing_profile`／多引擎候選 JSON 留到 Phase 2 真的有雙引擎融合時再加。
 
@@ -120,6 +123,8 @@
 **費用影響**：實測同一場景（segment 1346）3 幀 VLM 呼叫費用是單幀的 2.81 倍（prompt tokens 2960→8700，completion tokens 77→122）。用真實 7 支影片費用反推，20s 門檻下全 corpus 費用預期漲 **+20.6%**（$0.82→$0.99，7 支影片總和）。其中 video 6（Most Beautiful Faces 2021，觸發率 95.3%）換算後單支費用約 $0.2015，超過原本 `BUDGET_USD=$0.20`。
 
 **決策**：門檻定案 20 秒；觸發後取 **2 幀**（片段 30%／70% 時間點，不是中點單幀）；`BUDGET_USD` 調高到 **$0.30**；`VLM_BATCH_SIZE` 從 5 降到 **3**（見下方「實作」）。
+
+> **後續變更**：這裡的 $0.30 是當下的決策值。長度上限放寬到 1 小時之後又補調到 **$0.80**（目前值），見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12。
 
 **實作**：`scene_detect.NormalizedScene`（取代原本的 `tuple[float, float]`）帶上 `source_raw_duration`；`pipeline/analyzer.py` 新增 `MULTI_FRAME_TRIGGER_SEC=20.0`／`MULTI_FRAME_FRACTIONS=(0.3, 0.7)`／`_frame_fractions_for()`，Phase B 依此決定每個場景要傳給 `vlm.describe_segment()` 幾個時間點；`vlm.describe_segment()` 新增 `frame_fractions` 參數（預設 `(0.5,)`，向後相容），多幀時用獨立的 prompt 模板（要求 VLM 綜合所有畫面、不要逐張重複描述）；`segments` 表新增 `vlm_frame_count` 欄位記錄每個片段實際用了幾張畫面。
 
@@ -272,7 +277,7 @@
 2. Phase C 片段內字幕／畫面描述／OCR 文字三個 embedding 呼叫改用 thread pool 同時送出（`_embed_segment_texts()`），budget 檢查時機（一個片段三個都做完才檢查一次）不變。
 3. Phase E（本地 OCR）＋ Phase F（產生摘要）同時起跑（`_run_local_ocr_and_summary()`）。
 
-**唯一的小副作用（已跟使用者說明並確認接受）**：F 原本用「E 跑完後」的金額判斷要不要花錢做摘要，改成用「E 開始前」的金額判斷，極端情況下兩者合計可能讓總花費比 US$0.20 多出一點點。**UI 小副作用**：狀態列只顯示最新收到的進度訊息，兩個平行 phase 的訊息交錯進佇列，文字可能在階段名稱之間跳動幾次，純顯示層抖動，跟分析結果正確性無關。
+**唯一的小副作用（已跟使用者說明並確認接受）**：F 原本用「E 跑完後」的金額判斷要不要花錢做摘要，改成用「E 開始前」的金額判斷，極端情況下兩者合計可能讓總花費比 `BUDGET_USD` 多出一點點（當時是 US$0.20，目前是 US$0.80）。**UI 小副作用**：狀態列只顯示最新收到的進度訊息，兩個平行 phase 的訊息交錯進佇列，文字可能在階段名稱之間跳動幾次，純顯示層抖動，跟分析結果正確性無關。
 
 ### Tier 2（Phase B 批次平行，已採用）
 

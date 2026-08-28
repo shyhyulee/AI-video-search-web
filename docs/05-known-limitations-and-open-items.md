@@ -1,5 +1,8 @@
 # 已知限制、待辦事項與待確認事項
 
+> **類型**：現況參考｜**狀態**：維護中，跟著程式碼更新
+> 分類說明與完整索引見 [`README.md`](README.md)。
+
 ## 1. 已知限制與風險
 
 ### 分析流程
@@ -12,7 +15,7 @@
 - 本地 OCR（EasyOCR）時間上限（60 秒）與抽幀密度（每 2 秒、每場景上限 5 張）都是初始猜測值，只用少數已知案例校準過；VLM 覆蓋率低的內容（例如體育賽事）在回合制取樣修正後仍可能無法在時間預算內掃完全部缺口場景。
 - 本地 OCR 只做 EasyOCR，Tesseract 條件式複核（Phase 2）尚未實作，也沒有獨立的 exact/BM25 文字檢索通道（Phase 3）——精確代碼查詢（例如型號 `ABC-1234`）目前一律靠 embedding 語意相似度，不保證能穩定命中。
 - Phase B 單一場景 VLM 失敗（例如內容審查拒絕）只跳過該場景，不會拖垮整支分析，但沒有「失敗比例過高就整支判定失敗」的斷路器——如果帳號被封、API key 失效這類系統性問題發生，會安靜地生出一支幾乎沒有畫面描述、只有字幕的分析結果（UI 會顯示失敗場景數，但不會主動擋下來）。這是刻意先不做的取捨。
-- ~~`BUDGET_USD`（US$0.20）是否要因應場景數變多重新校準還沒正式實測確認~~ **已決策，調高到 US$0.30**：起因是 VLM 條件式多幀取樣規劃（見下方「功能延伸」與 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣phase-1-規劃定案尚未實作)）——用真實 7 支影片費用反推，Most Beautiful Faces 系列（觸發率 88～98%）換算後單支費用最高約 US$0.2015，超過原本上限，US$0.30 留有餘裕。這個新上限還沒有在實際套用多幀邏輯後的真實分析流程裡驗證過（目前的 US$0.2015 是用單一場景實測倍率反推的估計值）。
+- ~~`BUDGET_USD`（US$0.20）是否要因應場景數變多重新校準還沒正式實測確認~~ **已決策，目前是 US$0.80**：第一次調整起因是 VLM 條件式多幀取樣規劃（見下方「功能延伸」與 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣)）——用真實 7 支影片費用反推，Most Beautiful Faces 系列（觸發率 88～98%）換算後單支費用最高約 US$0.2015，超過原本上限，因此調到 US$0.30。之後長度上限放寬到 1 小時，再補調到 **US$0.80**（見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12）。兩次調整都沒有在實際跑滿的真實分析流程裡驗證過餘裕是否足夠。
 
 - **批次分析的總量上限只擋在 UI，後端仍然無限制**：`BUDGET_USD`（目前 US$0.80）是**每支影片**各自計算的，沒有批次層級的預算。前端已於 §8.14 把一次可勾選數限制成 5 支（單批天花板 5×$0.80 = $4.00），但 `POST /api/v1/videos/{id}/analyze` 一次只收一支、本身沒有批次概念，`job_manager` 也只保證「同時只跑一支」、不限制 `queued` 數量——直接打 API 仍然可以無限送。完整的上限對照表見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12、§8.14。
 - **`MAX_DURATION_SEC` 的 60 分鐘上限實際上碰不到，ASR 會先失敗**：`asr._extract_audio()` 固定輸出 64kbps 單聲道 mp3（實測 7,998 bytes/s），Whisper 的 25MB 上傳上限換算後約 52～55 分鐘，且 ASR 例外會讓整支分析失敗（不是略過字幕繼續跑）。這是從位元率反推的，**沒有用真實長影片實測驗證過**；`BUDGET_USD=0.80` 對 60 分鐘影片的餘裕只有 4.6%（最壞情況外推 $0.765），同樣沒有實測。見 §8.12。
@@ -47,12 +50,12 @@
 - [ ] 獨立 OCR exact/BM25 檢索通道（Phase 3，需要跟搜尋現有的 Hybrid BM25 協調，不要重複做一套）
 - [ ] 搜尋累計成本的 Header 統計卡，以及搜尋花費上限／警示機制
 - [x] ~~VLM 條件式多幀取樣~~ **已實作並驗證（只重跑 video 1）**，見 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣)／[`04-testing-and-evaluation.md`](04-testing-and-evaluation.md#6-vlm-條件式多幀取樣上線後的驗證只重跑-video-1)。**後續待辦**：其餘 6 支影片還沒用新邏輯重新分析（會花錢、也會讓現有 golden set baseline 失去比較基準）；`VLM_BATCH_SIZE=3` 只驗證過 video 1（觸發率 85%）這一種分布，沒驗證過觸發率低很多的影片；驗證發現多幀取樣會「轉移」而非單純疊加涵蓋範圍（gs-001 從穩定命中退步成排名第 2），固定 2 幀 30%/70% 的取樣密度對轉場密集的內容仍然不夠，要不要加大幀數或改用不等比例取樣還沒決定。
-- [ ] `AI_Video_Search_搜尋準確率提升規劃.md` Phase 1 尚未做完的部分：相鄰片段合併／Temporal NMS；Phase 2：**Top 20-50 Reranker**（用 LLM 對完整查詢語意重新判斷相關性，能同時解決否定句、多條件查詢、hard negative 精準率這幾類「需要真正理解語意」的問題，見上方否定句排除的已知限制——這是目前判斷投報率最高的下一步，但還沒設計）、依查詢類型動態調整模態權重
+- [ ] 搜尋準確率提升需求（見 [`00-overview.md`](00-overview.md#23-搜尋準確率提升需求)）Phase 1 尚未做完的部分：相鄰片段合併／Temporal NMS；Phase 2：**Top 20-50 Reranker**（用 LLM 對完整查詢語意重新判斷相關性，能同時解決否定句、多條件查詢、hard negative 精準率這幾類「需要真正理解語意」的問題，見上方否定句排除的已知限制——這是目前判斷投報率最高的下一步，但還沒設計）、依查詢類型動態調整模態權重
 
 ### 文件維護
 
 - [ ] 修正 `scripts/run_golden_set_eval.py` 開頭註解的「18 題」為「17 題」
-- [ ] 補齊 `development-log.md` 的 08-20 條目（目前索引只到 08-19），或至少確認這個資料夾（`docs/organize-docs/`）的 [`01-development-timeline.md`](01-development-timeline.md) 已經足夠涵蓋
+- [x] ~~補齊 `development-log.md` 的 08-20 條目~~ **不再適用**：`development-log.md` 與 `changelog/` 都已不存在（從未進過版控），[`01-development-timeline.md`](01-development-timeline.md) 就是目前唯一且完整的開發歷程記錄。
 
 ## 3. 待確認事項
 

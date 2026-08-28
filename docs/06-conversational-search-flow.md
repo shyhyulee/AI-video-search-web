@@ -1,5 +1,8 @@
 # 對話式影片搜尋 — 目前流程與邏輯
 
+> **類型**：現況參考｜**狀態**：維護中，跟著程式碼更新
+> 分類說明與完整索引見 [`README.md`](README.md)。
+
 Phase 1 實作完成後的現況說明，對應原始需求 [`Claude_Code_Conversational_Video_Search_Prompt.md`](Claude_Code_Conversational_Video_Search_Prompt.md) 與規劃時的分階段安排。目標是讓之後接手的人（人類或 AI Coding Agent）不用重讀程式碼就能掌握現在對話搜尋實際怎麼運作、哪些是刻意留到 Phase 2／3 才做。
 
 ## 1. 一句話總覽

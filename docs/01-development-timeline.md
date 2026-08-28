@@ -1,5 +1,8 @@
 # 開發歷程
 
+> **類型**：開發歷程｜**狀態**：持續追加新條目
+> 分類說明與完整索引見 [`README.md`](README.md)。
+
 依日期彙整已完成的開發內容。每個項目只保留「做了什麼、為什麼、驗證結果」的重點，詳細的技術取捨與比較留給 [`02-technical-decisions.md`](02-technical-decisions.md)。
 
 ## 2026-08-18：UI 重寫與 Pipeline V0
@@ -73,7 +76,7 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 
 ## 2026-08-20：搜尋準確率 Phase 1、平行化、重構
 
-> 這天的工作目前散落在各規劃文件自己的「狀態」列，`development-log.md` 的索引尚未更新到這天，此節統一補上。
+> 這天的工作原本散落在各規劃文件自己的「狀態」列，此節統一補上。（當時的 `development-log.md` 索引只更新到 08-19，該檔案與 `changelog/` 現已不存在，本文件是唯一的開發歷程記錄。）
 
 ### Golden Set 定案與 Evaluator
 

@@ -145,19 +145,14 @@ docs/              # 開發文件、規劃記錄與 Golden Set
 
 ## 深入文件
 
-專案的完整背景、架構、開發歷程與技術決策整理在 [`docs/`](docs/00-overview.md)：
+完整背景、架構、開發歷程與技術決策都在 [`docs/`](docs/README.md)。那裡的文件分成三種性質
+（**現況參考**／**執行紀錄**／**原始需求 prompt**），讀之前建議先看
+**[`docs/README.md`](docs/README.md)** 的分類索引，避免把已結束任務的計畫當成系統現況。
 
-- [`00-overview.md`](docs/00-overview.md) — 專案背景需求、系統現況、資料流、Web UI 遷移進度（建議從這裡開始）
-- [`01-development-timeline.md`](docs/01-development-timeline.md) — 依日期彙整的開發歷程
-- [`02-technical-decisions.md`](docs/02-technical-decisions.md) — 技術決策的背景、比較與實測數據
-- [`03-excluded-approaches.md`](docs/03-excluded-approaches.md) — 已嘗試但放棄的方案
-- [`04-testing-and-evaluation.md`](docs/04-testing-and-evaluation.md) — 測試套件、Golden Set、評測 baseline
+最常用的幾份：
+
+- [`00-overview.md`](docs/00-overview.md) — 專案背景需求、技術棧、模組分層、資料流、成本與限制（建議從這裡開始）
+- [`02-technical-decisions.md`](docs/02-technical-decisions.md) — 每個技術決策的背景、比較與實測數據
 - [`05-known-limitations-and-open-items.md`](docs/05-known-limitations-and-open-items.md) — 已知限制、待辦、待確認事項
-- [`06-conversational-search-flow.md`](docs/06-conversational-search-flow.md) — 對話搜尋設計
 - [`12-search-query-logic.md`](docs/12-search-query-logic.md) — 一次搜尋的完整處理順序、多關鍵字／複合搜尋的實際行為
-- [`07-ui-structure-and-features.md`](docs/07-ui-structure-and-features.md) — 已移除的 Tkinter UI 完整盤點（歷史記錄）
-- [`09-web-ui-migration-plan.md`](docs/09-web-ui-migration-plan.md) — Web UI 遷移計畫、架構決策、Job Manager 設計、各 Phase 驗收紀錄
-- [`14-postgresql-migration-plan.md`](docs/14-postgresql-migration-plan.md) — SQLite → PostgreSQL 遷移計畫與執行紀錄
 - [`15-local-startup-guide.md`](docs/15-local-startup-guide.md) — 本機啟動完整步驟、驗證指令、卡點排查、用 pgAdmin 看資料
-
-`docs/` 底下其餘檔案是各功能主題的原始規劃文件與逐日開發紀錄，仍會持續被程式碼註解引用，保留原樣不動。

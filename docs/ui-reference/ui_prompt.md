@@ -1,3 +1,6 @@
+> **類型**：原始需求 prompt｜**狀態**：使用者交付的規格原文，唯讀不改
+> 分類說明與完整索引見 [`../README.md`](../README.md)。
+
 請以資深 UI/UX Designer、Python Desktop Application Architect 與 Tkinter/ttk Engineer 的角度，重新設計目前「AI 影片搜尋」POC 的 UI/UX。
 
 本專案目前已有可運作的 Tkinter UI，請先閱讀現有程式碼及以下三張介面截圖：
