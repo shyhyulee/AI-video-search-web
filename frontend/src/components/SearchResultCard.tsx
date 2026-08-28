@@ -1,7 +1,6 @@
 import type { KeyboardEvent } from 'react'
 import type { SearchResult } from '../api/types'
-import { formatPercent, formatTimeRange, truncate } from '../lib/format'
-import { SimilarityBar } from './SimilarityBar'
+import { formatTimeRange, truncate } from '../lib/format'
 
 interface SearchResultCardProps {
   result: SearchResult
@@ -13,9 +12,9 @@ interface SearchResultCardProps {
 
 /** 搜尋結果列，取代 SearchPage／ConversationPage 各自複製貼上的結果表格。
  * featured＝對話搜尋第一名結果的大版型 Evidence Card，其餘（含 Search 頁
- * 全部結果）用緊湊列表版型，≤560px 隱藏次要分數（相似度％／融合分數），
- * 保留時間、來源、描述與可播放（選取）。鍵盤可操作：Tab 可到、
- * Enter／Space 觸發選取。 */
+ * 全部結果）用緊湊列表版型，兩者都只給標題、時間與描述，不顯示相似度％／
+ * 融合分數／命中來源（分數留在搜尋影片頁右側的證據面板）。鍵盤可操作：
+ * Tab 可到、Enter／Space 觸發選取。 */
 export function SearchResultCard({ result, rank, selected = false, featured = false, onSelect }: SearchResultCardProps) {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -40,9 +39,7 @@ export function SearchResultCard({ result, rank, selected = false, featured = fa
           <span className="shrink-0 text-xs text-text-muted">{formatTimeRange(result.start_sec, result.end_sec)}</span>
         </div>
         <p className="mb-2 truncate text-sm font-bold text-text-primary">{result.video_title}</p>
-        <SimilarityBar ratio={result.similarity} />
-        <p className="mt-2 text-sm leading-relaxed text-text-secondary">{result.description || '（無畫面描述）'}</p>
-        <p className="mt-2 text-xs text-text-muted">命中來源：{result.hit_source}</p>
+        <p className="text-sm leading-relaxed text-text-secondary">{result.description || '（無畫面描述）'}</p>
       </div>
     )
   }
@@ -62,9 +59,6 @@ export function SearchResultCard({ result, rank, selected = false, featured = fa
         <p className="truncate font-bold text-text-primary">{result.video_title}</p>
         <p className="text-xs text-text-secondary">{formatTimeRange(result.start_sec, result.end_sec)}</p>
       </div>
-      <span className="hidden w-12 shrink-0 text-text-primary sm:inline">{formatPercent(result.similarity)}</span>
-      <span className="hidden w-16 shrink-0 text-text-secondary sm:inline">{result.fusion_score.toFixed(3)}</span>
-      <span className="w-16 shrink-0 truncate text-text-secondary">{result.hit_source}</span>
       <p className="min-w-0 flex-[3] truncate text-text-secondary">{truncate(result.description, 80)}</p>
     </div>
   )
