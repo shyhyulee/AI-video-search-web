@@ -25,6 +25,7 @@
 | [`06-conversational-search-flow.md`](06-conversational-search-flow.md) | 多輪對話搜尋的流程與資料模型 |
 | [`12-search-query-logic.md`](12-search-query-logic.md) | 一次搜尋的完整處理順序、多關鍵字複合搜尋的真實行為 |
 | [`15-local-startup-guide.md`](15-local-startup-guide.md) | 怎麼把專案跑起來、怎麼驗證、卡住了怎麼查、怎麼用 pgAdmin 看資料 |
+| [`16-技術詳解-五個技術層與分析流程.html`](16-技術詳解-五個技術層與分析流程.html) | 給工程師的技術詳解：五個技術層每一項技術的定位、參數、選型理由與踩過的坑，加上分析 pipeline 的逐步拆解。**這份是 HTML 不是 Markdown**，用瀏覽器開；類型／狀態標頭在頁首的 meta 列 |
 
 ## 開發歷程
 
@@ -74,7 +75,7 @@
 | `golden-set.csv` | 17 題固定查詢集，搜尋品質評測的基準 |
 | `eval-runs/` | 歷次 Golden Set 評測結果（JSON），由 `scripts/run_golden_set_eval.py` 產生 |
 | `ui-reference/UI_0*.png` | Tkinter 時期的介面截圖，原始需求的附件 |
-| `*.html`／`*.pptx` | 專題發表投影片本體，說明見 `13` |
+| `專題發表投影片*.html`／`*.pptx` | 專題發表投影片本體，說明見 `13`（同資料夾的 `16-*.html` 不是投影片，是技術文件） |
 
 ## 維護規則
 
