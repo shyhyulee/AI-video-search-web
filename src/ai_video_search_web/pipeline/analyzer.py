@@ -15,13 +15,13 @@ _run_*()／_write_segments() phase 函式，對應 Phase A~F 的邏輯區塊
 簽名手工穿線，新增一個 phase 就要記得同時處理三件事才不會漏）。
 
 其中三組互不依賴的 phase 改成同時起跑縮短耗時（Tier 1 平行化，不改變任何
-判斷邏輯／輸出結果，見 docs/analysis-pipeline-parallelization-plan.md）：
+判斷邏輯／輸出結果，見 docs/02-technical-decisions.md#分析流程平行化）：
 場景切分＋音訊轉錄（_run_scene_detection_and_transcription()）、Phase C
 片段內三個 embedding（_embed_segment_texts()）、本地 OCR＋產生摘要
 （_run_local_ocr_and_summary()）。其餘 phase 仍然照順序一個一個處理。
 
 Phase B（VLM 逐場景畫面分析）另外做了 Tier 2 平行化：改成逐批次平行送出
-（見 _run_vlm_phase() 與 docs/analysis-pipeline-parallelization-plan.md「Tier 2」）。
+（見 _run_vlm_phase() 與 docs/02-technical-decisions.md#分析流程平行化「Tier 2」）。
 budget 檢查粒度從「每個場景後」放寬成「每個批次後」，是刻意接受的已知取捨；
 批次平行會提高短時間內撞到 OpenAI rate limit 的機率，_describe_segment_with_retry()
 補上重試機制，這是這次平行化的必要配套，不是額外功能。
@@ -100,7 +100,7 @@ MULTI_FRAME_FRACTIONS = (0.3, 0.7)
 # 撞過的 gpt-4o-mini TPM 上限（200,000/分鐘）回推：單次呼叫最差情況約
 # 550 tokens（含輸出上限），只讓 Phase B 自己的併發用量控制在上限的一半
 # 以內（~100,000 tokens/分鐘）換算出保守起點，見
-# docs/analysis-pipeline-parallelization-plan.md「Tier 2」。
+# docs/02-technical-decisions.md#分析流程平行化「Tier 2」。
 VLM_BATCH_SIZE = 3
 
 # 批次平行後同一批內同時打多個請求，撞到 429 的機率比循序執行時更高；
@@ -334,7 +334,7 @@ def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
         # 預算截斷跟「單一場景 VLM 失敗」是兩件互相獨立的事，各自有各自的訊息，
         # 可能同時發生，用「；」串起來——不能共用同一個 partial 判斷或同一句
         # 文字，不然使用者會看到誤導的原因（例如明明是內容審查拒絕，卻顯示
-        # 「已達預算上限」），見 docs/analysis-pipeline-flow.md。
+        # 「已達預算上限」），見 docs/00-overview.md#33-整體資料流。
         stage_notes = []
         if partial:
             stage_notes.append(f"已達預算上限（US${BUDGET_USD:.2f}），完成 {segment_count}/{len(scenes)} 片段")
@@ -343,9 +343,9 @@ def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
         pipeline_stage = "；".join(stage_notes) or None
 
         # Phase E（本地 OCR）／Phase F（產生摘要）互不依賴，同時起跑縮短耗時，
-        # 見 docs/analysis-pipeline-parallelization-plan.md。本地 OCR 整段失敗
+        # 見 docs/02-technical-decisions.md#分析流程平行化。本地 OCR 整段失敗
         # 只記 log、不能讓已經成功的分析結果被判定為失敗，見
-        # docs/ocr-local-engine-plan.md 設計決策 5。
+        # docs/02-technical-decisions.md#vlm-與-ocr。
         summary_text = _run_local_ocr_and_summary(ctx, segment_rows, segment_ids)
 
         db.mark_video_analyzed(
@@ -408,7 +408,7 @@ def _run_scene_detection_and_transcription(
     """Phase A（場景切分）跟音訊轉錄互不依賴——一個看畫面、一個聽聲音，改成
     同時起跑縮短總耗時；`_run_scene_detection()`／`_run_transcription()` 本身
     不動，只是呼叫順序從循序改成併發，見
-    docs/analysis-pipeline-parallelization-plan.md。
+    docs/02-technical-decisions.md#分析流程平行化。
     """
     with ThreadPoolExecutor(max_workers=1) as pool:
         transcribe_future = pool.submit(_run_transcription, ctx, duration_sec)
@@ -440,7 +440,7 @@ def _run_vlm_phase(
     transcribe_result: asr.TranscribeResult,
 ) -> tuple[list[_SceneAnalysisRow], int]:
     """Phase B：逐片段畫面分析（VLM，成本主要來源）。場景分批平行送出縮短耗時
-    （Tier 2 平行化，見 docs/analysis-pipeline-parallelization-plan.md）：同一批
+    （Tier 2 平行化，見 docs/02-technical-decisions.md#分析流程平行化）：同一批
     內用 thread pool 並發呼叫，用「送出順序」收集結果（不是完成順序），確保
     回傳的 list[_SceneAnalysisRow] 順序仍然精確對應 scenes 的順序；budget
     檢查從「每個場景後」放寬成「每個批次後」。
@@ -453,7 +453,7 @@ def _run_vlm_phase(
     隔離原則；字幕不受影響，因為是從已經抓好的逐字稿本機切出來的，跟 VLM
     呼叫成不成功無關。失敗場景數用回傳值 vlm_failed_count 往外傳，讓呼叫端
     可以把這個原因獨立顯示給使用者，不能跟預算截斷共用同一個訊息（見
-    docs/analysis-pipeline-flow.md）。失敗場景的 cost_usd 一律算 0——內容審查
+    docs/00-overview.md#33-整體資料流）。失敗場景的 cost_usd 一律算 0——內容審查
     拒絕的呼叫實務上可能還是有算到一點輸入 token 費用，但例外是在讀到
     response.usage 之前就被拋出，程式拿不到那個數字，這是已知、暫不處理的
     誤差；失敗場景的 frame_count 記 0（沒有任何畫面真的產生描述）。
@@ -519,7 +519,7 @@ def _describe_segment_with_retry(
 ) -> vlm.DescribeResult:
     """包一層 rate limit 重試。批次平行送出後，同一批內同時打多個請求，撞到
     OpenAI 429（gpt-4o-mini TPM 上限）的機率比循序執行時更高——帳號實測撞過
-    這個上限（見 docs/analysis-pipeline-parallelization-plan.md「Tier 2」），
+    這個上限（見 docs/02-technical-decisions.md#分析流程平行化「Tier 2」），
     這裡補上重試，不然平行化反而會讓整支影片分析比現在更容易失敗。非
     rate-limit 的例外不重試，直接往外拋，維持跟現有版本一樣的失敗語意。
     """
@@ -542,11 +542,11 @@ def _run_embedding_phase(ctx: _AnalysisContext, scene_rows: list[_SceneAnalysisR
     """Phase C：建立向量（字幕、畫面描述、OCR 文字分開 embed）。同一片段內的三個
     embedding 互相獨立，用 thread pool 平行送出縮短耗時；片段仍然照原順序一個一個
     處理，budget 檢查時機（一個片段的三個 embedding 都做完才檢查一次）不變，見
-    docs/analysis-pipeline-parallelization-plan.md。
+    docs/02-technical-decisions.md#分析流程平行化。
 
     字幕疑似是幻覺時不建立字幕 embedding，避免污染搜尋；`segments.transcript`
     仍然照實際 Whisper 輸出寫入，不隱藏原始內容，只是不讓它可被搜尋到，見
-    docs/whisper-hallucination-filter-plan.md。兩種互補的判斷：模式 A
+    docs/02-technical-decisions.md#asrwhisper-幻覺字幕過濾。兩種互補的判斷：模式 A
     （asr.is_hallucinated_transcript()，no_speech_prob 偏高）逐場景判斷；
     模式 B（asr.find_repetitive_transcript_indices()，連續場景被同一個詞
     主導）跨場景判斷，要先對整支影片的字幕算一次。
@@ -660,7 +660,8 @@ def _run_local_ocr(
     的目的是補 VLM 單幀取樣漏掉的文字，不是重複掃描 VLM 已經找到文字的場景；
     用真實影片校準過，多數影片 VLM 已覆蓋 98~100% 場景，全面依序掃描只會把
     60 秒時間預算耗在早就有答案的前幾個場景上，反而讓真正需要補的場景完全
-    沒被掃到（見 docs/ocr-local-engine-plan.md「仍需確認的問題」）。
+    沒被掃到（取樣策略的除錯過程見 docs/02-technical-decisions.md#vlm-與-ocr，
+    尚未校準的參數見 docs/05-known-limitations-and-open-items.md）。
     本地辨識本身免費，但 embedding 是真的 OpenAI 呼叫，一樣受 BUDGET_USD 節制，
     避免本地 OCR 找到大量文字時不受控地把預算榨乾。
     """
@@ -705,7 +706,7 @@ def _run_summary_phase(ctx: _AnalysisContext) -> str | None:
     budget 已經超支就跳過，不強求一定要有摘要；失敗只記 log，不影響其他分析
     結果——跟本地 OCR 同樣的失敗隔離原則。這份摘要也是搜尋端影片篩選
     （search.py 的 _video_relevance_score()）的主要依據，見
-    docs/scene-length-normalization-plan.md 之後的搜尋規劃討論。
+    docs/02-technical-decisions.md#搜尋 的「影片層級篩選」。
     """
     ctx.enter_stage("產生摘要中")
 
@@ -732,15 +733,15 @@ def _run_local_ocr_and_summary(
     看不到對方的花費。`_run_summary_phase()` 判斷要不要花錢做摘要的依據因此是
     「本地 OCR 開始前」的金額而不是「跑完後」——極端情況下兩者合計可能讓總花費
     比 BUDGET_USD 多出一點點，是刻意接受的已知取捨，見
-    docs/analysis-pipeline-parallelization-plan.md。
+    docs/02-technical-decisions.md#分析流程平行化。
     """
     ocr_ctx = ctx.budget_branch()
     summary_ctx = ctx.budget_branch()
 
     def _do_local_ocr() -> bool:
         """回傳有沒有成功跑完。本地 OCR 整段失敗只記 log、不往外拋——已經成功的
-        分析結果不能因為它而被判定失敗，見 docs/ocr-local-engine-plan.md 設計
-        決策 5。"""
+        分析結果不能因為它而被判定失敗，見
+        docs/02-technical-decisions.md#vlm-與-ocr。"""
         ocr_ctx.enter_stage("本地 OCR 掃描中")
         try:
             _run_local_ocr(ocr_ctx, segment_rows, segment_ids)

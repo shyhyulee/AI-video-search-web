@@ -78,7 +78,7 @@ def create_table(conn: psycopg.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_video_id ON segments(video_id)")
-    # 中文關鍵字檢索索引，見 docs/hybrid-retrieval-bm25-plan.md 與
+    # 中文關鍵字檢索索引，見 docs/02-technical-decisions.md#搜尋 與
     # docs/14-postgresql-migration-plan.md §5。
     #
     # 為什麼是 trigram 而不是 PostgreSQL 內建的 to_tsvector 全文檢索：中文沒有

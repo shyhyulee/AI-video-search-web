@@ -57,7 +57,7 @@ class EasyOcrEngine:
 @lru_cache(maxsize=1)
 def get_easyocr_engine() -> EasyOcrEngine:
     """建立並快取全域唯一的 EasyOCR engine。gpu=False：這台機器沒有確認過 GPU
-    可用性，先固定用 CPU（見 docs/ocr-local-engine-plan.md 設計決策 6）。
+    可用性，先固定用 CPU（見 docs/02-technical-decisions.md#vlm-與-ocr）。
     """
     import easyocr
 

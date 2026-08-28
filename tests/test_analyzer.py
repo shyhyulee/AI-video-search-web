@@ -1,5 +1,5 @@
 """analyzer.py 的場景過濾邏輯與 Tier 1／Tier 2 平行化（見
-docs/analysis-pipeline-parallelization-plan.md）測試：本地 OCR 只應該掃描
+docs/02-technical-decisions.md#分析流程平行化）測試：本地 OCR 只應該掃描
 VLM-OCR 沒抓到文字的場景；Phase C 片段內三個 embedding 平行送出後 budget
 截斷時機要跟循序版本一致；Phase E／F 同時起跑時彼此失敗互不影響、
 total_cost 不會重複計算或漏算；Phase B 批次平行後場景順序不能被打亂、

@@ -1,5 +1,5 @@
 """Golden Set 評分：對照 docs/golden-set.csv 量化 search.py 的搜尋品質，
-對應 docs/AI_Video_Search_搜尋準確率提升規劃.md Phase 0 步驟5、6。
+對應 docs/00-overview.md#23-搜尋準確率提升需求 的 Phase 0。
 
 命中判定刻意用「video_id 相同 且 時間區間有重疊（IoU > 0）」，不是精確比對
 單一時間區間——golden-set.csv 部分查詢（如 gs-003）同一題有多個正確區間，

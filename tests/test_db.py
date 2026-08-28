@@ -487,7 +487,7 @@ def test_modality_flags_empty_id_list_returns_empty_dict_without_querying(temp_d
 
 
 # ----------------------------------------------------------------------
-# 關鍵字檢索（BM25，見 docs/hybrid-retrieval-bm25-plan.md）。
+# 關鍵字檢索（BM25，見 docs/02-technical-decisions.md#搜尋）。
 # 底層從 SQLite FTS5 換成 pg_trgm＋SQL 手算 BM25，見 db/segments.py。
 # ----------------------------------------------------------------------
 

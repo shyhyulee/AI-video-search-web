@@ -26,7 +26,7 @@ _ESTIMATED_PROCESSING_RATIO = 0.12
 _MIN_ESTIMATED_SEC = 3.0
 
 # 幻覺字幕過濾門檻：用真實 app.db 資料校準（6 支已分析影片、560 筆片段），
-# 詳見 docs/whisper-hallucination-filter-plan.md。分兩種互補的偵測模式：
+# 詳見 docs/02-technical-decisions.md#asrwhisper-幻覺字幕過濾。分兩種互補的偵測模式：
 #
 # 模式 A（is_hallucinated_transcript）：no_speech_prob 偏高（模型自己認為這段
 # 大概沒有語音）卻還是生成文字，是背景音樂被誤判成重複亂碼最常見的模式——
@@ -141,7 +141,7 @@ def find_repetitive_transcript_indices(transcripts: list[str]) -> set[int]:
     才會對應正確的場景。單一場景（不管內容多短促重複）或真實內容裡偶爾出現的
     高頻虛詞（例如英文 the）造成的巧合連續，都不會被算進來——這兩種各自都是
     單獨使用「主導詞佔比」或單獨使用「連續同一主導詞」會誤殺真實內容的已知
-    陷阱，見 docs/whisper-hallucination-filter-plan.md。
+    陷阱，見 docs/02-technical-decisions.md#asrwhisper-幻覺字幕過濾。
     """
     hallucinated: set[int] = set()
     run_start: int | None = None

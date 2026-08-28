@@ -9,7 +9,7 @@ from .sparse import _sparse_scores
 # RRF（Reciprocal Rank Fusion）：score = Σ 1/(k + rank)，k=60 是業界常見的
 # 保守慣例值，但實測候選片段數多（一兩百個）時會讓「兩個 channel 都中等」
 # 贏過「單一 channel 命中得很準」，調小讓 top rank 的優勢更明顯，見
-# docs/hybrid-retrieval-bm25-plan.md「調小 RRF_K」實驗。
+# docs/02-technical-decisions.md#搜尋 的「RRF_K 調參」。
 RRF_K = 5
 
 # 回傳結果的品質下限：兩個條件同時成立才回傳，任一項沒過門檻就不算「足夠

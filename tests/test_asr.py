@@ -3,7 +3,7 @@
   no_speech_prob 門檻（0.7）判斷字幕是不是背景音樂被誤判成重複亂碼的幻覺。
 - find_repetitive_transcript_indices()（模式 B）：用真實資料校準過的
   「連續場景被同一個詞主導」判斷整段被誤判成單字重複（例如「Music Music」）
-  的幻覺，見 docs/whisper-hallucination-filter-plan.md。
+  的幻覺，見 docs/02-technical-decisions.md#asrwhisper-幻覺字幕過濾。
 """
 from __future__ import annotations
 

@@ -108,7 +108,7 @@ def search(query: str, top_k: int = 20, video_id: int | None = None) -> SearchRe
 def _ocr_events_by_segment(video_id: int | None) -> dict[int, list[db.OcrEventRecord]]:
     """把本地 OCR（EasyOCR）事件依 segment_id 分組，供 search() 併入既有 OCR 模態分數——
     互補既有 VLM-OCR（segments.ocr_embedding），不是獨立的檢索通道，
-    見 docs/ocr-local-engine-plan.md 設計決策 4。"""
+    見 docs/02-technical-decisions.md#vlm-與-ocr。"""
     events = db.list_ocr_events_for_video(video_id) if video_id is not None else db.list_all_ocr_events()
     grouped: dict[int, list[db.OcrEventRecord]] = {}
     for event in events:

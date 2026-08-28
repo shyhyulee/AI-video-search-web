@@ -10,7 +10,7 @@
 場景覆蓋的廣度永遠優先於單一場景取樣的深度——用真實影片校準過，VLM 覆蓋率低
 的內容（例如體育賽事）缺口場景可能有幾十個，舊版依場景順序、每個場景先抽完
 全部張數才換下一個場景的做法，只有最前面幾個場景吃得到取樣，後面完全沒被掃到
-（見 docs/ocr-local-engine-plan.md 校準記錄）。時間預算逐張畫面檢查（不是逐場景
+（見 docs/02-technical-decisions.md#vlm-與-ocr 的取樣策略除錯過程）。時間預算逐張畫面檢查（不是逐場景
 或逐輪次），因為單一輪（例如第 1 輪要掃過全部場景各 1 張）本身就可能超過整個
 預算，需要更細的中止點才擋得住。
 
@@ -19,9 +19,9 @@ PyTorch 量化 LSTM 模型（Reader 單例），多個執行緒同時呼叫 reco
 運算資源，即使把每次呼叫的 intra-op thread 數壓低也一樣——用真實 NBA 影片
 （52 個缺口場景）實測，4 個 worker 平行版本耗時 165.6 秒，反而比循序版的
 68.1 秒慢 2.4 倍。故意留這段紀錄，避免之後又重新嘗試同一條已經量測過行不通
-的路線（見 docs/ocr-local-engine-plan.md 校準記錄）。
+的路線（見 docs/02-technical-decisions.md#vlm-與-ocr 的取樣策略除錯過程）。
 
-詳細設計見 docs/ocr-local-engine-plan.md。
+詳細設計見 docs/02-technical-decisions.md#vlm-與-ocr。
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ MAX_FRAMES_PER_SCENE = 5
 MIN_CONFIDENCE = 0.3
 
 # 整支影片本地 OCR 掃描的時間上限（秒）。初始值為保守預估，尚未實測校準，
-# 見 docs/ocr-local-engine-plan.md「仍需確認的問題」。超過就跳出、回傳目前已收集的結果。
+# 見 docs/05-known-limitations-and-open-items.md 的本地 OCR 項。超過就跳出、回傳目前已收集的結果。
 TIME_BUDGET_SEC = 60.0
 
 

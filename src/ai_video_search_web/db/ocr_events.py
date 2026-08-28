@@ -1,5 +1,5 @@
 """ocr_events 表：本地 OCR（EasyOCR）事件的 schema 與 CRUD。跟 VLM-OCR 的
-segments.ocr_text 互補，不是同一批資料，見 docs/ocr-local-engine-plan.md。
+segments.ocr_text 互補，不是同一批資料，見 docs/02-technical-decisions.md#vlm-與-ocr。
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 # 中文虛詞表，用來把查詢字串切成候選關鍵字（不是真正斷詞，純規則）；
-# 兩輪 spike（見 docs/hybrid-retrieval-bm25-plan.md）驗證過這個粗糙作法
+# 兩輪 spike（見 docs/02-technical-decisions.md#搜尋）驗證過這個粗糙作法
 # 「夠用」：唯一的失敗模式剛好都落在 dense 已經排第一的查詢上，融合後
 # 不影響整體結果，所以沒有為此再引入 jieba 之類的斷詞依賴。「要」是後來
 # 補的：「要真人的畫面」原本會被黏成查不到任何片段的複合詞「要真人」，

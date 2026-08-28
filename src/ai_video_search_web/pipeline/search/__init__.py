@@ -1,5 +1,5 @@
 """搜尋：dense（embedding cosine 相似度）+ sparse（BM25 關鍵字）hybrid 召回，
-用 RRF 融合排名，取代 V0 純 dense 排序。見 docs/hybrid-retrieval-bm25-plan.md
+用 RRF 融合排名，取代 V0 純 dense 排序。見 docs/02-technical-decisions.md#搜尋
 的 spike 過程與決策依據；reranker 還沒做，是後續 Phase 2 的範圍。
 
 模組分工（原本是單一檔案 pipeline/search.py，內容成長到 522 行、一個 search()

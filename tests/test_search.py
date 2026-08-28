@@ -102,8 +102,8 @@ def test_strip_generic_terms_does_not_affect_unrelated_words():
 
 
 # ----------------------------------------------------------------------
-# _extract_terms()：規則式拆詞（見 docs/hybrid-retrieval-bm25-plan.md 的
-# spike 決策），純字串處理，不呼叫 API
+# _extract_terms()：規則式拆詞（見 docs/02-technical-decisions.md#搜尋
+# 的「斷詞方式」），純字串處理，不呼叫 API
 # ----------------------------------------------------------------------
 
 

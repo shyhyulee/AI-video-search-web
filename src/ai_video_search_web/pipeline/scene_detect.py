@@ -51,7 +51,7 @@ _MIN_ESTIMATED_SEC = 2.0
 # 8~12 秒（8.0/12.0/10.0，12=1.5×8，死區比 9~12 窄）後回升到
 # 78.8%~91.4%（同兩支影片：BMW 工廠 1063 秒/296 原始場景、The 100 Most
 # Beautiful Faces of 2019 602 秒/33 原始場景），細節見
-# docs/scene-length-normalization-plan.md。
+# docs/02-technical-decisions.md#場景切分。
 MERGE_BELOW_SEC = 8.0
 SPLIT_ABOVE_SEC = 12.0
 SPLIT_TARGET_SEC = 10.0
@@ -116,7 +116,7 @@ def _split_long_scenes(scenes: list[tuple[float, float]]) -> list[NormalizedScen
     （上限越接近下限的 2 倍以下），落在「切了會低於下限、不切又超過上限」
     這個死區（SPLIT_ABOVE_SEC ~ 2×MERGE_BELOW_SEC 之間）的場景就越多，會
     保留成超長片段，細節與真實影片實測數字見
-    docs/scene-length-normalization-plan.md。
+    docs/02-technical-decisions.md#場景切分。
 
     回傳 NormalizedScene 而不是純 tuple：每段都帶上 `source_raw_duration`
     （這段場景切分前的原始長度），沒被切過的場景 `source_raw_duration`
