@@ -19,7 +19,9 @@ export function VideoDocumentView({ document }: { document: VideoDocument }) {
         <Badge text={DOC_TYPE_LABELS[document.doc_type]} kind={isFallback ? 'neutral' : 'primary'} />
       </div>
 
-      <p className="text-sm leading-relaxed text-text-secondary">{document.overview}</p>
+      {/* 刻意不顯示 document.overview：它一稿兩用，內容就是面板上方那段摘要
+          （後端 generate_document() 會把它寫進 videos.summary）。在這裡再印一次
+          等於同一段文字出現兩遍，正是這次把摘要與文件合併時要消掉的重複。 */}
 
       {document.sections.map((section, si) => (
         <section key={si} className="space-y-2">

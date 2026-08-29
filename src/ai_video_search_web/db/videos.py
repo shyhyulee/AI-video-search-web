@@ -226,20 +226,30 @@ def update_video_document(
     document_json: str,
     document_type: str,
     document_model: str,
+    summary: str,
     additional_cost_usd: float,
 ) -> None:
-    """設定整理出來的文件並把這次的花費累加進 cost_usd（可重複呼叫＝重新整理，
-    直接覆蓋舊文件，不留版本歷史）。成本累加方式跟 update_video_summary() 一致。
+    """設定整理出來的文件**與摘要**，並把這次的花費累加進 cost_usd（可重複呼叫＝
+    重新整理，直接覆蓋舊文件，不留版本歷史）。
+
+    摘要跟文件在同一句 UPDATE 裡寫：它們來自同一次 LLM 呼叫（文件的 overview
+    一稿兩用，見 pipeline/document.py），拆成先呼叫 update_video_summary() 再呼叫
+    這支的話，同一次呼叫的成本會被累加兩次。
     """
     with get_connection() as conn:
         conn.execute(
             """
             UPDATE videos
             SET document_json = %s, document_type = %s, document_model = %s,
+                summary = %s, summary_model = %s,
                 cost_usd = COALESCE(cost_usd, 0) + %s
             WHERE id = %s
             """,
-            (document_json, document_type, document_model, additional_cost_usd, video_id),
+            (
+                document_json, document_type, document_model,
+                summary, document_model,
+                additional_cost_usd, video_id,
+            ),
         )
 
 

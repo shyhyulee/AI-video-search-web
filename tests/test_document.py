@@ -165,6 +165,20 @@ def test_prompt_carries_video_title_and_material():
     assert "content_log" in prompt
 
 
+def test_prompt_asks_overview_to_read_as_a_video_summary():
+    """overview 一稿兩用——它會被寫回 videos.summary，然後餵給搜尋的影片層級
+    篩選與影片庫的主題分類。所以 prompt 必須要求它寫成「影片在講什麼」，
+    不能是「本文件涵蓋什麼」，否則那三條下游都會吃到走味的文字。"""
+    client = MagicMock()
+    client.chat.completions.parse.return_value = _fake_response(_document(), 100, 10)
+
+    document.generate_document(client, "影片", [_segment(transcript="x")])
+
+    prompt = client.chat.completions.parse.call_args.kwargs["messages"][0]["content"]
+    assert "這支影片**主要在講什麼" in prompt
+    assert "不要用「本文件」" in prompt
+
+
 def test_doc_type_labels_cover_every_document_type():
     """DOC_TYPE_LABELS 是前端顯示的來源，漏一個就會出現空白標籤。"""
     from typing import get_args

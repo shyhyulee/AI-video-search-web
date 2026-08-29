@@ -149,7 +149,13 @@ def regenerate_summary(video_id: int, segments: list[db.SegmentRecord]) -> summa
 def generate_document(
     video: db.VideoRecord, segments: list[db.SegmentRecord]
 ) -> document_pipeline.DocumentResult:
-    """整理出一份結構化文件並存回影片記錄上（重複呼叫＝重新整理，直接覆蓋）。
+    """整理出一份結構化文件**與摘要**並存回影片記錄上（重複呼叫＝重新整理，
+    直接覆蓋）。
+
+    文件的 overview 一稿兩用，同時寫進 videos.summary——所以「整理成文件」這
+    一顆按鈕會同時更新兩者，不需要另外再產一次摘要。`videos.summary` 不能只
+    當顯示欄位放著不管：搜尋的影片層級篩選（pipeline/search/dense.py）與影片庫
+    的主題分類、庫內搜尋（lib/videoCategory.ts）都在讀它。
 
     存的是整包 JSON 而不是拆成欄位：文件的形狀由 pipeline 的 pydantic 模型
     決定，之後 schema 演進時只要動那一個地方，DB 不用跟著改。
@@ -161,6 +167,7 @@ def generate_document(
         result.document.model_dump_json(),
         result.document.doc_type,
         document_pipeline.MODEL_NAME,
+        result.document.overview,
         result.cost_usd,
     )
     return result

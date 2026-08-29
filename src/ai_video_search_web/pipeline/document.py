@@ -70,7 +70,10 @@ _PROMPT_TEMPLATE = """以下是影片《{title}》依時間順序切出的素材
 
 3. **不適合就不要硬掰**。判斷成 content_log 時就老實做時間軸紀錄，不要為了湊出流程而發明步驟。
 
-其餘欄位：title 是這份文件的標題（不用照抄影片標題）；overview 用 2～3 句說明這份文件涵蓋什麼；sections 依內容分成幾個階段／章節，每節底下是該階段的步驟。
+其餘欄位：
+- title：這份文件的標題（不用照抄影片標題）。
+- overview：用 3～5 句話、約 100～200 個字說明**這支影片**主要在講什麼。這一段會直接當成影片摘要顯示，所以要寫成「影片在講什麼」而不是「這份文件涵蓋什麼」——**不要用「本文件」「這份文件」當開頭**，也不要逐句覆述時間軸內容、不要加開頭語。
+- sections：依內容分成幾個階段／章節，每節底下是該階段的步驟。
 
 素材：
 
@@ -93,6 +96,11 @@ class DocumentSection(BaseModel):
 class VideoDocument(BaseModel):
     doc_type: DocumentType
     title: str
+    #: 一稿兩用：既是文件的概述，也會被 services/video_service.generate_document()
+    #: 寫回 videos.summary 當作這支影片的摘要。所以 prompt 要求它寫成「影片在講
+    #: 什麼」而不是「這份文件涵蓋什麼」——這段文字接下來會進搜尋的影片層級篩選
+    #: （pipeline/search/dense.py）與影片庫的主題分類（lib/videoCategory.ts），
+    #: 語氣得跟 summary.py 產生的摘要一致。
     overview: str
     sections: list[DocumentSection]
     #: 素材裡沒交代清楚、讀者需要自己補的事。可以是空的。

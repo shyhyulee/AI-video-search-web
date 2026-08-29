@@ -197,13 +197,13 @@ def test_regenerate_summary_generates_and_persists(monkeypatch):
 
 
 def test_generate_document_generates_and_persists(monkeypatch):
-    """service 層只驗證委派：有把整包 JSON、doc_type、model 名與成本正確
-    傳給 db.update_video_document()。文件內容的邏輯在 test_document.py。"""
+    """service 層只驗證委派：有把整包 JSON、doc_type、model 名、**摘要**與成本
+    正確傳給 db.update_video_document()。文件內容的邏輯在 test_document.py。"""
     fake_client = object()
     monkeypatch.setattr(video_service, "get_client", lambda: fake_client)
 
     fake_document = video_service.document_pipeline.VideoDocument(
-        doc_type="sop", title="生產流程", overview="概述",
+        doc_type="sop", title="生產流程", overview="這支影片介紹主板產線。",
         sections=[], uncovered=[],
     )
     fake_result = MagicMock(document=fake_document, cost_usd=0.005)
@@ -218,9 +218,9 @@ def test_generate_document_generates_and_persists(monkeypatch):
     captured_update = {}
     monkeypatch.setattr(
         video_service.db, "update_video_document",
-        lambda video_id, document_json, document_type, document_model, additional_cost_usd: captured_update.update(
+        lambda video_id, document_json, document_type, document_model, summary, additional_cost_usd: captured_update.update(
             video_id=video_id, document_json=document_json, document_type=document_type,
-            document_model=document_model, additional_cost_usd=additional_cost_usd,
+            document_model=document_model, summary=summary, additional_cost_usd=additional_cost_usd,
         ),
     )
 
@@ -234,6 +234,8 @@ def test_generate_document_generates_and_persists(monkeypatch):
     assert captured_update["document_type"] == "sop"
     assert captured_update["document_model"] == video_service.document_pipeline.MODEL_NAME
     assert captured_update["additional_cost_usd"] == 0.005
+    # 摘要來自文件的 overview（一稿兩用），不是另外再呼叫一次 LLM 產生的
+    assert captured_update["summary"] == "這支影片介紹主板產線。"
     # 存的是整包 JSON，形狀由 pipeline 的 pydantic 模型決定
     assert '"doc_type":"sop"' in captured_update["document_json"].replace(" ", "")
 

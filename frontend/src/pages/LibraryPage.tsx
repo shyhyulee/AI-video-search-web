@@ -8,7 +8,6 @@ import {
   listActiveJobs,
   listVideos,
   reanalyzeVideo,
-  regenerateSummary,
 } from '../api/client'
 import type { Job, Video } from '../api/types'
 import { Badge } from '../components/Badge'
@@ -21,7 +20,6 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SearchField } from '../components/SearchField'
 import { VideoDocumentView } from '../components/VideoDocumentView'
 import { VideoListItem } from '../components/VideoListItem'
-import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { useJobPolling } from '../lib/useJobPolling'
 import { useSearchScope } from '../lib/useSearchScope'
@@ -363,25 +361,6 @@ export function LibraryPage() {
   )
 }
 
-/** 詳細面板下半部的頁籤（摘要／整理文件）。選中態用底線而不是實心底色：
- * 這排就在按鈕列下面，兩排都用實心色塊會分不出哪個是動作、哪個是檢視切換。 */
-function PanelTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`-mb-px border-b-2 px-3 py-1.5 text-sm font-bold transition-colors ${
-        active
-          ? 'border-primary text-primary-hover'
-          : 'border-transparent text-text-secondary hover:text-text-primary'
-      }`}
-    >
-      {label}
-    </button>
-  )
-}
-
 /** 空清單的四種成因要講不同的話，否則使用者分不出是關鍵字沒中、這個分類沒東西，
  * 還是整個影片庫本來就是空的。 */
 function emptyStateText({
@@ -427,41 +406,31 @@ function VideoDetailPanel({
   onSearchInVideo: (video: Video) => void
 }) {
   const queryClient = useQueryClient()
-  const [summaryStatus, setSummaryStatus] = useState('')
   const [documentStatus, setDocumentStatus] = useState('')
-  const [tab, setTab] = useState<'summary' | 'document'>('summary')
   const [reanalysisJobId, setReanalysisJobId] = useState<number | null>(null)
 
-  // 只在真的要看文件時才抓。`video.document_type` 是清單就有的輕量旗標，
-  // 用它當 enabled 條件，沒整理過的影片就完全不會打這支 API（後端那時會回
-  // 404，那是正常狀態不是錯誤，不該讓 react-query 一直重試）。
+  // `video.document_type` 是清單就有的輕量旗標，用它當 enabled 條件：沒整理過
+  // 的影片完全不會打這支 API（後端那時會回 404，那是正常狀態不是錯誤，不該讓
+  // react-query 一直重試）。
   const documentQuery = useQuery({
     queryKey: ['video-document', video.id],
     queryFn: () => getVideoDocument(video.id),
-    enabled: tab === 'document' && video.document_type !== null,
+    enabled: video.document_type !== null,
     staleTime: Infinity, // 文件只有按下「整理成文件」才會變，不用自動重取
   })
 
   const documentMutation = useMutation({
     mutationFn: () => generateVideoDocument(video.id),
     onSuccess: (resp) => {
-      setDocumentStatus('✓ 文件已整理完成')
-      // 直接把結果塞進快取，省掉一次來回；成本變了所以清單與統計卡要重取。
+      setDocumentStatus('✓ 文件與摘要已更新')
+      // 直接把結果塞進快取，省掉一次來回。清單一定要 invalidate——摘要也是這
+      // 一次呼叫產出的（見後端 video_service.generate_document），上方那段
+      // 摘要讀的是清單裡的 video.summary，不重取就不會跟著換。
       queryClient.setQueryData(['video-document', video.id], resp)
       queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
-    onError: (err: Error) => setDocumentStatus(`整理文件失敗：${err.message}`),
-  })
-
-  const summaryMutation = useMutation({
-    mutationFn: () => regenerateSummary(video.id),
-    onSuccess: () => {
-      setSummaryStatus('✓ 摘要已更新')
-      queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
-    },
-    onError: (err: Error) => setSummaryStatus(`產生摘要失敗：${err.message}`),
+    onError: (err: Error) => setDocumentStatus(`整理失敗：${err.message}`),
   })
 
   const reanalyzeMutation = useMutation({
@@ -504,18 +473,14 @@ function VideoDetailPanel({
   // 影片自己的 status 也算 busy：重新整理後 job 還沒接回來的那幾秒，按鈕
   // 不能是可按的——後端會回 409，而且摘要／搜尋這時看到的是上一輪的結果。
   const analyzing = video.status === 'analyzing' || job?.status === 'running' || job?.status === 'queued'
-  const busy =
-    summaryMutation.isPending || documentMutation.isPending || reanalyzeMutation.isPending || analyzing
+  const busy = documentMutation.isPending || reanalyzeMutation.isPending || analyzing
 
   return (
     <div className="flex flex-col gap-3 md:h-full">
-      {/* 縮圖回到滿版寬度（並排版把它壓到只剩約 256px，太小），改用 max-h 綁住
-          高度來換取「面板不捲動」：`aspect-video w-full` 決定寬度與比例，
-          `md:max-h-[34vh]` 在矮螢幕自動把它壓回來、`object-cover` 負責裁切。
-          高度跟著視窗長，摘要下方原本剩下的空白就被縮圖吃掉了。
-          ≤900px 不套 max-h——手機版面本來就整頁捲動，不需要限制。 */}
-      <VideoPoster videoId={video.id} size="fill" className="shrink-0 md:max-h-[42vh]" />
-
+      {/* 這裡原本有一張滿版縮圖。移除的理由：它是純裝飾（面板裡沒有播放器，
+          點了不會播），卻吃掉 md:max-h-[42vh] 的高度——而一份 SOP 有二三十個
+          步驟，最缺的就是垂直空間。清單列的小縮圖（VideoListItem）還在，辨識
+          影片靠那裡就夠了。 */}
       <div className="shrink-0">
         {/* flex-wrap：標題長的時候讓分類標籤換到下一行，不要把標題擠成一長串省略號。 */}
         <div className="flex flex-wrap items-center gap-2">
@@ -533,26 +498,17 @@ function VideoDetailPanel({
         <Button variant="primary" size="sm" disabled={video.status !== 'analyzed' || busy} onClick={() => onSearchInVideo(video)}>
           在此影片內搜尋
         </Button>
+        {/* 原本這裡有「重新產生摘要」與「整理成文件」兩顆。摘要那顆移除了——
+            文件的 overview 一稿兩用，整理文件時會一起更新摘要（見後端
+            video_service.generate_document），兩顆按鈕產出高度重疊的文字沒有
+            意義。後端的 POST /videos/{id}/summary 端點還在，只是前端不再呼叫，
+            照 uploadVideo() 的先例。 */}
         <Button
           variant="secondary"
           size="sm"
           disabled={video.status !== 'analyzed' || busy}
           onClick={() => {
-            setSummaryStatus('產生摘要中…')
-            summaryMutation.mutate()
-          }}
-        >
-          重新產生摘要
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={video.status !== 'analyzed' || busy}
-          onClick={() => {
-            // 先切到文件頁籤再送出，使用者才看得到等待狀態長在哪裡——
-            // 這支請求要跑數十秒，停在摘要頁籤會像是沒反應。
-            setTab('document')
-            setDocumentStatus('整理中…影片越長越久，請稍候')
+            setDocumentStatus('整理中…會一併更新摘要，影片越長越久，請稍候')
             documentMutation.mutate()
           }}
         >
@@ -576,54 +532,42 @@ function VideoDetailPanel({
         </p>
       )}
 
-      {/* 摘要放在最下面：長度不固定（幾行到一整段都有可能），擺在中間會把
-          按鈕推到不固定的位置，換一支影片按鈕就跳一次。放最後之後，上面的
-          縮圖／標題／標籤／按鈕在每支影片都固定在同樣的高度。
-          它同時是整個面板唯一會捲動的地方——上面全是 shrink-0，摘要吃掉剩下的
-          高度（md:flex-1），真的塞不下才在自己內部捲，卡片本身不捲。 */}
-      <div className="flex shrink-0 gap-1 border-b border-border">
-        {/* 摘要與整理文件共用同一塊捲動區，用頁籤切換而不是上下堆疊：
-            一份 SOP 可能有二三十個步驟，堆在摘要底下會把面板拉得很長，
-            而且換影片時版面高度會跳。 */}
-        <PanelTab label="摘要" active={tab === 'summary'} onClick={() => setTab('summary')} />
-        <PanelTab label="整理文件" active={tab === 'document'} onClick={() => setTab('document')} />
-      </div>
+      {/* 內容區放在最下面：長度不固定（幾行到二三十個步驟都有可能），擺在中間
+          會把按鈕推到不固定的位置，換一支影片按鈕就跳一次。放最後之後，上面的
+          標題／標籤／按鈕在每支影片都固定在同樣的高度。
+          它同時是整個面板唯一會捲動的地方——上面全是 shrink-0，這裡吃掉剩下的
+          高度（md:flex-1），真的塞不下才在自己內部捲，卡片本身不捲。
 
+          摘要與文件原本是兩個頁籤，已合併成上下一段：兩者來自同一次 LLM 呼叫
+          （文件的 overview 就是摘要），分成兩個頁籤等於要使用者自己去對照兩段
+          講同一件事的文字。摘要固定在最上面，位置不隨有沒有文件而變。 */}
       <div className="md:min-h-0 md:flex-1 md:overflow-auto">
-        {tab === 'summary' ? (
-          <>
-            <p className="text-sm leading-relaxed text-text-primary">
-              {video.summary ??
-                (video.status === 'analyzed' ? '尚未產生摘要，按上方「重新產生摘要」產生。' : '這支影片分析失敗，沒有片段可以產生摘要。')}
+        <h4 className="mb-1 text-sm font-bold text-text-primary">摘要</h4>
+        <p className="text-sm leading-relaxed text-text-primary">
+          {video.summary ??
+            (video.status === 'analyzed'
+              ? '尚未產生摘要，按上方「整理成文件」會一併產生。'
+              : '這支影片分析失敗，沒有片段可以產生摘要。')}
+        </p>
+
+        <div className="mt-4 border-t border-border pt-4">
+          {documentMutation.isPending || documentQuery.isLoading ? (
+            <LoadingSkeleton variant="list-item" count={3} />
+          ) : documentQuery.data ? (
+            <VideoDocumentView document={documentQuery.data.document} />
+          ) : (
+            <p className="text-sm leading-relaxed text-text-secondary">
+              {video.status === 'analyzed'
+                ? '尚未整理成文件。按上方「整理成文件」，系統會依影片內容判斷要產生流程 SOP、教學步驟、課堂筆記，還是內容紀錄，並同時更新上方的摘要。'
+                : '這支影片分析失敗，沒有片段可以整理成文件。'}
             </p>
-            {summaryStatus && (
-              <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
-                {summaryStatus}
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            {documentMutation.isPending ? (
-              <LoadingSkeleton variant="list-item" count={3} />
-            ) : documentQuery.data ? (
-              <VideoDocumentView document={documentQuery.data.document} />
-            ) : documentQuery.isLoading ? (
-              <LoadingSkeleton variant="list-item" count={3} />
-            ) : (
-              <p className="text-sm leading-relaxed text-text-secondary">
-                {video.status === 'analyzed'
-                  ? '尚未整理成文件。按上方「整理成文件」，系統會依影片內容判斷要產生流程 SOP、教學步驟、課堂筆記，還是內容紀錄。'
-                  : '這支影片分析失敗，沒有片段可以整理成文件。'}
-              </p>
-            )}
-            {documentStatus && (
-              <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
-                {documentStatus}
-              </p>
-            )}
-          </>
-        )}
+          )}
+          {documentStatus && (
+            <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
+              {documentStatus}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )

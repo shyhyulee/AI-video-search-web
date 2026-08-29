@@ -62,9 +62,10 @@ export function reanalyzeVideo(videoId: number): Promise<Job> {
   return request<Job>(`/videos/${videoId}/reanalyze`, { method: 'POST' })
 }
 
-export function regenerateSummary(videoId: number): Promise<Video> {
-  return request<Video>(`/videos/${videoId}/summary`, { method: 'POST' })
-}
+// `regenerateSummary()`（POST /videos/{id}/summary）在把「摘要」與「整理成文件」
+// 合併成一顆按鈕時刪掉：摘要現在由 generateVideoDocument() 一併產出。後端端點與
+// 測試仍在（analyzer 的自動摘要也還在用 pipeline/summary.py），要恢復的話是加回
+// 一個前端函式的事——跟 uploadVideo() 同樣的處理方式。
 
 /** 把整支影片整理成一份結構化文件。同步端點、會呼叫 LLM，比其他 POST 慢
  * 得多（輸出 token 比摘要多一個量級），呼叫端要有明確的等待狀態。 */

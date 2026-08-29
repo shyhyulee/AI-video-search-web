@@ -317,6 +317,27 @@ def test_generate_document_returns_document_and_persists_type(client, monkeypatc
     assert "document_json" not in listed
 
 
+def test_generate_document_also_refreshes_the_summary(client, monkeypatch):
+    """「整理成文件」與「產生摘要」合併成一個動作：同一次呼叫的 overview 會寫回
+    videos.summary。摘要不能只當顯示欄位——搜尋的影片層級篩選與影片庫的主題分類
+    都在讀它。"""
+    from ai_video_search_web.services import video_service
+
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="第一步")
+    db.update_video_summary(video_id, "分析時產生的舊摘要", "gpt-4o-mini", 0.0)
+    monkeypatch.setattr(
+        video_service.document_pipeline, "generate_document",
+        lambda client_, title, segments: type("R", (), {"document": _fake_document(), "cost_usd": 0.005})(),
+    )
+
+    client.post(f"/api/v1/videos/{video_id}/document")
+
+    listed = client.get("/api/v1/videos").json()[0]
+    assert listed["summary"] == _fake_document().overview
+    assert listed["summary"] != "分析時產生的舊摘要"
+
+
 def test_generate_document_missing_video_returns_404_not_422(client):
     """/summary 對不存在的 video 會回 422（先查片段再查影片），這支刻意不照抄
     那個順序，維持 _get_video_or_raise 的 404 慣例。"""
@@ -341,7 +362,9 @@ def test_get_document_before_generating_returns_404(client):
 
 def test_get_document_returns_stored_document(client):
     video_id = make_video(status=db.STATUS_ANALYZED)
-    db.update_video_document(video_id, _fake_document().model_dump_json(), "sop", "gpt-4o-mini", 0.005)
+    db.update_video_document(
+        video_id, _fake_document().model_dump_json(), "sop", "gpt-4o-mini", "概述", 0.005
+    )
 
     resp = client.get(f"/api/v1/videos/{video_id}/document")
 

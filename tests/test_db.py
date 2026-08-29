@@ -669,8 +669,10 @@ def test_raw_insert_is_searchable_without_backfill(temp_db):
 def test_update_video_document_stores_fields_and_accumulates_cost(temp_db):
     video_id = _make_video()
 
-    db.update_video_document(video_id, '{"doc_type":"sop"}', "sop", "gpt-4o-mini", 0.005)
-    db.update_video_document(video_id, '{"doc_type":"tutorial"}', "tutorial", "gpt-4o-mini", 0.003)
+    db.update_video_document(video_id, '{"doc_type":"sop"}', "sop", "gpt-4o-mini", "第一版摘要", 0.005)
+    db.update_video_document(
+        video_id, '{"doc_type":"tutorial"}', "tutorial", "gpt-4o-mini", "第二版摘要", 0.003
+    )
 
     video = db.get_video(video_id)
     # 重新整理直接覆蓋，不留版本歷史
@@ -679,6 +681,21 @@ def test_update_video_document_stores_fields_and_accumulates_cost(temp_db):
     assert video.document_model == "gpt-4o-mini"
     # 成本兩次都累加（跟 update_video_summary 一致）
     assert video.cost_usd == pytest.approx(0.008)
+
+
+def test_update_video_document_also_writes_summary_and_charges_once(temp_db):
+    """文件與摘要來自同一次 LLM 呼叫，所以在同一句 UPDATE 裡寫、成本只算一次。
+    拆成 update_video_summary() + update_video_document() 兩次呼叫會重複計費。"""
+    video_id = _make_video()
+    db.update_video_summary(video_id, "分析時產生的舊摘要", "gpt-4o-mini", 0.0003)
+
+    db.update_video_document(video_id, "{}", "sop", "gpt-4o-mini", "文件產生的新摘要", 0.002)
+
+    video = db.get_video(video_id)
+    assert video.summary == "文件產生的新摘要"
+    assert video.summary_model == "gpt-4o-mini"
+    # 只多加一次文件的成本，不是加兩份
+    assert video.cost_usd == pytest.approx(0.0023)
 
 
 def test_video_document_fields_default_to_none(temp_db):

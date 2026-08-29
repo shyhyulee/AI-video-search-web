@@ -360,6 +360,42 @@
 | video 7 龍隊球賽 | `content_log` | 3 章 12 步，沒有硬掰打擊 SOP |
 | video 29 線性代數 | `lecture_notes` | 向量的定義／可視化 |
 
+### 摘要與整理文件合併成一個動作
+
+**背景**：功能上線後，影片庫的詳細面板有一張大縮圖、四顆按鈕、兩個頁籤。而文件的 `overview`（概述）跟「摘要」內容高度重疊——要按兩顆按鈕、各花一次 LLM 呼叫、切兩個頁籤，才看得完兩段講同一件事的文字。
+
+**先確認一件事：`videos.summary` 不能刪。** 它不只是顯示欄位，有三個消費端：
+
+| 位置 | 用途 |
+|---|---|
+| `pipeline/search/dense.py:87` | 全域搜尋的影片層級相關度篩選：拿摘要 embed，沒摘要才退回標題 |
+| `frontend/src/lib/videoCategory.ts:77-87` | 影片庫主題分類 chips 的關鍵字比對來源 |
+| `frontend/src/lib/videoCategory.ts:103-106` | 庫內搜尋比對標題＋摘要 |
+
+所以合併只能發生在介面與操作層，資料層必須繼續被寫入。
+
+**決定**：
+- UI 收成「標題 → 三顆按鈕 → 一段可捲的內容（摘要固定在上、文件在下）」，拿掉頁籤與 `PanelTab`。
+- 拿掉「重新產生摘要」按鈕，只留「整理成文件」。
+- **文件的 `overview` 一稿兩用**：同一次 LLM 呼叫的產出，同時寫進 `videos.summary`。
+
+**為什麼是改 `overview` 的語意，而不是加一個 `video_summary` 欄位**：改動當下已經有 **8 支影片存了文件**，改欄位名會讓那些存量 JSON 全部 `ValidationError`；而給新欄位設 pydantic 預設值會讓它從 OpenAI structured output 的 `required` 掉出去，strict 模式會拒絕整個 schema。所以只改 prompt 對 `overview` 的要求——從「說明這份文件涵蓋什麼」改成「說明**這支影片**主要在講什麼」，並明確禁止「本文件」開頭，措辭對齊 `summary.py` 既有的摘要 prompt（因為這段文字接下來要進搜尋的 embedding 與主題分類）。存量文件的 JSON 結構完全沒變。
+
+**成本只能算一次**：摘要與文件來自同一次呼叫，所以 `db.update_video_document()` 多收一個 `summary` 參數，在**同一句 UPDATE** 裡把 `summary`／`summary_model`／`document_*` 一起設。拆成先呼叫 `update_video_summary()` 再呼叫 `update_video_document()` 會讓同一次呼叫的成本被累加兩次。
+
+**驗證結果**（video 13 壽司，實跑）：
+
+- 摘要語氣正確變成影片視角——「這支影片教觀眾如何在不使用竹簾的情況下自製壽司…」，不再是「本文件…」。
+- `document.overview == videos.summary`，兩者同步。
+- `cost_usd` 只增加 **US$0.00044**（一份文件的量），沒有重複計費。
+- 全域搜尋仍正確收斂到這支影片，影片層級篩選沒有因為摘要換掉而失效。
+
+**縮圖一併移除**：詳細面板最上方那張是純裝飾（面板裡沒有播放器，點了不會播），卻吃掉 `md:max-h-[42vh]`——而一份 SOP 有二三十個步驟，最缺的就是垂直空間。清單列的小縮圖（`VideoListItem`）保留，辨識影片靠那裡就夠。`VideoPoster` 元件留著，只是 `size="fill"` 這個 variant 之後沒有呼叫端了。
+
+**保留、沒有刪的東西**：`pipeline/summary.py` 與 analyzer 的 Phase F 自動摘要完全不動（新影片分析完仍會自動有摘要）；`POST /videos/{id}/summary` 端點與測試保留，只是前端不再呼叫——照 `POST /videos/upload` 的既有先例。
+
+**已知取捨**：8 支已有文件的影片，`videos.summary` 仍是分析時產生的舊版本，要等下次按「整理成文件」才會被覆蓋。兩份摘要都是合格的，沒有急迫性。
+
 ### 加回一個最小的 schema migration
 
 PostgreSQL 遷移時 `migrate_columns()` 被整個移除，理由是「全新資料庫，一次定義齊全」。這次加三個欄位證明那個前提只在遷移當下成立：`CREATE TABLE IF NOT EXISTS` 對既有資料庫是 no-op，欄位不會長出來，`_row_to_record()` 會在下一次讀取直接 `KeyError`（實測就是這樣讓 14 個測試同時掛掉的）。
