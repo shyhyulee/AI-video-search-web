@@ -227,10 +227,11 @@
     <p class="sub">AI 影片搜尋 · <strong>第四輪重構（進行中）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
       第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">4 <small>/ 13</small></span></div>
-      <div class="stat"><span class="k">本輪提交數</span><span class="v">4 <small>（全部已提交）</small></span></div>
-      <div class="stat"><span class="k">測試</span><span class="v">403 <small>← 382</small></span></div>
-      <div class="stat"><span class="k">新增測試</span><span class="v">+21</span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">6 <small>/ 13</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">6 <small>（另有看板更新）</small></span></div>
+      <div class="stat"><span class="k">波 E</span><span class="v">5 / 5 <small>完成</small></span></div>
+      <div class="stat"><span class="k">測試</span><span class="v">410 <small>← 382</small></span></div>
+      <div class="stat"><span class="k">新增測試</span><span class="v">+28</span></div>
       <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（E3 timeout）</small></span></div>
     </div>
   </div>
@@ -350,36 +351,8 @@
 
   <!-- ============ 待進行 ============ -->
   <section class="col" data-col="todo">
-    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">3</span></div>
+    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">1</span></div>
     <div class="cards">
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">E4</span><span class="tag structure">結構</span></div>
-        <h3>共用 <code>_format_timestamp()</code></h3>
-        <p><code>pipeline/summary.py:64</code> 與 <code>pipeline/document.py:184</code> 逐字重複同一個 <code>divmod</code> 成 <code>MM:SS</code> 的函式。</p>
-        <details><summary>細節</summary><ul>
-          <li>兩者都是「把片段攤成 <code>[MM:SS] 欄位：…</code> 逐行素材」餵給 LLM 的同一種格式</li>
-          <li><strong>未決：放哪裡。</strong>不放 <code>media.py</code>（那是子行程／暫存檔的基礎設施，跟時間格式化無關）；
-              傾向新開一個小模組，而不是讓兩個平行的 pipeline 模組互相 import</li>
-          <li>順帶評估：兩邊組裝逐行素材的迴圈高度相似（<code>document.py</code> 多帶 <code>ocr_text</code>
-              並過濾 VLM 的佔位字串），要不要一起共用尚未決定</li>
-        </ul></details>
-        <div class="commit">波 E · 下一步</div>
-      </article>
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">E5</span><span class="tag structure">結構</span><span class="tag">命名</span></div>
-        <h3><code>pipeline/search/</code> 的跨模組函式去掉 <code>_</code> 前綴</h3>
-        <p>第三輪拆套件時保留了原名，結果是<strong>私有命名、公開用途</strong>——可見性語意跟實際相反。</p>
-        <span class="metric">涉及函式 <b>15 支</b></span>
-        <details><summary>細節</summary><ul>
-          <li><code>strip_generic_terms</code>／<code>sparse_scores</code>／<code>rrf_scores</code>／
-              <code>get_query_vectors</code>／<code>best_score</code>／<code>relevant_video_ids</code>／
-              <code>hit_source_label</code>／<code>apply_quality_filter</code>／<code>negated_segment_ids</code>…</li>
-          <li>純改名，需同步 <code>tests/test_search.py</code> 與 <code>test_search_pipeline.py</code> 的 <strong>119 處</strong>引用</li>
-        </ul></details>
-        <div class="commit">波 E</div>
-      </article>
 
       <article class="card" data-kind="docs">
         <div class="card-top"><span class="id">G</span><span class="tag">文件</span></div>
@@ -399,16 +372,70 @@
   <section class="col" data-col="doing">
     <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
     <div class="cards">
-      <div class="empty">目前沒有進行中的任務<br>波 E 完成 3/5，下一步是 E4</div>
+      <div class="empty">目前沒有進行中的任務<br>波 E 已全數完成（5/5），下一步是 F0</div>
     </div>
   </section>
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">4 <small>+12</small></span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">6 <small>+12</small></span></div>
     <div class="cards">
 
       <p class="round-divider">第四輪（2026-08-29）</p>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E5</span><span class="tag structure">結構</span><span class="tag">命名</span></div>
+        <h3>讓 <code>pipeline/search/</code> 的底線前綴恢復可信</h3>
+        <p>第三輪拆套件時保留了原名，結果是<strong>私有命名、公開用途</strong>：<code>service.py</code> 呼叫
+          <code>dense._get_query_vectors()</code>、<code>fusion.py</code> 呼叫 <code>sparse._sparse_scores()</code>。
+          底線在 Python 是「不要從外面用我」的約定，程式碼幾乎每一行都在違反它。</p>
+        <span class="metric">改名 <b>11 支</b></span>
+        <span class="metric">保留底線 <b>4 支</b></span>
+        <span class="metric">diff <b>144 / 144 行</b></span>
+        <details><summary>細節</summary><ul>
+          <li>原本估「15 支」是錯的——那個數字沒有區分跨模組與同檔私有。用 <strong>AST 分析</strong>而不是 grep
+              重新判定（註解與 docstring 也會提到這些名字，用 grep 數已經錯過一次）：
+              <code>_embed_cached</code>／<code>_video_relevance_score</code>／<code>_select_relevant_ids</code>／
+              <code>_ocr_events_by_segment</code> 只在同檔被呼叫，<strong>保留底線</strong></li>
+          <li><code>_hit_source</code> 改成 <code>hit_source_label</code> 而不是直接去底線：
+              <code>SearchResult</code> 已經有 <code>hit_source</code> 欄位，兩個同名讀 service.py 會分不出誰是誰</li>
+          <li><strong>機器驗證「只有改名」</strong>：144 insertions／144 deletions 完全對稱，而且用程式逐行檢查
+              ——每個被刪的舊行套用改名對照表之後，與新增的行逐字元相同</li>
+          <li><strong>真實資料庫 A/B</strong>：改名前的完整備份樹 vs 現在的程式碼，同一個資料庫跑 9 組查詢
+              （否定句／泛用詞／英文／零結果），62 筆結果逐欄位比對——segment_id、排序、hit_source、
+              is_confident 全部相同</li>
+          <li>分數有 9.5e-05 的差異，但<strong>不是改名造成的</strong>：同一份新程式碼跑兩次也有同樣量級的差異，
+              是 embedding API 對相同輸入不回傳完全相同向量。翻譯已 stub 成 identity 排除 LLM 變異，
+              <code>insert_search_log</code> 也 stub 掉，全程沒寫入正式資料庫</li>
+          <li>描述現況的 6 份文件跟著改名；<code>docs/01-development-timeline.md</code> 與看板第三輪 B4 卡片
+              <strong>不動</strong>——它們記錄的是當時的事實（沿用第三輪 C4 的處理原則）</li>
+        </ul></details>
+        <div class="commit"><code>8334589</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E4</span><span class="tag structure">結構</span></div>
+        <h3>摘要與文件共用同一份素材格式</h3>
+        <p>兩邊各有一份幾乎相同的迴圈，連 <code>_format_timestamp()</code> 都是逐字重複。時間戳只是表面——
+          真正重複的是<strong>素材格式本身</strong>：欄位標籤、分隔符號、哪些片段要略過、行怎麼串。</p>
+        <span class="metric">原始碼 <b>−84 行</b></span>
+        <span class="metric">+11 支測試</span>
+        <details><summary>細節</summary><ul>
+          <li>新增 <code>pipeline/segment_material.py</code>，只留一個開關 <code>include_ocr</code>：
+              文件帶畫面文字、摘要不帶（實測 1,076/1,156 個片段有 OCR 文字，對流程類影片特別有價值）</li>
+          <li>截斷留在各自呼叫端：摘要取前 200 段控制 prompt 長度，文件刻意不截（SOP 少掉尾段
+              ＝默默少掉最後幾個製程步驟）。那是兩邊各自的決定，留在原地才看得見</li>
+          <li><code>document._build_content()</code> 一度變成一行委派，<strong>順手內聯掉</strong>——
+              只為了裝一段註解而存在的轉手層，正是這次重構要移除的東西</li>
+          <li><strong>先驗證「統一是安全的」才動手</strong>：兩邊本來不完全一樣（document 會 strip 並過濾
+              VLM 寫出來的字面 "null"，summary 沒有）。改碼前拿真實資料庫的
+              <strong>23 支影片、1,156 個片段</strong>跑新舊實作逐字元比對，兩側都完全相同</li>
+          <li>理論上的差異留在註解裡：若日後出現字幕正好是「無」的片段，摘要會少那一行——那是更正確的行為</li>
+          <li>測試搬到共用模組，並補上 <code>include_ocr=False</code> 那條路徑（合併前完全沒有覆蓋，
+              因為那側是 summary 的私有迴圈）</li>
+        </ul></details>
+        <div class="commit"><code>1b1e274</code></div>
+      </article>
 
       <article class="card" data-kind="bug">
         <div class="card-top"><span class="id">FIX</span><span class="tag bug">缺陷</span><span class="tag">測試</span></div>
@@ -757,10 +784,16 @@
 <footer>
   <p>
     <strong>第四輪</strong>（進行中）對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
-    <code>cd25835</code> → <code>6116096</code>（4 個 commit，波 E 完成 3/5）。
-    測試 <strong>382 → 403 passed</strong>。E1／E2 各自用真的 server 驗過（E1 是新舊碼並跑的 A/B
-    位元組比對，E2 是真實 multipart 上傳），E3 用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析驗過。
-    每一步都先補特徵測試、在<strong>舊實作</strong>上跑綠之後才改碼。
+    <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code>
+    （6 個 commit，<strong>波 E 已全數完成</strong>；看板更新另外提交）。
+    測試 <strong>382 → 410 passed</strong>，原始碼淨減約 93 行。
+  </p>
+  <p>
+    每一步都先補特徵測試、在<strong>舊實作</strong>上跑綠之後才改碼，而且都拿真實的東西驗過，不只是跑測試：
+    E1 是新舊碼並跑的 server A/B 位元組比對，E2 是真實 multipart 上傳，
+    E3 用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析，
+    E4 拿真實資料庫 1,156 個片段做新舊實作逐字元比對，
+    E5 拿改名前的完整備份樹跟現在的程式碼對同一個資料庫跑 9 組查詢比對 62 筆結果。
   </p>
   <p>
     <strong>第三輪</strong>對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> →
