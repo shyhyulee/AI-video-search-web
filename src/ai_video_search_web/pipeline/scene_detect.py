@@ -9,7 +9,7 @@ from typing import Callable
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import AdaptiveDetector, ContentDetector
 
-from . import progress_estimation
+from . import media, progress_estimation
 
 # scenedetect 預設的 opencv backend 在這台機器上無法解碼 AV1：沒有硬體加速，
 # 軟體解碼路徑直接讀不到任何畫面（回傳 0 frame），會被誤判成「整支影片只有
@@ -186,18 +186,16 @@ def _to_ranges(scenes, duration_sec: float) -> list[NormalizedScene]:
 
 def _is_av1(video_path: Path) -> bool:
     try:
-        result = subprocess.run(
+        codec = media.run_ffprobe(
             [
-                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-select_streams", "v:0",
                 "-show_entries", "stream=codec_name",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 str(video_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
+            ]
         )
-        return result.stdout.strip() == "av1"
     except (subprocess.SubprocessError, OSError):
+        # 讀不到編碼就當作不是 AV1（走比較快的 opencv backend），不讓整支分析
+        # 失敗在一個「猜錯了頂多慢一點」的判斷上。
         return False
+    return codec == "av1"

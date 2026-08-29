@@ -13,17 +13,15 @@ SearchResult、stats_service 匯出 HeaderStatsData 是同一個作法。
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
-import tempfile
 import uuid
 from pathlib import Path
 from typing import BinaryIO
 
 from .. import db, downloader
 from ..db import ModalityFlags, SegmentRecord, VideoRecord
-from ..pipeline import analyzer, document as document_pipeline, summary as summary_pipeline
+from ..pipeline import analyzer, document as document_pipeline, media, summary as summary_pipeline
 from ..pipeline.openai_client import get_client
 
 logger = logging.getLogger(__name__)
@@ -57,11 +55,9 @@ def register_downloaded_video(
 def probe_local_duration(video_path: Path) -> int | None:
     """用 ffprobe 讀取本機影片長度；讀不到就回傳 None，不擋住新增流程。"""
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video_path)],
-            capture_output=True, text=True, timeout=10, check=True,
-        )
-        return round(float(result.stdout.strip()))
+        return round(float(media.run_ffprobe(
+            ["-show_entries", "format=duration", "-of", "csv=p=0", str(video_path)]
+        )))
     except (subprocess.SubprocessError, OSError, ValueError):
         return None
 
@@ -230,18 +226,16 @@ def generate_thumbnail(video: VideoRecord, size: tuple[int, int] = _THUMBNAIL_SI
         return None
 
     mid_sec = (video.duration_sec or 0) / 2
-    fd, tmp_path = tempfile.mkstemp(suffix=".png")
-    os.close(fd)
-    thumb_path = Path(tmp_path)
+    thumb_path = media.new_temp_path(".png")
     try:
-        subprocess.run(
+        media.run_ffmpeg(
             [
-                "ffmpeg", "-y", "-ss", str(max(mid_sec, 0.0)), "-i", video.file_path,
+                "-ss", str(max(mid_sec, 0.0)), "-i", video.file_path,
                 "-vf", f"scale={size[0]}:{size[1]}",
                 "-frames:v", "1",
                 str(thumb_path),
             ],
-            check=True, capture_output=True, timeout=15,
+            timeout=media.FRAME_TIMEOUT_SEC,
         )
         return thumb_path.read_bytes()
     except (subprocess.SubprocessError, OSError):

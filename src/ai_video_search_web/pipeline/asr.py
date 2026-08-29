@@ -3,10 +3,7 @@
 """
 from __future__ import annotations
 
-import os
 import re
-import subprocess
-import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +11,7 @@ from typing import Callable
 
 from openai import OpenAI
 
-from . import progress_estimation
+from . import media, progress_estimation
 
 MODEL_NAME = "whisper-1"
 PRICE_PER_MINUTE_USD = 0.006
@@ -193,16 +190,18 @@ def _parse_response(response) -> TranscribeResult:
 
 
 def _extract_audio(video_path: Path) -> Path:
-    fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
-    os.close(fd)
-    audio_path = Path(tmp_path)
-    subprocess.run(
+    """抽出單聲道 16kHz 64kbps 的 mp3；呼叫端負責刪除。
+
+    位元率不是隨便選的：它決定 Whisper 25MB 上傳上限換算成幾分鐘影片
+    （實測 7,998 bytes/s ≈ 52 分鐘），見 analyzer.MAX_DURATION_SEC 的推導。
+    """
+    audio_path = media.new_temp_path(".mp3")
+    media.run_ffmpeg(
         [
-            "ffmpeg", "-y", "-i", str(video_path),
+            "-i", str(video_path),
             "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k",
             str(audio_path),
         ],
-        check=True,
-        capture_output=True,
+        timeout=media.AUDIO_TIMEOUT_SEC,
     )
     return audio_path
