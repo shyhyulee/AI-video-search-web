@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from openai import OpenAI
 
+from . import segment_material
 from .openai_client import chat_completion_cost
 
 if TYPE_CHECKING:
@@ -39,17 +40,10 @@ def generate_summary(client: OpenAI, segments: "list[SegmentRecord]") -> Summary
     if not segments:
         raise ValueError("這支影片還沒有任何分析片段，無法產生摘要")
 
-    lines = []
-    for seg in segments[:_MAX_SEGMENTS_IN_PROMPT]:
-        parts = []
-        if seg.visual_description:
-            parts.append(f"畫面：{seg.visual_description}")
-        if seg.transcript:
-            parts.append(f"字幕：{seg.transcript}")
-        if parts:
-            lines.append(f"[{_format_timestamp(seg.start_sec)}] " + "；".join(parts))
-
-    prompt = _PROMPT_TEMPLATE.format(content="\n".join(lines))
+    # 截斷留在這裡而不是 segment_material 裡：那是這支自己的 prompt 長度控制，
+    # document.py 刻意不做（見那裡的 _MAX_SEGMENTS 說明）。不帶畫面文字。
+    content = segment_material.build_material(segments[:_MAX_SEGMENTS_IN_PROMPT])
+    prompt = _PROMPT_TEMPLATE.format(content=content)
 
     response = client.chat.completions.create(
         model=MODEL_NAME,
@@ -59,8 +53,3 @@ def generate_summary(client: OpenAI, segments: "list[SegmentRecord]") -> Summary
     summary = (response.choices[0].message.content or "").strip()
     cost_usd = chat_completion_cost(response.usage, PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD)
     return SummaryResult(summary=summary, cost_usd=cost_usd)
-
-
-def _format_timestamp(sec: float) -> str:
-    m, s = divmod(int(sec), 60)
-    return f"{m:02d}:{s:02d}"

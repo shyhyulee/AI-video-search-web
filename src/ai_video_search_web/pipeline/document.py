@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Literal
 from openai import OpenAI
 from pydantic import BaseModel
 
+from . import segment_material
 from .openai_client import chat_completion_cost
 
 if TYPE_CHECKING:
@@ -35,10 +36,6 @@ PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
 # 不完整，SOP 截掉尾段會默默少掉最後幾個製程步驟——使用者拿到一份看起來
 # 完整、實際缺了結尾的流程文件，比直接失敗更糟。真的超過就明確丟錯。
 _MAX_SEGMENTS = 600
-
-# VLM 偶爾會把「沒有畫面文字」寫成字面字串而不是 JSON null（實測全庫 1,156
-# 個片段裡有 21 個這樣），不濾掉就會餵一堆 "null" 給 LLM 當畫面文字。
-_PLACEHOLDER_TEXTS = {"null", "none", "n/a", "na", "無", "-"}
 
 DocumentType = Literal["sop", "tutorial", "lecture_notes", "content_log"]
 
@@ -130,7 +127,12 @@ def generate_document(
             f"片段數 {len(segments)} 超過上限 {_MAX_SEGMENTS}，這批資料不像正常的分析結果"
         )
 
-    prompt = _PROMPT_TEMPLATE.format(title=video_title, content=_build_content(segments))
+    # 跟摘要的差別是**這裡會帶畫面文字**：實測 1,076/1,156 個片段有 ocr_text，
+    # 而且對流程類影片特別有價值（實際內容包含 `STAGE 3`、`主機板 1990年代`
+    # 這種製程階段標示），摘要用不到但 SOP 用得到。素材本身的格式與 summary.py
+    # 共用，見 segment_material.py。
+    content = segment_material.build_material(segments, include_ocr=True)
+    prompt = _PROMPT_TEMPLATE.format(title=video_title, content=content)
 
     response = client.chat.completions.parse(
         model=MODEL_NAME,
@@ -151,36 +153,3 @@ def generate_document(
         response.usage, PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD
     )
     return DocumentResult(document=parsed, cost_usd=cost_usd)
-
-
-def _build_content(segments: "list[SegmentRecord]") -> str:
-    """把片段攤成逐行素材。格式沿用 summary.py 的 `[MM:SS] 欄位：…；欄位：…`。
-
-    跟摘要的差別是**這裡會帶 ocr_text**：實測 1,076/1,156 個片段有畫面文字，
-    而且對流程類影片特別有價值（實際內容包含 `STAGE 3`、`主機板 1990年代`
-    這種製程階段標示），摘要用不到但 SOP 用得到。
-    """
-    lines = []
-    for seg in segments:
-        parts = []
-        if _clean(seg.visual_description):
-            parts.append(f"畫面：{_clean(seg.visual_description)}")
-        if _clean(seg.transcript):
-            parts.append(f"字幕：{_clean(seg.transcript)}")
-        if _clean(seg.ocr_text):
-            parts.append(f"畫面文字：{_clean(seg.ocr_text)}")
-        if parts:
-            lines.append(f"[{_format_timestamp(seg.start_sec)}] " + "；".join(parts))
-    return "\n".join(lines)
-
-
-def _clean(text: str | None) -> str:
-    """去掉前後空白，並把 VLM 偶爾產生的字面佔位字串當成空值（見
-    _PLACEHOLDER_TEXTS）。"""
-    stripped = (text or "").strip()
-    return "" if stripped.lower() in _PLACEHOLDER_TEXTS else stripped
-
-
-def _format_timestamp(sec: float) -> str:
-    m, s = divmod(int(sec), 60)
-    return f"{m:02d}:{s:02d}"

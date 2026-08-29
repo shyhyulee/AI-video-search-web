@@ -1,8 +1,11 @@
 """document.py 的文件整理與 prompt 組裝測試：mock OpenAI client，不呼叫真實 API。
 
 跟 test_summary.py 同一套隔離方式（MagicMock client + SimpleNamespace 假
-response + duck-typed segments）。這裡多測的是三件跟摘要不一樣的行為：
-會帶 ocr_text、會濾掉 VLM 產生的字面佔位字串、不做片段數硬截斷。
+response + duck-typed segments）。
+
+素材本身怎麼攤成逐行文字，已經跟 summary.py 共用，測試搬到
+tests/test_segment_material.py；這裡只留 document.py 自己的行為：doc_type
+判斷、片段數上限、prompt 組裝與成本計算。
 """
 from __future__ import annotations
 
@@ -102,53 +105,6 @@ def test_generate_document_rejects_absurd_segment_count_instead_of_truncating():
 
     with pytest.raises(ValueError, match="超過上限"):
         document.generate_document(client, "影片", too_many)
-
-
-# ----------------------------------------------------------------------
-# _build_content()：素材怎麼攤成 prompt
-# ----------------------------------------------------------------------
-
-
-def test_build_content_includes_ocr_text_unlike_summary():
-    """實測 1,076/1,156 個片段有畫面文字，而且對流程類影片特別有價值
-    （`STAGE 3` 這種製程階段標示），摘要沒用它、這裡要用。"""
-    content = document._build_content(
-        [_segment(start_sec=0.0, visual_description="產線畫面", transcript="這是第一步", ocr_text="STAGE 3")]
-    )
-
-    assert "畫面：產線畫面" in content
-    assert "字幕：這是第一步" in content
-    assert "畫面文字：STAGE 3" in content
-
-
-def test_build_content_drops_literal_null_placeholders():
-    """VLM 偶爾把「沒有畫面文字」寫成字面字串 "null"（實測 1,156 個片段裡有
-    21 個）。不濾掉就會餵一堆 null 給模型當畫面文字。"""
-    content = document._build_content(
-        [_segment(start_sec=0.0, visual_description="產線畫面", ocr_text="null")]
-    )
-
-    assert "畫面文字" not in content
-    assert "畫面：產線畫面" in content
-
-
-def test_build_content_uses_timestamp_prefix_and_skips_empty_segments():
-    content = document._build_content([
-        _segment(start_sec=77.0, transcript="第一步"),
-        _segment(start_sec=90.0),  # 三個欄位都空的片段不該產生空行
-    ])
-
-    assert content == "[01:17] 字幕：第一步"
-
-
-def test_build_content_keeps_every_segment():
-    """摘要會截到 200 段，這裡全部保留。"""
-    segments = [_segment(start_sec=float(i * 10), transcript=f"第{i}步") for i in range(250)]
-
-    content = document._build_content(segments)
-
-    assert len(content.splitlines()) == 250
-    assert "第249步" in content
 
 
 def test_prompt_carries_video_title_and_material():
