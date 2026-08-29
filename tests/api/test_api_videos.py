@@ -315,6 +315,9 @@ def test_generate_document_returns_document_and_persists_type(client, monkeypatc
     body = resp.json()
     assert body["document"]["doc_type"] == "sop"
     assert body["document"]["sections"][0]["steps"][0]["timestamp_sec"] == 12.0
+    # 回報的模型名稱要跟實際產生文件的 pipeline 一致（端點原本直接 import
+    # pipeline 讀這個常數，現在經過 video_service.document_model_name()）。
+    assert body["model"] == video_service.document_pipeline.MODEL_NAME
     # 清單只帶類型不帶內容
     listed = client.get("/api/v1/videos").json()[0]
     assert listed["document_type"] == "sop"

@@ -4,6 +4,8 @@ test_db.py／test_analyzer.py／test_summary.py 測過）。
 """
 from __future__ import annotations
 
+import io
+import re
 from unittest.mock import MagicMock
 from pathlib import Path
 
@@ -41,6 +43,40 @@ def test_register_downloaded_video_inserts_youtube_source(monkeypatch):
     assert captured["source_url"] == "u"
     assert captured["file_path"] == "/tmp/x.mp4"
     assert captured["duration_sec"] == 10
+
+
+def test_store_upload_writes_into_uploads_dir_with_a_generated_name(monkeypatch, tmp_path):
+    """落檔規則原本寫在 api/videos.py 的端點裡、只有註解沒有測試。搬進 service
+    時一併鎖住：uuid4 檔名是防 Path Traversal／檔名衝突的手段，不是風格選擇。
+    """
+    monkeypatch.setattr(video_service.downloader, "VIDEO_DIR", tmp_path / "video")
+
+    dest = video_service.store_upload(io.BytesIO(b"fake mp4 bytes"), ".mp4")
+
+    assert dest.parent == tmp_path / "video" / "uploads"
+    assert dest.read_bytes() == b"fake mp4 bytes"
+    assert dest.suffix == ".mp4"
+    # 檔名整段都是系統產生的 32 位 hex，不含使用者提供的任何字元
+    assert re.fullmatch(r"[0-9a-f]{32}", dest.stem)
+
+
+def test_store_upload_never_overwrites_an_earlier_upload(monkeypatch, tmp_path):
+    """兩次上傳（即使原始檔名相同）必須落在不同檔案上——舊版沿用使用者檔名時
+    第二次會覆蓋第一次。"""
+    monkeypatch.setattr(video_service.downloader, "VIDEO_DIR", tmp_path / "video")
+
+    first = video_service.store_upload(io.BytesIO(b"first"), ".mp4")
+    second = video_service.store_upload(io.BytesIO(b"second"), ".mp4")
+
+    assert first != second
+    assert first.read_bytes() == b"first"
+    assert second.read_bytes() == b"second"
+
+
+def test_document_model_name_follows_the_pipeline_constant(monkeypatch):
+    """用函式而不是模組層常數，才不會在 import 時把值定死。"""
+    monkeypatch.setattr(video_service.document_pipeline, "MODEL_NAME", "some-other-model")
+    assert video_service.document_model_name() == "some-other-model"
 
 
 def test_register_uploaded_video_inserts_local_source_with_explicit_title(monkeypatch):

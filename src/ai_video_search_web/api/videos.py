@@ -7,16 +7,11 @@
 """
 from __future__ import annotations
 
-import shutil
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
-from .. import downloader
-from ..db import videos as db_videos
-from ..pipeline import document as document_pipeline
 from ..schemas.jobs import JobOut
 from ..schemas.videos import VideoDocumentOut, VideoOut, YoutubeDownloadRequest
 from ..services import job_manager, video_service
@@ -27,7 +22,7 @@ router = APIRouter(prefix="/videos", tags=["videos"])
 _ALLOWED_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm"}
 
 
-def _get_video_or_raise(video_id: int) -> db_videos.VideoRecord:
+def _get_video_or_raise(video_id: int) -> video_service.VideoRecord:
     """讀影片，找不到就丟 VideoNotFoundError（統一對映成 404）。原本每個端點
     各自 `if video is None: raise ...`，或在「剛寫進去、理論上一定讀得到」的
     地方用 assert——assert 在 `python -O` 下會整個消失。"""
@@ -70,13 +65,9 @@ def upload_video(file: UploadFile) -> VideoOut:
     if suffix not in _ALLOWED_SUFFIXES:
         raise HTTPException(status_code=422, detail=f"不支援的檔案格式：{suffix or '（無副檔名）'}")
 
-    upload_dir = downloader.VIDEO_DIR / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    # 用系統產生的檔名（uuid4），不沿用使用者上傳的檔名，避免 Path Traversal
-    # 與覆蓋檔案，見 docs/08-web-ui-migration-design.md 第 11 節。
-    dest_path = upload_dir / f"{uuid.uuid4().hex}{suffix}"
-    with dest_path.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    # 落檔位置與檔名規則（uuid4，防 Path Traversal）在 video_service 裡，
+    # 跟刪除影片時 unlink 檔案的那一支放在一起，見 store_upload()。
+    dest_path = video_service.store_upload(file.file, suffix)
 
     duration_sec = video_service.probe_local_duration(dest_path)
     title = Path(file.filename or dest_path.name).stem
@@ -135,7 +126,7 @@ def generate_document(video_id: int) -> VideoDocumentOut:
         raise HTTPException(status_code=422, detail="這支影片還沒有任何分析片段，無法整理成文件")
     result = video_service.generate_document(video, segments)
     return VideoDocumentOut(
-        video_id=video_id, document=result.document, model=document_pipeline.MODEL_NAME
+        video_id=video_id, document=result.document, model=video_service.document_model_name()
     )
 
 
