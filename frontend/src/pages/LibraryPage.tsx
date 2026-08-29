@@ -4,23 +4,29 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowUpDown } from 'lucide-react'
 import { listActiveJobs, listVideos, reanalyzeVideo, regenerateSummary } from '../api/client'
 import type { Job, Video } from '../api/types'
+import { Badge } from '../components/Badge'
 import { Button, IconButton } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { FilterChip } from '../components/FilterChip'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
+import { SearchField } from '../components/SearchField'
 import { VideoListItem } from '../components/VideoListItem'
 import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { useJobPolling } from '../lib/useJobPolling'
+import { CATEGORY_ORDER, classifyVideo, matchesLibraryQuery, type VideoCategory } from '../lib/videoCategory'
 
 // 篩選只留分析狀態。原本還有「無字幕」（`!has_transcript`）與「純畫面」
 // （`!has_transcript && !has_ocr`）兩個模態篩選，已移除，見 docs/11 §8.7。
 type FilterKind = 'all' | 'analyzed' | 'failed'
 type SortColumn = 'title' | 'segment_count' | 'cost' | 'analyzed_at'
 
-const FILTERS: { key: FilterKind; label: string }[] = [
+// 狀態篩選從三顆 chips 改成下拉，是為了把 chips 那一列整條讓給主題分類——
+// 半版寬的卡片（§8.10）塞不下「搜尋列＋主題 chips＋狀態 chips」三列控制項，
+// 見 docs/11 §8.17.4。
+const STATUS_FILTERS: { key: FilterKind; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'analyzed', label: '分析完成' },
   { key: 'failed', label: '分析失敗' },
@@ -50,6 +56,10 @@ const STATUS_LABEL: Record<string, string> = {
  * 取代原本表格可點擊欄位標題的排序方式（改成 list-item 後不再有欄位標題）。 */
 export function LibraryPage() {
   const [filter, setFilter] = useState<FilterKind>('all')
+  const [category, setCategory] = useState<VideoCategory | 'all'>('all')
+  // 庫內搜尋：邊打邊篩，不用送出。它跟「搜尋影片」頁的語意檢索是兩件事——
+  // 只比對已經在手上的標題與摘要，不打 API、不跳頁，見 docs/11 §8.17.5。
+  const [query, setQuery] = useState('')
   const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
   const [sortReverse, setSortReverse] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -79,13 +89,45 @@ export function LibraryPage() {
     refetchInterval: LIBRARY_POLL_MS,
   })
 
-  const rows = useMemo(() => {
+  // 每支影片的主題分類。純函式，videos 沒換就不必重算。
+  const categoryOf = useMemo(() => {
+    const map = new Map<number, VideoCategory>()
+    for (const v of videos ?? []) map.set(v.id, classifyVideo(v))
+    return map
+  }, [videos])
+
+  // 狀態篩選單獨抽出來，因為 chips 上的數量要跟著它變（但不跟著關鍵字變，
+  // 理由見 categoryCounts）。
+  const statusFiltered = useMemo(() => {
     if (!videos) return []
-    let filtered = videos
     // 「分析完成」也收 analyzing：重新分析中的影片手上還有上一輪的結果，
     // 用這個篩選找它是找得到的，不該因為正在更新就整支消失。
-    if (filter === 'analyzed') filtered = videos.filter((v) => v.status !== 'failed')
-    else if (filter === 'failed') filtered = videos.filter((v) => v.status === 'failed')
+    if (filter === 'analyzed') return videos.filter((v) => v.status !== 'failed')
+    if (filter === 'failed') return videos.filter((v) => v.status === 'failed')
+    return videos
+  }, [videos, filter])
+
+  // chips 上的數量只受狀態篩選影響，**刻意不受搜尋關鍵字影響**：跟著關鍵字變的
+  // 話，打字時每一顆數字都在跳，那排數字就失去「這個分類有幾支影片」的意義。
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<VideoCategory, number>()
+    for (const v of statusFiltered) {
+      const c = categoryOf.get(v.id)
+      if (c) counts.set(c, (counts.get(c) ?? 0) + 1)
+    }
+    return counts
+  }, [statusFiltered, categoryOf])
+
+  // 選中的分類可能在換了狀態篩選之後整個消失（例如只看「分析失敗」時一支運動
+  // 賽事都沒有）。跟 §8.7 的預設選取一樣用推導、不用 useEffect 同步 state：直接
+  // 當成「全部」，就不會出現「選中一顆畫面上不存在的 chip、清單卻是空的」。
+  const activeCategory = category !== 'all' && !categoryCounts.has(category) ? 'all' : category
+
+  const rows = useMemo(() => {
+    const filtered = statusFiltered.filter(
+      (v) =>
+        (activeCategory === 'all' || categoryOf.get(v.id) === activeCategory) && matchesLibraryQuery(v, query),
+    )
 
     const key = (v: Video): string | number => {
       if (sortColumn === 'title') return v.title
@@ -101,7 +143,7 @@ export function LibraryPage() {
       return 0
     })
     return sorted
-  }, [videos, filter, sortColumn, sortReverse])
+  }, [statusFiltered, activeCategory, categoryOf, query, sortColumn, sortReverse])
 
   // 預設選第一支影片，右側詳細面板不會是空白。刻意用「推導」而不是 useEffect
   // 去同步 selectedId：這樣切換篩選／排序後如果原本選的那支不在清單裡了，會
@@ -117,6 +159,21 @@ export function LibraryPage() {
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-bold text-text-primary">影片庫（{rows.length}）</h2>
             <div className="flex items-center gap-2">
+              <label className="text-xs text-text-secondary" htmlFor="library-status">
+                狀態
+              </label>
+              <select
+                id="library-status"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as FilterKind)}
+                className="h-9 rounded-xl border border-border bg-card px-2 text-sm text-text-primary focus:border-primary focus:outline-none"
+              >
+                {STATUS_FILTERS.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
               <label className="text-xs text-text-secondary" htmlFor="library-sort">
                 排序
               </label>
@@ -139,9 +196,35 @@ export function LibraryPage() {
               />
             </div>
           </div>
+          {/* 外面包一層普通 div：SearchField 的容器帶 `flex-1`，直接放進這張
+              flex-column 卡片會被拉高去填滿剩餘高度。包起來之後 flex-1 沒有
+              flex 父層可作用，輸入框就維持自己的高度。 */}
+          <div className="mb-2">
+            <SearchField
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜尋影片庫的標題或摘要…"
+              aria-label="搜尋影片庫"
+            />
+          </div>
+
+          {/* 主題 chips：只列出庫裡真的有影片的分類（跟 YouTube 一樣是動態的），
+              順序由 CATEGORY_ORDER 決定，見 docs/11 §8.17.4。 */}
           <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
-            {FILTERS.map((f) => (
-              <FilterChip key={f.key} label={f.label} active={filter === f.key} onClick={() => setFilter(f.key)} />
+            <FilterChip
+              label="全部"
+              count={statusFiltered.length}
+              active={activeCategory === 'all'}
+              onClick={() => setCategory('all')}
+            />
+            {CATEGORY_ORDER.filter((c) => categoryCounts.has(c)).map((c) => (
+              <FilterChip
+                key={c}
+                label={c}
+                count={categoryCounts.get(c)}
+                active={activeCategory === c}
+                onClick={() => setCategory(c)}
+              />
             ))}
           </div>
           <div className="md:min-h-0 md:flex-1 md:overflow-auto" aria-busy={videosLoading}>
@@ -151,12 +234,11 @@ export function LibraryPage() {
               <ErrorState title="載入影片庫失敗" onRetry={() => refetchVideos()} />
             ) : rows.length === 0 ? (
               <EmptyState
-                title={videos && videos.length > 0 ? '這個篩選條件下沒有影片' : '影片庫還沒有任何影片'}
-                hints={[
-                  videos && videos.length > 0
-                    ? '試試其他篩選'
-                    : '先到「YouTube 搜尋」頁加入影片，再到「影片與分析」頁分析',
-                ]}
+                {...emptyStateText({
+                  libraryEmpty: !videos || videos.length === 0,
+                  query: query.trim(),
+                  category: activeCategory,
+                })}
               />
             ) : (
               rows.map((v) => (
@@ -197,6 +279,7 @@ export function LibraryPage() {
             <VideoDetailPanel
               key={selected.id}
               video={selected}
+              category={categoryOf.get(selected.id)}
               activeJob={activeJobs?.find((j) => j.video_id === selected.id)}
               onSearchInVideo={(v) => navigate(`/search?video_id=${v.id}&video_title=${encodeURIComponent(v.title)}`)}
             />
@@ -211,12 +294,45 @@ export function LibraryPage() {
   )
 }
 
+/** 空清單的四種成因要講不同的話，否則使用者分不出是關鍵字沒中、這個分類沒東西，
+ * 還是整個影片庫本來就是空的。 */
+function emptyStateText({
+  libraryEmpty,
+  query,
+  category,
+}: {
+  libraryEmpty: boolean
+  /** 已經 trim 過的搜尋關鍵字。 */
+  query: string
+  category: VideoCategory | 'all'
+}): { title: string; hints: string[] } {
+  if (libraryEmpty) {
+    return {
+      title: '影片庫還沒有任何影片',
+      hints: ['先到「YouTube 搜尋」頁加入影片，再到「影片與分析」頁分析'],
+    }
+  }
+  if (query !== '') {
+    return {
+      title: `找不到符合「${query}」的影片`,
+      hints: ['這裡只比對影片的標題與摘要', '要在影片內容裡找片段，請用「搜尋影片」頁'],
+    }
+  }
+  if (category !== 'all') {
+    return { title: `「${category}」分類下沒有影片`, hints: ['換一個分類，或選「全部」'] }
+  }
+  return { title: '這個篩選條件下沒有影片', hints: ['試試其他狀態'] }
+}
+
 function VideoDetailPanel({
   video,
+  category,
   activeJob,
   onSearchInVideo,
 }: {
   video: Video
+  /** 由 `classifyVideo()` 從標題與摘要推導，不是資料庫欄位，見 lib/videoCategory.ts。 */
+  category: VideoCategory | undefined
   /** 後端回報的、這支影片進行中的分析工作。重新整理後靠它把進度接回來——
    * `reanalysisJobId` 只活在 React state，F5 就沒了。 */
   activeJob: Job | undefined
@@ -288,7 +404,11 @@ function VideoDetailPanel({
       <VideoPoster videoId={video.id} size="fill" className="shrink-0 md:max-h-[42vh]" />
 
       <div className="shrink-0">
-        <h3 className="text-base font-bold text-text-primary">{video.title}</h3>
+        {/* flex-wrap：標題長的時候讓分類標籤換到下一行，不要把標題擠成一長串省略號。 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-base font-bold text-text-primary">{video.title}</h3>
+          {category && <Badge text={category} kind="primary" />}
+        </div>
         <p className="mt-1 text-sm text-text-secondary">
           {formatDuration(video.duration_sec)}
           {video.segment_count !== null ? `｜${video.segment_count} 個片段` : ''}
