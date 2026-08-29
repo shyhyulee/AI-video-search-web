@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  /* e2e smoke 與它的設定也要進型別檢查：Playwright 自己是用 esbuild 轉譯、
+     不做型別檢查，不納進來的話 `npm run build` 綠燈但測試檔可能是壞的。 */
+  "include": ["vite.config.ts", "playwright.config.ts", "e2e"]
 }

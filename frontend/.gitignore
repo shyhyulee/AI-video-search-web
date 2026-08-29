@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright e2e smoke（見 playwright.config.ts）：報表與 trace 是每次執行的
+# 產物，瀏覽器由 `npx playwright install chromium` 另外安裝，都不進版控。
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

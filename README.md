@@ -82,10 +82,31 @@ uv run pytest -m integration   # 整合測試，呼叫真實 OpenAI API，有極
 
 # 前端
 cd frontend
-npx tsc -b --noEmit             # 型別檢查
+npx tsc -b --noEmit             # 型別檢查（含 e2e/ 與 playwright.config.ts）
 npx oxlint                      # lint
 npm run build                   # production build
+npm run test:e2e                # e2e smoke（見下方）
 ```
+
+### 前端 e2e smoke
+
+`npm run test:e2e` 會自己把測試資料庫填成固定的四支假影片、另外起一個後端
+（port 8100）與 Vite（port 5273），走過五個頁籤驗證頁面掛得起來、資料載得進來、
+互動有反應。port 刻意避開日常開發用的 8000／5173，你手邊的 dev server 開著也能跑。
+
+第一次執行前要裝瀏覽器（只需一次，不進版控）：
+
+```bash
+cd frontend && npx playwright install chromium
+```
+
+兩件它**刻意不做**的事，見 `frontend/playwright.config.ts`：
+
+- **不碰任何會花錢的路徑**——開始分析、整理成文件、對話搜尋送出、語意搜尋都會呼叫
+  OpenAI。唯一會改資料的是「移除影片」，那是全站唯一不花錢的 mutation，留著是因為
+  它是驗證 react-query invalidation 有沒有接對的唯一入口。
+- **不連正式資料庫**——資料由 `scripts/seed_smoke_db.py` 填進 `avs_test`，
+  跟 pytest 一樣有「名稱必須以 `_test` 結尾」的防護。
 
 ## Golden Set 評測
 
