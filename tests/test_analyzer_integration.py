@@ -61,12 +61,25 @@ def test_analyze_worker_full_pipeline(temp_db, synthetic_video):
         if isinstance(item, (analyzer.AnalysisResult, analyzer.AnalysisError)):
             final = item
 
-    # 鎖住目前的 Phase 順序（依序出現一次，不含重複的百分比更新）
-    expected_stage_order = [
-        "場景切分中", "音訊轉錄中", "音訊轉錄完成", "畫面分析",
-        "建立向量中", "寫入索引", "本地 OCR 掃描中", "產生摘要中",
-    ]
-    assert list(dict.fromkeys(stages)) == expected_stage_order
+    # 每個階段第一次出現的順序（不含重複的百分比更新）
+    seen = list(dict.fromkeys(stages))
+
+    # Phase A~D 是嚴格循序的，順序逐字鎖住。
+    sequential = ["場景切分中", "音訊轉錄中", "音訊轉錄完成", "畫面分析", "建立向量中", "寫入索引"]
+    assert seen[: len(sequential)] == sequential
+
+    # Phase E（本地 OCR）與 Phase F（產生摘要）互不依賴、是**刻意平行**跑的
+    # （見 analyzer._run_local_ocr_and_summary()：一個丟進 thread pool、一個在
+    # 本執行緒跑），誰先送出 enter_stage 事件由執行緒排程決定。
+    #
+    # 這裡原本跟上面六個階段一起用一條全序斷言鎖住，等於在斷言一件程式碼從來
+    # 沒有承諾的事：實測同一份程式碼連跑 3 次會有 1~2 次以
+    # 「index 6: '產生摘要中' != '本地 OCR 掃描中'」失敗。因為這支測試只在
+    # `-m integration` 手動執行，這個誤報從第三輪平行化上線後就一直沒被發現。
+    #
+    # 改成斷言真正的保證：兩個階段都出現、都排在「寫入索引」之後，彼此順序不管。
+    # 用 set 相等而不是 issubset——少一個階段或多一個沒預期的階段一樣要轉紅。
+    assert set(seen[len(sequential) :]) == {"本地 OCR 掃描中", "產生摘要中"}
 
     assert isinstance(final, analyzer.AnalysisResult), f"分析失敗：{final}"
     assert final.video_id == video_id
