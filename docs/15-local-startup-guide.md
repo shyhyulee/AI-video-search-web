@@ -310,7 +310,7 @@ uv run python scripts/run_golden_set_eval.py
 
 - [ ] `.env.example` 註解說 `GEMINI_API_KEY` 是「YouTube 搜尋功能用」，但 `src/` 底下
       grep 不到任何 `GEMINI`／`gemini` 的引用；`services/youtube_search_service.py`
-      實際用的是 yt-dlp 的 `ytsearch12:`，而且該檔註解明講「刻意不引入 YouTube Data API v3
+      實際用的是 yt-dlp 的 `ytsearch{n}:`，而且該檔註解明講「刻意不引入 YouTube Data API v3
       ⋯⋯不需要申請與保管 API 金鑰」。這個變數看起來已經沒有作用，待確認是否要從
       `.env.example` 移除。
 - [ ] 專案根目錄的 `app.db`／`app.db-shm`／`app.db-wal` 是遷移前的 SQLite 舊檔，

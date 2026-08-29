@@ -1,8 +1,8 @@
 """youtube API：monkeypatch 掉 yt_dlp.YoutubeDL 避免測試打真實網路，但保留
 service 的欄位轉換（縮圖挑選、缺欄位兜底）與快取邏輯不被 mock 掉。
 
-關鍵驗收條件：正常回 12 筆、空關鍵字回 422、yt-dlp 失敗回 502 且符合統一
-Error Schema。
+關鍵驗收條件：正常回 DEFAULT_LIMIT 筆、空關鍵字回 422、yt-dlp 失敗回 502 且符合
+統一 Error Schema。筆數一律引用 service 的常數，放寬上限時不需要跟著改測試。
 """
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import pytest
 import yt_dlp
 
 from ai_video_search_web.services import youtube_search_service
+from ai_video_search_web.services.youtube_search_service import DEFAULT_LIMIT, MAX_LIMIT
 
 
 @pytest.fixture(autouse=True)
@@ -64,19 +65,19 @@ class FakeYoutubeDL:
 @pytest.fixture
 def fake_ydl(monkeypatch):
     FakeYoutubeDL.calls = []
-    FakeYoutubeDL.entries = [make_entry(i) for i in range(1, 13)]
+    FakeYoutubeDL.entries = [make_entry(i) for i in range(1, DEFAULT_LIMIT + 1)]
     FakeYoutubeDL.error = None
     monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYoutubeDL)
     return FakeYoutubeDL
 
 
-def test_search_returns_twelve_items(client, fake_ydl):
+def test_search_returns_default_limit_items(client, fake_ydl):
     resp = client.get("/api/v1/youtube/search", params={"q": "python 教學"})
 
     assert resp.status_code == 200
     items = resp.json()["items"]
-    assert len(items) == 12
-    assert fake_ydl.calls == ["ytsearch12:python 教學"]
+    assert len(items) == DEFAULT_LIMIT
+    assert fake_ydl.calls == [f"ytsearch{DEFAULT_LIMIT}:python 教學"]
     assert items[0] == {
         "video_id": "vid001",
         "title": "測試影片 1",
@@ -125,7 +126,8 @@ def test_search_query_is_required(client, fake_ydl):
 
 
 def test_search_limit_out_of_range_returns_422(client, fake_ydl):
-    assert client.get("/api/v1/youtube/search", params={"q": "x", "limit": 99}).status_code == 422
+    too_many = {"q": "x", "limit": MAX_LIMIT + 1}
+    assert client.get("/api/v1/youtube/search", params=too_many).status_code == 422
     assert client.get("/api/v1/youtube/search", params={"q": "x", "limit": 0}).status_code == 422
 
 
@@ -182,4 +184,4 @@ def test_search_failure_is_not_cached(client, fake_ydl):
     resp = client.get("/api/v1/youtube/search", params={"q": "重試"})
 
     assert resp.status_code == 200
-    assert len(resp.json()["items"]) == 12
+    assert len(resp.json()["items"]) == DEFAULT_LIMIT

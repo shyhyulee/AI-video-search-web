@@ -2,7 +2,7 @@
 YouTube，回傳影片 metadata 清單，供「YouTube 搜尋」頁使用。
 
 刻意不引入 YouTube Data API v3：yt-dlp 已經是本專案的相依套件（downloader.py
-在用），`ytsearch12:` 實測 1.6 秒就能拿到 12 筆含標題／網址／時長／頻道／
+在用），`ytsearch40:` 實測 1.5 秒就能拿到 40 筆含標題／網址／時長／頻道／
 觀看數／縮圖／說明摘要的結果，不需要申請與保管 API 金鑰。代價是它靠解析
 YouTube 網頁，官方改版時可能失效——這個風險下載功能本來就已經承擔。
 
@@ -23,11 +23,16 @@ from .errors import YoutubeSearchError
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LIMIT = 12
-MAX_LIMIT = 25
+# 12 → 40（2026-08-29）：一頁只有 12 筆常常挑不到想要的影片，還要換關鍵字重查。
+# extract_flat 的成本幾乎跟筆數無關，實測同一個關鍵字 ytsearch12 要 1.8 秒、
+# ytsearch40 只要 1.5 秒（都在誤差內），所以放寬不需要付延遲代價。
+DEFAULT_LIMIT = 40
+# 上限留在 50 而不是更高：ytsearch50 實測 3.0 秒，是 40 筆的兩倍——YouTube 每頁
+# 大約給 40 筆，超過就要多抓一次 continuation。50 以上還會繼續線性變慢。
+MAX_LIMIT = 50
 
 # 搜尋結果只需要 metadata，extract_flat 讓 yt-dlp 跳過逐支影片的完整解析
-# （實測 12 筆 1.6 秒 vs 單支完整解析就要 3.6 秒）。js_runtimes／
+# （實測 40 筆 1.5 秒 vs 單支完整解析就要 3.6 秒）。js_runtimes／
 # player_client 沿用 downloader.py 的設定，理由見該檔註解。
 _SEARCH_OPTIONS = {
     "quiet": True,

@@ -10,7 +10,11 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SearchField } from '../components/SearchField'
 import { YoutubeResultCard } from '../components/YoutubeResultCard'
 
-const RESULT_LIMIT = 12
+/** 對齊後端 youtube_search_service 的 DEFAULT_LIMIT；上限（MAX_LIMIT）是 50。 */
+const RESULT_LIMIT = 40
+/** 骨架屏只鋪滿第一屏（xl 版 4 欄 × 2 列），不跟著 RESULT_LIMIT 一起放大到 40 張——
+ * 捲動範圍外的骨架看不到，多鋪只是白費 DOM。 */
+const SKELETON_COUNT = 8
 /** 對齊後端 youtube_search_service 的 _CACHE_TTL_SEC，避免前端已經過期、
  * 後端還在回快取（或反過來）造成「重新搜尋卻沒有變化」的困惑。 */
 const CACHE_TTL_MS = 5 * 60 * 1000
@@ -20,7 +24,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 const GRID_CLASS = 'grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
 
 /** 「YouTube 搜尋」頁（主導覽第一個頁籤）：輸入關鍵字查 YouTube，用卡片列出
- * 前 12 筆，可以就地播放確認內容、按「加入待分析」把影片下載進來排進「影片與
+ * 前 40 筆，可以就地播放確認內容、按「加入待分析」把影片下載進來排進「影片與
  * 分析」頁的待分析清單，或展開網址與說明。
  *
  * 這頁的職責只到「挑片並收進來」為止，**不在這裡跑分析**——分析要花錢，統一
@@ -81,15 +85,14 @@ export function YoutubeSearchPage() {
           <EmptyState
             title="搜尋 YouTube 影片"
             hints={[
-              '輸入關鍵字後會列出前 12 筆結果',
+              '輸入關鍵字後會列出前 40 筆結果',
               '卡片上可以直接「播放」預覽，或按「加入待分析」把影片收進「影片與分析」頁',
-              '點「查看詳情」可以看到網址與說明',
             ]}
             icon={<MonitorPlay className="h-8 w-8" aria-hidden="true" />}
           />
         ) : isFetching && !items ? (
           <div className={GRID_CLASS}>
-            {Array.from({ length: RESULT_LIMIT }).map((_, i) => (
+            {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
               <LoadingSkeleton key={i} variant="card" />
             ))}
           </div>
