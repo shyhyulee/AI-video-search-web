@@ -32,7 +32,7 @@
 
 `pipeline/search.py::search(query, top_k=20, video_id=None)`。
 
-### 階段 0 — 泛用描述詞清理（`_strip_generic_terms()`）
+### 階段 0 — 泛用描述詞清理（`strip_generic_terms()`）
 
 字面刪除查詢裡的「畫面」「段落」兩個詞，得到 `cleaned_query`。清理後如果整句變空（例如使用者只打「畫面」），退回使用原始查詢。
 
@@ -43,9 +43,9 @@
 
 - 有 `video_ids`（一支或多支都一樣）：只取那幾支影片的片段，**不做**影片層級篩選。使用者已經明確選了要搜哪幾支，系統不該再拿摘要相似度二次猜測、把選中的影片篩掉；這也省下一次 embedding 比對（實測全域 $0.00016 vs 限定範圍 $0.00004）。**沒有「選超過幾支就改用另一套規則」這種隱形門檻**。
 - `video_ids` 是**空 list**：代表「限定了範圍但一支都沒選」，正確答案是回零筆，不是退回搜全部。
-- 沒有 `video_ids`（全域搜尋）：先取全部片段，再用 `_relevant_video_ids()` 拿查詢向量比對每支影片的**摘要**（沒摘要退回標題），只保留跟最高分差距在 `RELEVANCE_MARGIN`(0.15) 以內的影片；最高分低於 `MIN_RELEVANCE`(0.10) 時視為「沒有明顯相關影片」，不篩選（安全網）。影片只有一支時也不篩選。
+- 沒有 `video_ids`（全域搜尋）：先取全部片段，再用 `relevant_video_ids()` 拿查詢向量比對每支影片的**摘要**（沒摘要退回標題），只保留跟最高分差距在 `RELEVANCE_MARGIN`(0.15) 以內的影片；最高分低於 `MIN_RELEVANCE`(0.10) 時視為「沒有明顯相關影片」，不篩選（安全網）。影片只有一支時也不篩選。
 
-### 階段 2 — 否定條件排除（`_split_negated_query()` / `_negated_segment_ids()`）
+### 階段 2 — 否定條件排除（`split_negated_query()` / `negated_segment_ids()`）
 
 查詢裡出現 `_NEGATION_MARKERS`（**不要／沒有／不是／並非**）時，該詞之後到下一個標點（`，。！？、`）或字串結尾之間的文字視為「不想要的內容」。用跟 sparse channel 同一套取詞規則去比對，**字面命中的片段直接從候選池移除**，不進後續評分與融合。
 
@@ -55,17 +55,17 @@
 
 ### 階段 3 — Dense channel（語意向量）
 
-`_get_query_vectors()` 把 `cleaned_query` 用 GPT-4o-mini 翻成中文、英文兩個版本，連同原始字串一起（去重後）各自 embed，得到一組查詢向量；翻譯失敗就只用原始查詢（不擋住搜尋）。
+`get_query_vectors()` 把 `cleaned_query` 用 GPT-4o-mini 翻成中文、英文兩個版本，連同原始字串一起（去重後）各自 embed，得到一組查詢向量；翻譯失敗就只用原始查詢（不擋住搜尋）。
 
-每個候選片段對**字幕／畫面／OCR** 三個模態各自算 cosine（`_best_score()`，對多個查詢向量取最高分），本地 OCR 事件的向量也併入 OCR 模態取最高。三個模態的最大值就是畫面上顯示的 `similarity`。
+每個候選片段對**字幕／畫面／OCR** 三個模態各自算 cosine（`best_score()`，對多個查詢向量取最高分），本地 OCR 事件的向量也併入 OCR 模態取最高。三個模態的最大值就是畫面上顯示的 `similarity`。
 
 **關鍵**：查詢是整句一起 embed 的，不是逐詞。多個關鍵字在這裡被壓成單一語意向量。
 
 ### 階段 4 — Sparse channel（關鍵字）
 
-`_sparse_scores()`：
+`sparse_scores()`：
 
-1. `_extract_terms()` 切詞——英文／數字用正則抽出（長度 ≥2）；中文以**虛詞表 `_STOPWORDS`、空白、標點**當切點，切完剩下的連續中文片段整段當一個候選詞（長度 ≥2 才保留）。**這不是真正的斷詞**，是規則式的粗糙作法。
+1. `extract_terms()` 切詞——英文／數字用正則抽出（長度 ≥2）；中文以**虛詞表 `_STOPWORDS`、空白、標點**當切點，切完剩下的連續中文片段整段當一個候選詞（長度 ≥2 才保留）。**這不是真正的斷詞**，是規則式的粗糙作法。
 2. **≥3 字元**的詞：丟給 `db.fts_bm25_search()`，多個詞是 **`OR`** 語意，取 bm25 分數（越負越相關），最多回傳 200 筆。
 3. **<3 字元**的詞：改用 `LIKE` 子字串比對（`db.fts_like_search()`）；命中片段給哨兵分數 `-1e6`（排在所有真實 bm25 之前），但**只補**「完全沒被任何長詞 bm25 找到」的片段，不覆寫真實分數。若某個短詞命中超過候選池 `_SHORT_TERM_MAX_MATCH_RATIO`(20%) 的片段，視為沒有鑑別力的泛用詞，整個跳過。
 
@@ -77,7 +77,7 @@
 
 `video_ids` 是 `NULL` 時整段 SQL 語意與加這層之前逐字相同，全域搜尋的行為沒有變。
 
-### 階段 5 — RRF 融合（`_rrf_scores()`）
+### 階段 5 — RRF 融合（`rrf_scores()`）
 
 畫面上「融合分數」欄位的值，公式只有一行：
 
@@ -90,7 +90,7 @@ fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
 | 項 | 排名依據 | 涵蓋範圍 |
 |---|---|---|
 | `dense_rank` | `similarity`（三個模態取最高的 cosine）由大到小，rank 從 1 起算 | **全部候選片段**都有，不是只有 `top_k` |
-| `sparse_rank` | `_sparse_scores()` 的分數由小到大（bm25 越負越相關；短詞 LIKE 的哨兵分數 `-1e6` 必定排第 1） | 只有被 BM25／LIKE 找到的片段才有 |
+| `sparse_rank` | `sparse_scores()` 的分數由小到大（bm25 越負越相關；短詞 LIKE 的哨兵分數 `-1e6` 必定排第 1） | 只有被 BM25／LIKE 找到的片段才有 |
 
 沒被 sparse channel 找到的片段，第二項就是 **0，不是扣分**（`fused.get(seg_id, 0.0)`）。分數沒有做正規化，所以實際落點是固定的：
 
@@ -104,7 +104,7 @@ fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
 
 同時回傳「被 sparse channel 找到的片段集合」，供 `is_confident`（top1 是否被兩個 channel 同時印證）判斷。
 
-### 階段 6 — 品質門檻與截斷（`_apply_quality_filter()`）
+### 階段 6 — 品質門檻與截斷（`apply_quality_filter()`）
 
 `similarity >= MIN_SIMILARITY`(0.4) **且** `fusion_score >= MIN_FUSION_SCORE`(0.1) 兩個條件都成立才保留，最後取前 `top_k` 筆。
 
@@ -135,7 +135,7 @@ fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
 
 ### 4.1 有沒有分隔符，結果不一樣
 
-`_extract_terms()` 只在**虛詞、空白、標點**處切詞，所以：
+`extract_terms()` 只在**虛詞、空白、標點**處切詞，所以：
 
 | 輸入 | 切出的詞 | sparse 端行為 |
 |---|---|---|
@@ -165,6 +165,6 @@ fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
 
 ## 6. 如果要做真正的 AND
 
-判斷投報率最高的最小改動：在 `_sparse_scores()` 加「同時命中越多候選詞、分數越好」的權重，而**不是**把 FTS5 查詢改成 `AND`——後者會讓召回率大幅下降，也違背 RRF「沒命中不懲罰」的設計前提。
+判斷投報率最高的最小改動：在 `sparse_scores()` 加「同時命中越多候選詞、分數越好」的權重，而**不是**把 FTS5 查詢改成 `AND`——後者會讓召回率大幅下降，也違背 RRF「沒命中不懲罰」的設計前提。
 
 更根本的解法是 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md) 待辦裡的 **Top 20-50 Reranker**：用 LLM 對完整查詢語意重新判斷相關性，能一次處理否定句、多條件查詢、hard negative 這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫一套規則。

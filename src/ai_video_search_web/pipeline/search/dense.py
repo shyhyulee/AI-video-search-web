@@ -29,7 +29,7 @@ MIN_RELEVANCE = 0.10
 RELEVANCE_MARGIN = 0.15
 
 
-def _get_query_vectors(client: OpenAI, query: str) -> tuple[list[np.ndarray], float]:
+def get_query_vectors(client: OpenAI, query: str) -> tuple[list[np.ndarray], float]:
     """回傳查詢對應的一到多個 embedding 向量，以及這次呼叫實際花費：預設把
     查詢翻譯成中英文各自 embed（原始查詢字串也一併保留，確保翻譯品質不佳時
     至少不會比翻譯前更差），翻譯失敗就優雅退回只用原始查詢，不讓翻譯失敗
@@ -52,7 +52,7 @@ def _get_query_vectors(client: OpenAI, query: str) -> tuple[list[np.ndarray], fl
     return vectors, cost
 
 
-def _best_score(query_vectors: list[np.ndarray], blob: bytes | None) -> float | None:
+def best_score(query_vectors: list[np.ndarray], blob: bytes | None) -> float | None:
     """某個模態的 embedding 對多個查詢語言版本各自算 cosine 相似度，取最高分。"""
     if not blob:
         return None
@@ -90,7 +90,7 @@ def _video_relevance_score(
     return score, cost
 
 
-def _relevant_video_ids(
+def relevant_video_ids(
     client: OpenAI, query_vectors: list[np.ndarray], videos: list[db.VideoRecord]
 ) -> tuple[set[int] | None, float]:
     """判斷查詢跟哪些影片相關；回傳 None 代表沒有明顯相關的影片（安全網：

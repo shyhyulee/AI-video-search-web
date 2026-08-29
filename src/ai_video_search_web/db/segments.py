@@ -314,7 +314,7 @@ LIMIT %(limit)s
 
 def _like_escape(term: str) -> str:
     """把 LIKE 的萬用字元跳脫掉，讓使用者輸入的 % 或 _ 當成普通字元比對。
-    `_extract_terms()` 不會主動產生這些字元，但使用者直接打進查詢字串就會
+    `extract_terms()` 不會主動產生這些字元，但使用者直接打進查詢字串就會
     留下來，沒跳脫的話 `%` 會變成「比對任意字串」。
     """
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

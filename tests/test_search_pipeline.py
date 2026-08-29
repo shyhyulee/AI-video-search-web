@@ -3,8 +3,8 @@
 is_confident／cost_usd／search_log 這三個容易被忽略的可觀察結果，做為之後把
 search.py 拆成子模組（重構 B4）的安全網。
 
-跟 tests/test_search.py 的分工：那邊測個別 helper 的純邏輯（`_extract_terms`／
-`_rrf_scores`／`_apply_quality_filter`／`_hit_source`…），這裡測「把它們串起來
+跟 tests/test_search.py 的分工：那邊測個別 helper 的純邏輯（`extract_terms`／
+`rrf_scores`／`apply_quality_filter`／`hit_source_label`…），這裡測「把它們串起來
 之後」的行為，包含只有整條跑完才看得到的細節——例如 is_confident 用的是套用
 品質門檻**之前**的 top1，所以 results 是空的時候 is_confident 仍可能是 True。
 

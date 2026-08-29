@@ -7,14 +7,14 @@ fusion.py 的 RRF 融合。
 from __future__ import annotations
 
 from ... import db
-from .query import _extract_terms, _split_negated_query
+from .query import extract_terms, split_negated_query
 
 # <3 字元的關鍵字用 LIKE 找到時給的哨兵分數：FTS5 trigram tokenizer 對
 # 這種短詞完全查不到（見 db/segments.py create_table 的說明），這裡直接
 # 讓它們排在所有真正 bm25 分數（實測落在 -2~-10 之間）前面，模擬「精確
 # 關鍵字命中應該最優先」——沒有嚴謹校準過，只是 spike 驗證過方向正確。
 #
-# 只在片段還沒有真正 bm25 分數時才套用這個哨兵分數（見 _sparse_scores()）：
+# 只在片段還沒有真正 bm25 分數時才套用這個哨兵分數（見 sparse_scores()）：
 # 實測「找出全壘打的畫面」這類查詢會同時拆出一個罕見長詞（「全壘打」，
 # 10 個片段命中，真實 bm25）跟一個常見短詞（「畫面」，同一支 app.db 裡
 # 527 個片段都命中），如果短詞哨兵分數無條件覆寫，會讓 527 個只是剛好
@@ -34,7 +34,7 @@ _SHORT_TERM_SPARSE_SCORE = -1e6
 _SHORT_TERM_MAX_MATCH_RATIO = 0.2
 
 
-def _sparse_scores(
+def sparse_scores(
     query: str, valid_ids: set[int], video_ids: list[int] | None = None
 ) -> dict[int, float]:
     """BM25 關鍵字檢索分數，只回傳 valid_ids 範圍內、真的被找到的片段；
@@ -51,7 +51,7 @@ def _sparse_scores(
     落空，見 db/segments.py 的 _BM25_SQL 說明。Python 端的過濾仍然保留——
     valid_ids 在否定句排除之後會比 video_ids 的範圍更小，是必要的第二道防線。
     """
-    terms = _extract_terms(query)
+    terms = extract_terms(query)
     long_terms = [t for t in terms if len(t) >= 3]
     short_terms = [t for t in terms if len(t) < 3]
 
@@ -73,15 +73,15 @@ def _sparse_scores(
     return scores
 
 
-def _negated_segment_ids(
+def negated_segment_ids(
     query: str, valid_ids: set[int], video_ids: list[int] | None = None
 ) -> set[int]:
     """回傳因為命中否定關鍵字而該被排除的 segment id 集合（見 service.search()
-    的使用方式）。直接重用 _sparse_scores()——它已經有長詞 bm25／短詞 LIKE＋
+    的使用方式）。直接重用 sparse_scores()——它已經有長詞 bm25／短詞 LIKE＋
     _SHORT_TERM_MAX_MATCH_RATIO 比例門檻防呆，對否定範圍的文字跑一次一樣
     的取詞與比對，避免否定詞剛好是「畫面」這種泛用詞時，誤刪掉大部分候選
     片段。"""
-    _, negative_text = _split_negated_query(query)
+    _, negative_text = split_negated_query(query)
     if not negative_text.strip():
         return set()
-    return set(_sparse_scores(negative_text, valid_ids, video_ids).keys())
+    return set(sparse_scores(negative_text, valid_ids, video_ids).keys())

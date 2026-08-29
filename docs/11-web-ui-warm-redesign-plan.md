@@ -839,7 +839,7 @@ checkbox 變灰且點不動、已勾選的仍可取消、計數文字正確。
 `create_table()` 的說明），但 `reset_to_pending()`／`delete_video()` 只 `DELETE FROM segments`，
 從來沒清過 FTS 表。**實測 `app.db` 的 1795 筆 FTS 列裡有 925 筆（52%）對不到任何片段。**
 
-影響不是「查到不存在的片段」——`sparse.py` 的 `_sparse_scores()` 會用 `if seg_id in valid_ids` 過濾
+影響不是「查到不存在的片段」——`sparse.py` 的 `sparse_scores()` 會用 `if seg_id in valid_ids` 過濾
 掉。真正的傷害是 `fts_bm25_search()` 是**先取 bm25 前 200 名、再過濾**，殘留列一直在佔那 200 個名額，
 把真正命中的片段擠出候選集，等於長期壓著 sparse channel 的召回率。
 

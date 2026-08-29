@@ -45,7 +45,7 @@ class SearchResponse:
     is_confident: bool  # top1 是否同時被 sparse channel 印證，見套件說明
 
 
-def _hit_source(
+def hit_source_label(
     transcript_score: float | None, visual_score: float | None, ocr_score: float | None
 ) -> str:
     """依規格「字幕｜畫面｜OCR｜字幕＋畫面｜綜合」：只有一個模態命中就顯示該模態；

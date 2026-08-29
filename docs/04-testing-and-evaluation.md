@@ -11,7 +11,7 @@
 |---|---:|---|
 | `test_db.py` | 23 | `init_db()` 建表與 migration 冪等性、`mark_video_analyzed()` 的 COALESCE 語意、`reset_to_pending()`／`delete_video()` 級聯刪除、CRUD round-trip |
 | `test_evaluation.py` | 23 | Golden Set 解析、`temporal_iou()`、Recall@K／MRR／nDCG@K／`is_hit()`／`predicted_answerable()` 等純評分邏輯 |
-| `test_search.py` | 24 | `_best_score()`、`_select_relevant_ids()`、`_extract_terms()`、`_rrf_scores()`、`_hit_source()`，純向量／邏輯運算，不呼叫 API |
+| `test_search.py` | 24 | `best_score()`、`_select_relevant_ids()`、`extract_terms()`、`rrf_scores()`、`hit_source_label()`，純向量／邏輯運算，不呼叫 API |
 | `test_analyzer.py` | 19 | 本地 OCR 場景過濾、Phase C 平行 embedding 的 budget 截斷時機、Phase E／F 平行執行的失敗隔離與成本加總、Phase B 批次平行的場景順序保證與 rate limit 重試 |
 | `test_ocr_service.py` | 15 | 文字正規化、場景內取樣邊界、事件去重合併 |
 | `test_scene_detect.py` | 12 | merge/split 合併門檻邊界、結尾殘留片段處理、均分切割邊界對齊、無場景切換 fallback |

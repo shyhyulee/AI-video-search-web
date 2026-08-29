@@ -373,9 +373,9 @@
         <p>第三輪拆套件時保留了原名，結果是<strong>私有命名、公開用途</strong>——可見性語意跟實際相反。</p>
         <span class="metric">涉及函式 <b>15 支</b></span>
         <details><summary>細節</summary><ul>
-          <li><code>_strip_generic_terms</code>／<code>_sparse_scores</code>／<code>_rrf_scores</code>／
-              <code>_get_query_vectors</code>／<code>_best_score</code>／<code>_relevant_video_ids</code>／
-              <code>_hit_source</code>／<code>_apply_quality_filter</code>／<code>_negated_segment_ids</code>…</li>
+          <li><code>strip_generic_terms</code>／<code>sparse_scores</code>／<code>rrf_scores</code>／
+              <code>get_query_vectors</code>／<code>best_score</code>／<code>relevant_video_ids</code>／
+              <code>hit_source_label</code>／<code>apply_quality_filter</code>／<code>negated_segment_ids</code>…</li>
           <li>純改名，需同步 <code>tests/test_search.py</code> 與 <code>test_search_pipeline.py</code> 的 <strong>119 處</strong>引用</li>
         </ul></details>
         <div class="commit">波 E</div>

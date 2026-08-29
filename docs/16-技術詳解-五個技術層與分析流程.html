@@ -2048,7 +2048,7 @@ DIMENSIONS = 1024
     variants = {query}
 
 <span class="c"># …每個模態對所有查詢向量算一次，取最高分</span>
-<span class="k">def</span> _best_score(query_vectors: list[np.ndarray], blob: bytes | <span class="k">None</span>) -&gt; float | <span class="k">None</span>:
+<span class="k">def</span> best_score(query_vectors: list[np.ndarray], blob: bytes | <span class="k">None</span>) -&gt; float | <span class="k">None</span>:
     <span class="k">if not</span> blob:
         <span class="k">return None</span>
     content_vector = embedding.decode_embedding(blob)
@@ -2181,7 +2181,7 @@ LIMIT %s</pre>
 
       <div class="f">
         <span class="fl">順帶做的事：否定句排除</span>
-        <p>「不要出現機器人」這種查詢，會用<b>同一套取詞規則</b>對否定範圍的文字跑一次比對，命中的片段直接從候選集拿掉（<code>sparse._negated_segment_ids()</code>、<code>service.py:48-53</code>）。重用 <code>_sparse_scores()</code> 的好處是連 <code>_SHORT_TERM_MAX_MATCH_RATIO</code> 防呆一起繼承——避免否定詞剛好是「畫面」這種泛用詞時誤刪掉大部分候選。</p>
+        <p>「不要出現機器人」這種查詢，會用<b>同一套取詞規則</b>對否定範圍的文字跑一次比對，命中的片段直接從候選集拿掉（<code>sparse.negated_segment_ids()</code>、<code>service.py:48-53</code>）。重用 <code>sparse_scores()</code> 的好處是連 <code>_SHORT_TERM_MAX_MATCH_RATIO</code> 防呆一起繼承——避免否定詞剛好是「畫面」這種泛用詞時誤刪掉大部分候選。</p>
         <div class="note">
           <span class="t">已知限制</span>
           <p>否定<b>只在關鍵字比對層有效</b>。「不要出現機器人」能排除字面命中「機器人」的片段，但語意向量看不懂否定，用「機械手臂」描述的畫面仍會被撈進來。見 <code>docs/05</code>。</p>
@@ -2221,7 +2221,7 @@ fused: dict[int, float] = {
 }
 
 valid_ids = {seg_id <span class="k">for</span> seg_id, _ <span class="k">in</span> scored}
-sparse = _sparse_scores(query, valid_ids)
+sparse = sparse_scores(query, valid_ids)
 sparse_order = sorted(sparse.items(), key=<span class="k">lambda</span> kv: kv[1])
 <span class="k">for</span> rank, (seg_id, _) <span class="k">in</span> enumerate(sparse_order, start=1):
     fused[seg_id] = fused.get(seg_id, 0.0) + 1.0 / (RRF_K + rank)
@@ -2929,15 +2929,15 @@ repetitive_indices = asr.find_repetitive_transcript_indices(
         <p>這一節只講「分析產出的東西怎麼被消費」，完整的搜尋邏輯見 <code>docs/12-search-query-logic.md</code>。</p>
         <figure class="code">
           <figcaption>pipeline/search/service.py: search() 的執行順序</figcaption>
-<pre> 1. _strip_generic_terms(query)        清掉「畫面」「段落」這類泛用詞
+<pre> 1. strip_generic_terms(query)        清掉「畫面」「段落」這類泛用詞
                                        （只影響檢索，search_log 記原始輸入）
- 2. _get_query_vectors()               翻譯成中英文 → 連同原文各自 embed
+ 2. get_query_vectors()               翻譯成中英文 → 連同原文各自 embed
                                        翻譯失敗 → 只用原文（不擋住搜尋）
  3. 決定候選集
       video_id 指定 → 只取那支影片的片段
       否則         → 全部片段，再套「影片層級篩選」
                      （比對 videos.summary／title，gap ≤ 0.15 才留）
- 4. _negated_segment_ids()             「不要出現 X」→ 命中 X 的片段直接移除
+ 4. negated_segment_ids()             「不要出現 X」→ 命中 X 的片段直接移除
  5. 逐片段評分
       transcript_score = cosine(查詢, segments.transcript_embedding)
       visual_score     = cosine(查詢, segments.visual_embedding)
@@ -2945,10 +2945,10 @@ repetitive_indices = asr.find_repetitive_transcript_indices(
                              cosine(查詢, ocr_events.embedding) …)
       similarity       = max(三者)
       hit_source       = 由三者推出「字幕／畫面／OCR／綜合」
- 6. _rrf_scores()                      dense 名次 + sparse 名次 → fusion_score
+ 6. rrf_scores()                      dense 名次 + sparse 名次 → fusion_score
                                        sparse 走 segments.content 的 BM25
  7. is_confident                       top1 有沒有被 sparse 印證（門檻前判斷）
- 8. _apply_quality_filter()            similarity ≥ 0.4 且 fusion_score ≥ 0.1
+ 8. apply_quality_filter()            similarity ≥ 0.4 且 fusion_score ≥ 0.1
  9. results[:top_k] + insert_search_log(原始 query, cost)</pre>
         </figure>
       </div>
