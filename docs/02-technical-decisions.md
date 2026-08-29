@@ -164,6 +164,33 @@
 **驗證結果**：5 組查詢（動物／Keira Knightley／2019年最美麗的臉／警告標誌／貓咪）全部正確收斂到對應的單一支影片。
 **已知限制**：只用兩支真實影片、幾組查詢實測驗證過，不是嚴謹調校的結果；影片數變多、摘要風格差異變大時可能需要重新校準。標題／摘要的 embedding 用記憶體快取（`_embed_cached()`，不寫回 DB，重啟清空），同一段文字同一次 app 執行期間只會真的呼叫一次 API。
 
+### 搜尋範圍：從「全部／單一影片」放寬到任意子集
+
+**背景**：範圍原本只有兩種——全部影片，或單一影片（`video_id: int | None`）。使用者想表達「在這 3 支世界盃影片裡找角球」時，只能全庫搜（雜訊多）或一支一支搜（要搜三次、結果無法一起排序）。`pipeline/intent.py` 的 LLM 早就會吐 `filters_video_ids: list[int]`，只是在 `conversation.py` 被 `video_ids[0]` 硬降級成單一 id，程式碼註解自己標記為「已知的介面落差」。
+
+**現象（順手挖出來的既有缺陷）**：sparse channel 的 SQL **完全沒有 `video_id` 條件**。`fts_bm25_search()` 是在**全庫**取 BM25 前 200 名，才由 `sparse.py` 在 Python 端用範圍過濾。而 `LIMIT` 是在排序之後才截斷的，所以限定範圍搜尋時，範圍外的片段會先把 200 個名額佔走——選中影片的關鍵字命中根本進不了候選集，sparse channel 整個落空，RRF 只剩 dense 一路、`is_confident` 恆為 false。
+
+**原因**：這是「名額被佔走」的失敗模式，SQLite 時期的 FTS5 殘留列已經踩過一次（實測 925/1795 = 52% 的名額是殘留列，見 `db/segments.py` `create_table` 的說明）。**單支影片的舊行為就已經有這個缺陷**，不是多選才引入的，只是多選會讓它更容易觸發。
+
+**解決方案**：
+1. 介面一路從 `video_id: int | None` 改成 `video_ids: list[int] | None`（schema／API／service／pipeline／db 全線）。**刻意不保留單數欄位**——兩個欄位並存就需要一條「哪個優先」的隱形規則，單支影片送長度 1 的 list 即可。
+2. `_BM25_SQL` 最前面加一個 `scope` CTE，`stats`／`df`／`hits` 三個 CTE 一律改讀它，`fts_like_search()` 同步。`video_ids` 為 `NULL` 時語意與改動前逐字相同。
+3. **有指定範圍時不套用影片層級篩選**（不論一支或多支）：使用者已經明確選了要搜哪幾支，系統不該再拿摘要相似度二次猜測、把選中的影片篩掉。沒有「選超過幾支就改用另一套規則」這種隱形門檻。
+4. **空 list 不等於 `None`**：空 list 是「限定了範圍但一支都沒選」，回零筆；`None` 才是搜全部。
+
+**兩個實作地雷**（都寫進 `_BM25_SQL` 的註解了）：
+- `scope` 被 `df`／`hits` 引用兩次，PostgreSQL 預設會**物化** CTE，`content` 上的 pg_trgm GIN 索引就吃不到。必須標 `NOT MATERIALIZED` 強制 inline。
+- `stats` 也要讀 `scope`，不能只縮 `df`／`hits`。IDF 的分母（`n_docs`）與長度正規化（`avg_len`）必須跟 `n_hits` 算在同一份語料上，否則限定範圍時 IDF 會被全庫文件數灌水。
+
+**驗證結果**：
+- db 層直接驗證截斷語意：`limit=3` 時，10 個範圍外的干擾片段會把名額全部佔走，目標片段查不到；範圍下推之後查得到（`tests/test_db.py` 的迴歸測試，修之前會失敗）。
+- 端到端實跑「機械手臂在生產線上運作」限定兩支 Intel 影片：15 筆結果全部來自那兩支，**top1 融合分數 0.25**——遠高於「只有 dense 命中」的理論上限 `1/6 ≈ 0.1667`，代表 sparse channel 真的有貢獻。
+- **成本**：同一句查詢，全域搜尋 US$0.00016、限定範圍 US$0.00004。差額就是省下的「比對每支影片摘要」那一輪 embedding。
+
+**已知限制**：
+- 這只解決「限定範圍」的情形，**全域搜尋的 200 名額截斷仍在**。
+- **限定範圍搜尋這條路徑從來沒進過 golden set 評測**：`pipeline/evaluation.py` 呼叫 `search()` 時不傳範圍參數，17 題全是全域搜尋。所以改動前後的準確率都是未知數。反過來說，全域路徑的 SQL 語意逐字未變，**既有 baseline 沒有失效、不需要重跑**。
+
 ### Hybrid 檢索與 RRF 融合
 
 **背景**：純 dense cosine 排序無法把 answerable／no-answer 兩組查詢分開（golden set 實測 no-answer 題目 top1 相似度落在 0.41～0.74，跟 answerable 題目重疊），也有 hard negative 誤判（例如「汽車」dense 完全沒排進正確的影片）。

@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { getStats, sendConversationMessage, startConversation } from '../api/client'
-import type { SearchResult } from '../api/types'
+import { getStats, listVideos, sendConversationMessage, startConversation } from '../api/client'
+import type { SearchResult, Video } from '../api/types'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { ChatBubble } from '../components/ChatBubble'
 import { EmptyState } from '../components/EmptyState'
 import { FilterChip } from '../components/FilterChip'
 import { SearchResultCard } from '../components/SearchResultCard'
+import { SearchScopeBar } from '../components/SearchScopeBar'
 import { VideoPlayer } from '../components/VideoPlayer'
+import { useSearchScope } from '../lib/useSearchScope'
 
 const GREETING =
-  '你好，跟我說說想找的影片內容，例如「找出有人進入生產線的畫面」。之後可以接著說「只看穿紅色衣服的人」或「播放第二段」。'
+  '你好，跟我說說想找的影片內容，例如「找出有人進入生產線的畫面」。'
 
 const SUGGESTED_PROMPTS = ['找出工廠中有人出現的片段', '找出全壘打畫面', '找出動物出現的片段']
 
@@ -35,6 +37,20 @@ interface Message {
   text: string
 }
 
+/** 後端的 LLM 可以在使用者勾選的範圍內「再收窄」（例如使用者說「只看第一支」）。
+ * 收窄了就要講出來——畫面上的 chips 還是勾著 3 支、實際只搜了 1 支的話，使用者
+ * 沒有任何線索可以理解結果為什麼變少。沒收窄就回傳空字串，不要每輪都加一句廢話。 */
+function narrowedScopeNote(
+  requested: number[],
+  effective: number[],
+  videos: Video[] | undefined,
+): string {
+  if (requested.length === 0 || effective.length === 0) return ''
+  if (effective.length >= requested.length) return ''
+  const titles = effective.map((id) => videos?.find((v) => v.id === id)?.title ?? `影片 #${id}`)
+  return `｜這一輪只搜了：${titles.join('、')}`
+}
+
 /** 「對話搜尋」頁面，對齊 docs/10-web-ui-ux-warm-responsive-design.md
  * §6.4：桌機（≥900px）左右並排——左：對話訊息流；右：本輪結果與播放器
  * （播放器在上、結果清單在下，清單自己捲動）。≤900px 改回上下排列（對話在
@@ -51,6 +67,11 @@ export function ConversationPage() {
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats })
+  // 搜尋範圍跟「搜尋影片」頁共用同一份（在影片庫勾選），見 lib/useSearchScope.tsx。
+  const { videoIds: scopeVideoIds } = useSearchScope()
+  // 只為了把回報的範圍 id 換成標題。跟 LibraryPage／SearchScopeBar 同一個
+  // query key，react-query 共用快取、不會多打一次 API。
+  const { data: videos } = useQuery({ queryKey: ['videos', 'library'], queryFn: () => listVideos() })
 
   const startMutation = useMutation({ mutationFn: startConversation })
 
@@ -63,14 +84,25 @@ export function ConversationPage() {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight })
   }, [messages])
 
+  // 搜尋範圍隨參數帶進 mutate、不從 closure 讀（跟 SearchPage 同一個理由）。
+  // 空陣列送 null：後端的 [] 是「限定了範圍但一支都沒選」，會回零筆。
   const sendMutation = useMutation({
-    mutationFn: (message: string) => sendConversationMessage(conversationId as number, message),
-    onSuccess: (turn) => {
+    mutationFn: ({ message, videoIds }: { message: string; videoIds: number[] }) =>
+      sendConversationMessage(
+        conversationId as number,
+        message,
+        videoIds.length > 0 ? videoIds : null,
+      ),
+    onSuccess: (turn, variables) => {
       setMessages((prev) => [...prev, { speaker: 'assistant', text: turn.reply_text }])
       setResults(turn.results)
       setSelectedIndex(null)
       const modalities = summarizeModalities(turn.results)
-      setStatusText(`花費 $${turn.cost_usd.toFixed(4)}${modalities ? `｜已檢索：${modalities}` : ''}`)
+      setStatusText(
+        `花費 $${turn.cost_usd.toFixed(4)}` +
+          (modalities ? `｜已檢索：${modalities}` : '') +
+          narrowedScopeNote(variables.videoIds, turn.video_ids, videos),
+      )
     },
     onError: (err: Error) => {
       setMessages((prev) => [...prev, { speaker: 'assistant', text: `處理時發生錯誤：${err.message}` }])
@@ -84,7 +116,7 @@ export function ConversationPage() {
     setMessages((prev) => [...prev, { speaker: 'user', text: message }])
     setInput('')
     setStatusText('思考中…')
-    sendMutation.mutate(message)
+    sendMutation.mutate({ message, videoIds: scopeVideoIds })
   }
 
   const onSubmit = (e: React.FormEvent) => {
@@ -121,6 +153,8 @@ export function ConversationPage() {
             </div>
           )}
         </div>
+        {/* 跟「搜尋影片」頁共用同一份範圍，所以這裡也要看得到、也能移除。 */}
+        <SearchScopeBar className="mt-2" />
         <p className="mt-2 text-xs text-text-muted">
           {stats
             ? stats.analyzed_count > 0

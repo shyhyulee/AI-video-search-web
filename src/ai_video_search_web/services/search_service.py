@@ -11,5 +11,5 @@ from ..pipeline.search import SearchResponse, SearchResult
 __all__ = ["SearchResponse", "SearchResult", "search"]
 
 
-def search(query: str, video_id: int | None = None, top_k: int = 20) -> SearchResponse:
-    return search_pipeline.search(query, top_k=top_k, video_id=video_id)
+def search(query: str, video_ids: list[int] | None = None, top_k: int = 20) -> SearchResponse:
+    return search_pipeline.search(query, top_k=top_k, video_ids=video_ids)

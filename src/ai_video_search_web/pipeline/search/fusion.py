@@ -22,20 +22,22 @@ MIN_FUSION_SCORE = 0.1
 
 
 def _rrf_scores(
-    query: str, scored: list[tuple[int, SearchResult]]
+    query: str, scored: list[tuple[int, SearchResult]], video_ids: list[int] | None = None
 ) -> tuple[dict[int, float], set[int]]:
     """RRF 融合分數，以及有被 sparse channel 找到的 segment id 集合（給
     SearchResponse.is_confident 判斷 top1 是否被兩個 channel 都印證用，見
     套件說明）。dense 排名用 scored 目前的 similarity 順序（涵蓋全部候選
     片段，不是只有 top_k），sparse 排名用 BM25/LIKE 找到的片段——沒被某個
-    channel 找到的片段，該 channel 對它的貢獻就是 0，不是懲罰分數。"""
+    channel 找到的片段，該 channel 對它的貢獻就是 0，不是懲罰分數。
+
+    video_ids 是搜尋範圍，原封不動往下傳給 _sparse_scores()（理由見那裡）。"""
     dense_order = sorted(scored, key=lambda pair: pair[1].similarity, reverse=True)
     fused: dict[int, float] = {
         seg_id: 1.0 / (RRF_K + rank) for rank, (seg_id, _) in enumerate(dense_order, start=1)
     }
 
     valid_ids = {seg_id for seg_id, _ in scored}
-    sparse = _sparse_scores(query, valid_ids)
+    sparse = _sparse_scores(query, valid_ids, video_ids)
     sparse_order = sorted(sparse.items(), key=lambda kv: kv[1])
     for rank, (seg_id, _) in enumerate(sparse_order, start=1):
         fused[seg_id] = fused.get(seg_id, 0.0) + 1.0 / (RRF_K + rank)

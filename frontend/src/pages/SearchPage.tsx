@@ -9,7 +9,9 @@ import { EmptyState } from '../components/EmptyState'
 import { EvidencePanel } from '../components/EvidencePanel'
 import { SearchField } from '../components/SearchField'
 import { SearchResultCard } from '../components/SearchResultCard'
+import { SearchScopeBar } from '../components/SearchScopeBar'
 import { VideoPlayer } from '../components/VideoPlayer'
+import { useSearchScope } from '../lib/useSearchScope'
 
 /** 「搜尋影片」頁面（頁籤原名「搜尋結果」，改名以反映它是**執行**搜尋的地方
  * 而不只是看結果的地方），對齊 ui/search_tab.py：搜尋列、結果列表、詳細分數
@@ -18,12 +20,13 @@ import { VideoPlayer } from '../components/VideoPlayer'
  *
  * 全站**只有這一頁能輸入自由文字搜尋**：影片庫頁上方原本也有一條搜尋列，會
  * 帶著 `?q=` 跳過來，已移除（見 docs/11 §8.6）。影片庫剩下的入口是「在此影片
- * 內搜尋」，帶 `?video_id=` 過來設定搜尋範圍、不帶查詢字串。 */
+ * 內搜尋」／「在選取影片內搜尋」，它們改用共用的 useSearchScope() 設定範圍再
+ * 導過來，不再用 `?video_id=` 帶參數——範圍現在也要給「對話搜尋」頁用，兩頁
+ * 各自從 URL 解析會分岔。 */
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [queryText, setQueryText] = useState('')
-  const [scopeVideoId, setScopeVideoId] = useState<number | null>(null)
-  const [scopeVideoTitle, setScopeVideoTitle] = useState<string | null>(null)
+  const { videoIds: scopeVideoIds } = useSearchScope()
   const [results, setResults] = useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   // 這次的選取是使用者點的（true，點了就想看）還是搜完自動帶出來的預設
@@ -32,10 +35,12 @@ export function SearchPage() {
   const [statusText, setStatusText] = useState('描述想尋找的事件、人物、動作或教學內容')
   const searchStartedAt = useRef(0)
 
-  // 搜尋範圍隨參數一起帶進 mutate，不從 closure 讀 state：從影片庫「只搜這支
-  // 影片」進來時 setScopeVideoId 還沒生效，靠 closure 會搜成全部影片。
+  // 搜尋範圍隨參數一起帶進 mutate，不從 closure 讀：從影片庫設定範圍再導過來
+  // 時，這次 render 的 context 值可能還是舊的，靠 closure 會搜錯範圍。
+  // 空陣列要送 null 而不是 []：後端的 [] 是「限定了範圍但一支都沒選」，會回零筆。
   const searchMutation = useMutation({
-    mutationFn: ({ q, videoId }: { q: string; videoId: number | null }) => search({ query: q, video_id: videoId }),
+    mutationFn: ({ q, videoIds }: { q: string; videoIds: number[] }) =>
+      search({ query: q, video_ids: videoIds.length > 0 ? videoIds : null }),
     onSuccess: (resp) => {
       setResults(resp.results)
       // 搜完自動選第一名，右側直接帶出播放器與證據面板，不用再手動點一下；
@@ -52,9 +57,10 @@ export function SearchPage() {
     onError: (err: Error) => setStatusText(`搜尋失敗：${err.message}`),
   })
 
-  // 影片庫頁會用 /search?q=… 或 /search?video_id=…&video_title=… 帶條件過來。
+  // 還有 /search?q=… 這條路徑（目前沒有頁面在用，保留給外部連結／書籤）。
+  // 搜尋範圍已經改走 useSearchScope()，不再從 URL 解析。
   // 這頁在頁籤之間切換時不會卸載（見 App.tsx 的 KeepAlivePage），所以不能只在
-  // mount 時看一次 URL，每次參數變化都要處理，否則從影片庫點第二次就沒反應。
+  // mount 時看一次 URL，每次參數變化都要處理，否則帶第二次就沒反應。
   // 消化完把參數清掉，並記下剛處理過的字串，避免 setSearchParams 自己造成的
   // 那次變化又被當成新請求。
   const consumedParams = useRef('')
@@ -68,19 +74,12 @@ export function SearchPage() {
     if (raw === consumedParams.current) return
     consumedParams.current = raw
 
-    const videoIdParam = searchParams.get('video_id')
-    const nextScopeId = videoIdParam !== null ? Number(videoIdParam) : scopeVideoId
-    if (videoIdParam !== null) {
-      setScopeVideoId(nextScopeId)
-      setScopeVideoTitle(searchParams.get('video_title'))
-    }
-
     const q = searchParams.get('q')
     if (q) {
       setQueryText(q)
       setStatusText('搜尋中…')
       searchStartedAt.current = Date.now()
-      searchMutation.mutate({ q, videoId: nextScopeId })
+      searchMutation.mutate({ q, videoIds: scopeVideoIds })
     }
     setSearchParams({}, { replace: true })
     // searchMutation 每次 render 都是新物件，放進 deps 會讓 effect 每輪都跑；
@@ -96,12 +95,7 @@ export function SearchPage() {
     }
     setStatusText('搜尋中…')
     searchStartedAt.current = Date.now()
-    searchMutation.mutate({ q: queryText.trim(), videoId: scopeVideoId })
-  }
-
-  const clearScope = () => {
-    setScopeVideoId(null)
-    setScopeVideoTitle(null)
+    searchMutation.mutate({ q: queryText.trim(), videoIds: scopeVideoIds })
   }
 
   const selected = selectedIndex !== null ? results[selectedIndex] : null
@@ -109,14 +103,9 @@ export function SearchPage() {
   return (
     <div className="flex h-full flex-col gap-4">
       <Card>
-        {scopeVideoId !== null && (
-          <div className="mb-2 flex items-center gap-2 text-sm text-text-secondary">
-            <span>目前作用中的篩選：只在《{scopeVideoTitle}》中搜尋</span>
-            <button onClick={clearScope} className="font-bold text-primary-hover">
-              清除範圍，改為全部影片
-            </button>
-          </div>
-        )}
+        {/* 改變範圍不會自動重新搜尋（跟改關鍵字一樣要按一次「搜尋」），維持
+            「按下去才會花錢」的可預期行為。 */}
+        <SearchScopeBar className="mb-2" />
         <form onSubmit={onSubmit} className="flex items-center gap-2">
           <SearchField
             size="lg"

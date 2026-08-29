@@ -108,6 +108,20 @@ def list_ocr_events_for_video(video_id: int) -> list[OcrEventRecord]:
         return [_row_to_ocr_event(row) for row in rows]
 
 
+def list_ocr_events_for_videos(video_ids: list[int]) -> list[OcrEventRecord]:
+    """限定在數支影片內的 OCR 事件，給搜尋的多選範圍用。空 list 代表「沒有
+    影片可搜」而不是「全部」，跟 segments.list_segments_for_videos() 一致。
+    """
+    if not video_ids:
+        return []
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ocr_events WHERE video_id = ANY(%s) ORDER BY video_id, start_sec",
+            (list(video_ids),),
+        ).fetchall()
+        return [_row_to_ocr_event(row) for row in rows]
+
+
 def list_all_ocr_events() -> list[OcrEventRecord]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM ocr_events ORDER BY video_id, start_sec").fetchall()

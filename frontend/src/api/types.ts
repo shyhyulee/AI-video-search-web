@@ -92,6 +92,9 @@ export interface ConversationTurn {
   reply_text: string
   results: SearchResult[]
   cost_usd: number
+  /** 這一輪實際生效的搜尋範圍（空陣列＝全部影片）。可能比畫面上勾選的更窄——
+   * 後端的 LLM 會在勾選範圍內再收窄，見 pipeline/conversation._resolve_video_ids()。 */
+  video_ids: number[]
 }
 
 // 沿用 docs/08-web-ui-migration-design.md 第 6 節的 Error Schema，

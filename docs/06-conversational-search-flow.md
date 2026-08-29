@@ -59,15 +59,29 @@ LLM 完全碰不到資料庫、不會自己編影片 ID 或時間點——這是
 |---|---|---|
 | `clarify` 或 `requires_clarification=True` | 直接把 `clarification_question` 當回覆，結果清單維持顯示上一輪的（不清空） | 不會 |
 | `select_result` | 檢查 index 是否落在 `1..len(last_results)`；有效就取 `last_results[index-1]` 當 `selected_result`，回傳只有這一筆的結果清單；index 無效或根本沒有上一輪結果，就退回反問「不確定指的是哪一個」 | 不會 |
-| `new_search`／`refine_search` | 解析要不要帶影片篩選（見下），呼叫 `search.search(standalone_query, video_id=...)`，用規則模板組回覆文字 | 會 |
+| `new_search`／`refine_search` | 解析要不要帶影片篩選（見下），呼叫 `search.search(standalone_query, video_ids=...)`，用規則模板組回覆文字 | 會 |
 
 ### ④ 篩選條件沿用邏輯（`_resolve_video_ids()`）
+
+先照舊決定「LLM 這輪想要的範圍」：
 
 - LLM 這輪明講了 `filters_video_ids` → 直接用（覆蓋）
 - 沒明講，但 action 是 `refine_search` → 沿用上一輪 `state.active_filters["video_ids"]`
 - 沒明講，且 action 是 `new_search` → 清空，視為換題目
 
-**已知落差**：`search.search()` 目前只吃單一 `video_id: int | None`，不是清單。就算 `video_ids` 解析出多個，`_handle_search()` 也只會取第一個（`video_ids[0]`），其餘被忽略——這是規劃時就標記過的 Phase 3 範圍（Query Router 才會真的支援多影片／依模態篩選）。
+再套上**使用者在畫面上勾選的範圍（`ui_video_ids`）當硬邊界**：
+
+- 沒有勾選任何影片 → 上面的結果原封不動（行為跟加這層之前完全相同）
+- 有勾選 → LLM 的範圍只能在其中**再收窄**（取交集），不能擴張出去
+- 交集為空（LLM 指的影片一支都不在勾選範圍內，通常是它認錯了）→ 整個忽略這次收窄，退回使用者勾選的範圍，而不是回零筆
+
+為什麼硬邊界方向是這樣：勾選是明確的使用者操作，模型不該默默推翻它——畫面上勾著 3 支、實際卻搜了第 4 支，使用者沒有任何線索可以除錯。
+
+`ui_video_ids` 由前端**每輪重送**，刻意**不存進 `conversations` 表**：範圍屬於「使用者現在正在看的畫面」，不是對話內容的一部分；存起來的話，使用者在影片庫改了勾選、回到對話卻還沿用舊範圍。
+
+`ConversationTurnOut.video_ids` 回傳**這一輪實際生效**的範圍，前端拿它跟畫面上勾選的比對，收窄了就在狀態列標示「這一輪只搜了：…」。
+
+> 之前的落差（`search.search()` 只吃單一 `video_id`、`_handle_search()` 只取 `video_ids[0]`）**已經解決**：`search()` 的簽名改成 `video_ids: list[int] | None`，多個 id 全部生效。`intent.py` 的 `filters_video_ids` 本來就是清單型別，之前只是在最後一哩被丟掉。
 
 ### ⑤ 回覆文字（`_build_reply_text()`）
 

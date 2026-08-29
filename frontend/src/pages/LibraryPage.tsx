@@ -16,6 +16,7 @@ import { VideoListItem } from '../components/VideoListItem'
 import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { useJobPolling } from '../lib/useJobPolling'
+import { useSearchScope } from '../lib/useSearchScope'
 import { CATEGORY_ORDER, classifyVideo, matchesLibraryQuery, type VideoCategory } from '../lib/videoCategory'
 
 // 篩選只留分析狀態。原本還有「無字幕」（`!has_transcript`）與「純畫面」
@@ -63,9 +64,15 @@ export function LibraryPage() {
   const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
   const [sortReverse, setSortReverse] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  // navigate 只剩「在此影片內搜尋」在用（帶 video_id 範圍跳到「搜尋影片」頁）；
-  // 這頁上方原本那條自由文字搜尋列已移除，搜尋一律在「搜尋影片」頁進行。
+  // 勾選成搜尋範圍的影片。用 Set 而不是陣列，跟「影片與分析」頁的批次勾選
+  // 一致（見 VideosPage 的 toggleSelected）。刻意不設數量上限——VideosPage
+  // 的上限是分析成本天花板，搜尋範圍沒有這個成本（查詢向量只 embed 一次）。
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  // navigate 只剩「在此／在選取影片內搜尋」在用（設好共用的搜尋範圍後跳到
+  // 「搜尋影片」頁）；這頁上方原本那條自由文字搜尋列已移除，搜尋一律在
+  // 「搜尋影片」頁進行。
   const navigate = useNavigate()
+  const { setScope } = useSearchScope()
 
   const {
     data: videos,
@@ -149,6 +156,28 @@ export function LibraryPage() {
   // 去同步 selectedId：這樣切換篩選／排序後如果原本選的那支不在清單裡了，會
   // 自動落回第一筆，不需要額外的 effect，也不會出現「面板空白一瞬間」。
   const selected = rows.find((v) => v.id === selectedId) ?? rows[0] ?? null
+
+  // 勾選中的影片可能已經被刪掉（或還原成待分析）。跟 selectedId／activeCategory
+  // 一樣用推導、不用 useEffect 同步：畫面永遠只會算進「現在還存在而且可搜」的
+  // 那幾支，不會送出一個指向不存在影片的搜尋範圍。刻意用整份 videos 而不是
+  // 篩選後的 rows——切換分類或打關鍵字時不該把已經勾好的影片踢出範圍。
+  const pickedIds = useMemo(
+    () => (videos ?? []).filter((v) => picked.has(v.id) && v.status === 'analyzed').map((v) => v.id),
+    [videos, picked],
+  )
+
+  const togglePicked = (id: number) =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const searchInVideos = (ids: number[]) => {
+    setScope(ids)
+    navigate('/search')
+  }
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -249,6 +278,14 @@ export function LibraryPage() {
                   // 還沒被點過，selectedId 仍是 null，用它會讓清單沒有任何
                   // 一列反白、跟右側面板顯示的內容對不上。
                   selected={v.id === selected?.id}
+                  // 勾選＝加入搜尋範圍，跟「點這一列看詳細」是兩種語意，靠
+                  // VideoListItem 的 stopPropagation 並存在同一列上。只有分析
+                  // 完成的影片有片段可搜，其餘停用而不是整個藏起來，使用者才
+                  // 知道「不是漏掉了，是還不能選」。
+                  checked={picked.has(v.id)}
+                  onCheckedChange={() => togglePicked(v.id)}
+                  checkboxDisabled={v.status !== 'analyzed'}
+                  checkboxDisabledReason="這支影片還沒有分析完成的片段，不能加入搜尋範圍"
                   onClick={() => setSelectedId(v.id)}
                   meta={
                     <>
@@ -267,6 +304,30 @@ export function LibraryPage() {
               ))
             )}
           </div>
+          {/* 動作列放最底下，跟「影片與分析」頁的批次動作列同一個位置。刻意
+              不往上加第四列控制項——左欄上方已經有「標題＋狀態／排序」「庫內
+              搜尋」「主題 chips」三列，半版寬（§8.10）再加就塞爆了。 */}
+          <div className="mt-2 flex flex-wrap gap-2 border-t border-border pt-2">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={pickedIds.length === 0}
+              onClick={() => searchInVideos(pickedIds)}
+            >
+              在選取影片內搜尋
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={picked.size === 0}
+              onClick={() => setPicked(new Set())}
+            >
+              清除選取
+            </Button>
+            <p className="self-center text-sm text-text-secondary" aria-live="polite">
+              已選 {pickedIds.length} 支
+            </p>
+          </div>
         </Card>
 
         {/* overflow-hidden 而不是 overflow-auto：詳細面板自己排成固定高度的
@@ -281,7 +342,7 @@ export function LibraryPage() {
               video={selected}
               category={categoryOf.get(selected.id)}
               activeJob={activeJobs?.find((j) => j.video_id === selected.id)}
-              onSearchInVideo={(v) => navigate(`/search?video_id=${v.id}&video_title=${encodeURIComponent(v.title)}`)}
+              onSearchInVideo={(v) => searchInVideos([v.id])}
             />
           ) : (
             // 清單有東西時一定會有選取（預設第一筆），所以這個空狀態只在

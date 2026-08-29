@@ -99,7 +99,9 @@ export function retryJob(jobId: number): Promise<Job> {
 
 export interface SearchParams {
   query: string
-  video_id?: number | null
+  /** 搜尋範圍：省略／null 代表搜全部影片，給一組 id 就只搜那幾支。單支影片
+   * 送長度 1 的陣列即可，後端沒有另外的單數欄位。 */
+  video_ids?: number[] | null
   top_k?: number
 }
 
@@ -122,9 +124,15 @@ export function getConversation(conversationId: number): Promise<ConversationTur
   return request<ConversationTurn>(`/conversations/${conversationId}`)
 }
 
-export function sendConversationMessage(conversationId: number, message: string): Promise<ConversationTurn> {
+/** videoIds 是畫面上勾選的搜尋範圍，每輪都要重送——後端刻意不把它存進
+ * conversations 表（範圍屬於「使用者現在看的畫面」，不是對話內容的一部分）。 */
+export function sendConversationMessage(
+  conversationId: number,
+  message: string,
+  videoIds?: number[] | null,
+): Promise<ConversationTurn> {
   return request<ConversationTurn>(`/conversations/${conversationId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, video_ids: videoIds ?? null }),
   })
 }

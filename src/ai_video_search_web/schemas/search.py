@@ -9,7 +9,10 @@ from ..pipeline.search import SearchResult
 
 class SearchRequest(BaseModel):
     query: str
-    video_id: int | None = None
+    # 搜尋範圍：省略／null 代表搜全部影片，給一組 id 就只搜那幾支。刻意不另外
+    # 保留單數的 video_id 欄位——兩個欄位並存就會需要一條「哪個優先」的隱形
+    # 規則，單支影片直接送長度 1 的 list 即可。
+    video_ids: list[int] | None = None
     top_k: int = 20
 
 

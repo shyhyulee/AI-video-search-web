@@ -89,6 +89,7 @@ from .segments import (
     insert_segment,
     list_all_segments,
     list_segments_for_video,
+    list_segments_for_videos,
     modality_flags_by_video,
 )
 from .ocr_events import (
@@ -96,6 +97,7 @@ from .ocr_events import (
     insert_ocr_event,
     list_all_ocr_events,
     list_ocr_events_for_video,
+    list_ocr_events_for_videos,
 )
 from .search_log import insert_search_log
 from .jobs import (
@@ -135,9 +137,11 @@ __all__ = [
     "get_header_stats", "list_analyzed_videos", "list_library_videos",
     "update_video_summary", "reset_to_pending", "delete_video", "clear_analysis_output",
     "update_video_status", "mark_video_analyzed",
-    "insert_segment", "list_segments_for_video", "list_all_segments", "modality_flags_by_video",
+    "insert_segment", "list_segments_for_video", "list_segments_for_videos", "list_all_segments",
+    "modality_flags_by_video",
     "fts_bm25_search", "fts_like_search",
-    "insert_ocr_event", "list_ocr_events_for_video", "list_all_ocr_events",
+    "insert_ocr_event", "list_ocr_events_for_video", "list_ocr_events_for_videos",
+    "list_all_ocr_events",
     "insert_search_log",
     "JobRecord", "JOB_TYPE_ANALYSIS", "JOB_TYPE_DOWNLOAD",
     "JOB_STATUS_QUEUED", "JOB_STATUS_RUNNING", "JOB_STATUS_COMPLETED", "JOB_STATUS_FAILED",

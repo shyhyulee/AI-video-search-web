@@ -48,7 +48,7 @@ def test_handle_turn_new_search_calls_search_and_builds_reply(monkeypatch):
     results = [_result()]
     monkeypatch.setattr(
         conversation.search_module, "search",
-        lambda query, video_id=None: SearchResponse(results=results, cost_usd=0.01, is_confident=True),
+        lambda query, video_ids=None: SearchResponse(results=results, cost_usd=0.01, is_confident=True),
     )
 
     state = conversation.ConversationState()
@@ -66,7 +66,7 @@ def test_handle_turn_no_results_reply_says_not_found(monkeypatch):
     monkeypatch.setattr(conversation.intent_module, "classify_intent", lambda *a, **k: _classification())
     monkeypatch.setattr(
         conversation.search_module, "search",
-        lambda query, video_id=None: SearchResponse(results=[], cost_usd=0.0, is_confident=False),
+        lambda query, video_ids=None: SearchResponse(results=[], cost_usd=0.0, is_confident=False),
     )
 
     turn = conversation.handle_turn(conversation.ConversationState(), "找出不存在的東西")
@@ -80,7 +80,7 @@ def test_handle_turn_low_confidence_reply_has_prefix(monkeypatch):
     monkeypatch.setattr(conversation.intent_module, "classify_intent", lambda *a, **k: _classification())
     monkeypatch.setattr(
         conversation.search_module, "search",
-        lambda query, video_id=None: SearchResponse(results=[_result()], cost_usd=0.0, is_confident=False),
+        lambda query, video_ids=None: SearchResponse(results=[_result()], cost_usd=0.0, is_confident=False),
     )
 
     turn = conversation.handle_turn(conversation.ConversationState(), "模糊的查詢")
@@ -96,8 +96,8 @@ def test_handle_turn_refine_search_carries_over_previous_video_filter(monkeypatc
     )
     captured = {}
 
-    def _fake_search(query, video_id=None):
-        captured["video_id"] = video_id
+    def _fake_search(query, video_ids=None):
+        captured["video_ids"] = video_ids
         return SearchResponse(results=[_result()], cost_usd=0.0, is_confident=True)
 
     monkeypatch.setattr(conversation.search_module, "search", _fake_search)
@@ -105,7 +105,7 @@ def test_handle_turn_refine_search_carries_over_previous_video_filter(monkeypatc
     state = conversation.ConversationState(active_filters={"video_ids": [7]})
     conversation.handle_turn(state, "只看穿紅色衣服的人")
 
-    assert captured["video_id"] == 7
+    assert captured["video_ids"] == [7]
 
 
 def test_handle_turn_new_search_ignores_previous_filters(monkeypatch):
@@ -116,8 +116,8 @@ def test_handle_turn_new_search_ignores_previous_filters(monkeypatch):
     )
     captured = {}
 
-    def _fake_search(query, video_id=None):
-        captured["video_id"] = video_id
+    def _fake_search(query, video_ids=None):
+        captured["video_ids"] = video_ids
         return SearchResponse(results=[], cost_usd=0.0, is_confident=False)
 
     monkeypatch.setattr(conversation.search_module, "search", _fake_search)
@@ -125,7 +125,7 @@ def test_handle_turn_new_search_ignores_previous_filters(monkeypatch):
     state = conversation.ConversationState(active_filters={"video_ids": [7]})
     conversation.handle_turn(state, "找別的東西")
 
-    assert captured["video_id"] is None
+    assert captured["video_ids"] is None
 
 
 # ----------------------------------------------------------------------
@@ -240,16 +240,79 @@ def test_append_history_appends_new_line_when_under_limit():
 def test_resolve_video_ids_explicit_filters_override_previous():
     state = conversation.ConversationState(active_filters={"video_ids": [1]})
     classification = _classification(action="refine_search", filters_video_ids=[9])
-    assert conversation._resolve_video_ids(state, classification) == [9]
+    assert conversation._resolve_video_ids(state, classification, []) == [9]
 
 
 def test_resolve_video_ids_refine_search_falls_back_to_previous_when_none_given():
     state = conversation.ConversationState(active_filters={"video_ids": [3]})
     classification = _classification(action="refine_search", filters_video_ids=[])
-    assert conversation._resolve_video_ids(state, classification) == [3]
+    assert conversation._resolve_video_ids(state, classification, []) == [3]
 
 
 def test_resolve_video_ids_new_search_ignores_previous_filters():
     state = conversation.ConversationState(active_filters={"video_ids": [3]})
     classification = _classification(action="new_search", filters_video_ids=[])
-    assert conversation._resolve_video_ids(state, classification) == []
+    assert conversation._resolve_video_ids(state, classification, []) == []
+
+
+# ----------------------------------------------------------------------
+# _resolve_video_ids()：使用者勾選的範圍是硬邊界，LLM 只能在其中收窄
+# ----------------------------------------------------------------------
+
+
+def test_resolve_video_ids_ui_scope_used_when_llm_gives_none():
+    """LLM 沒指定範圍時，直接用使用者勾選的那批。"""
+    state = conversation.ConversationState()
+    classification = _classification(action="new_search", filters_video_ids=[])
+    assert conversation._resolve_video_ids(state, classification, [4, 8, 15]) == [4, 8, 15]
+
+
+def test_resolve_video_ids_llm_narrows_within_ui_scope():
+    """LLM 指到勾選範圍內的子集：收窄成立。"""
+    state = conversation.ConversationState()
+    classification = _classification(action="new_search", filters_video_ids=[8])
+    assert conversation._resolve_video_ids(state, classification, [4, 8, 15]) == [8]
+
+
+def test_resolve_video_ids_llm_cannot_escape_ui_scope():
+    """LLM 指到勾選範圍外的影片：不能擴張出去，那幾個 id 直接被丟掉。"""
+    state = conversation.ConversationState()
+    classification = _classification(action="new_search", filters_video_ids=[8, 99])
+    assert conversation._resolve_video_ids(state, classification, [4, 8, 15]) == [8]
+
+
+def test_resolve_video_ids_empty_intersection_falls_back_to_ui_scope():
+    """LLM 指的影片一支都不在勾選範圍內（通常是它認錯了）：整個忽略這次收窄，
+    退回使用者勾選的範圍，而不是搜出零筆。"""
+    state = conversation.ConversationState()
+    classification = _classification(action="new_search", filters_video_ids=[99])
+    assert conversation._resolve_video_ids(state, classification, [4, 8]) == [4, 8]
+
+
+def test_resolve_video_ids_ui_scope_also_bounds_carried_over_filters():
+    """refine_search 繼承上一輪的範圍時，一樣受勾選範圍限制。"""
+    state = conversation.ConversationState(active_filters={"video_ids": [3, 8]})
+    classification = _classification(action="refine_search", filters_video_ids=[])
+    assert conversation._resolve_video_ids(state, classification, [8, 15]) == [8]
+
+
+def test_handle_turn_ui_scope_reaches_search_and_is_reported_back(monkeypatch):
+    """端到端：勾選範圍要真的傳進 search()，也要回報在 turn.video_ids 上。"""
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(
+        conversation.intent_module, "classify_intent",
+        lambda *a, **k: _classification(action="new_search", filters_video_ids=[]),
+    )
+    captured = {}
+
+    def _fake_search(query, video_ids=None):
+        captured["video_ids"] = video_ids
+        return SearchResponse(results=[_result()], cost_usd=0.0, is_confident=True)
+
+    monkeypatch.setattr(conversation.search_module, "search", _fake_search)
+
+    turn = conversation.handle_turn(conversation.ConversationState(), "找生產線", [4, 8])
+
+    assert captured["video_ids"] == [4, 8]
+    assert turn.video_ids == [4, 8]
+    assert turn.new_state.active_filters == {"video_ids": [4, 8]}

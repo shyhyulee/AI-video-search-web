@@ -193,8 +193,8 @@ def test_apply_quality_filter_preserves_order_of_surviving_results():
 
 
 def test_rrf_scores_pure_dense_when_sparse_finds_nothing(monkeypatch):
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [])
 
     scored = [(1, _search_result(0.9)), (2, _search_result(0.5))]
     fused, sparse_hit_ids = fusion._rrf_scores("query", scored)
@@ -209,8 +209,8 @@ def test_rrf_scores_sparse_channel_boosts_low_dense_rank(monkeypatch):
     # segment 1 dense 排名最好（第1名）但完全沒被 BM25 找到；segment 2、3
     # dense 排名較後面，但都被 BM25 找到並互相佐證——融合後兩者應該都
     # 反超 segment 1，重現 gs-013／gs-010 那種「dense 錯過、BM25 救回」的情境
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [(3, -5.0), (2, -1.0)])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [(3, -5.0), (2, -1.0)])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [])
 
     scored = [(1, _search_result(0.9)), (2, _search_result(0.7)), (3, _search_result(0.5))]
     fused, sparse_hit_ids = fusion._rrf_scores("query", scored)
@@ -223,8 +223,8 @@ def test_rrf_scores_sparse_channel_boosts_low_dense_rank(monkeypatch):
 def test_rrf_scores_ignores_sparse_hits_outside_candidate_set(monkeypatch):
     # fts_bm25_search 回傳的 segment id 不在這次搜尋範圍內（例如已經被
     # video 層級篩選掉），不該汙染融合分數，也不該出現在 sparse_hit_ids
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [(999, -5.0)])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [(999, -5.0)])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [])
 
     scored = [(1, _search_result(0.9))]
     fused, sparse_hit_ids = fusion._rrf_scores("query", scored)
@@ -249,8 +249,8 @@ _TEN_IDS = set(range(1, 11))
 def test_sparse_scores_short_term_does_not_override_real_bm25_score(monkeypatch):
     # segment 1 同時被長詞 bm25 命中（真實分數 -6.0）跟短詞 LIKE 命中；
     # 短詞哨兵分數不該覆寫掉真實 bm25 分數
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [(1, -6.0)])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [1])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [(1, -6.0)])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [1])
 
     scores = sparse._sparse_scores("全壘打的畫面", _TEN_IDS)
 
@@ -259,8 +259,8 @@ def test_sparse_scores_short_term_does_not_override_real_bm25_score(monkeypatch)
 
 def test_sparse_scores_short_term_fills_in_when_no_bm25_hit(monkeypatch):
     # segment 2 只被短詞 LIKE 命中，完全沒有 bm25 分數，應該補上哨兵分數
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [2])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [2])
 
     scores = sparse._sparse_scores("畫面", _TEN_IDS)
 
@@ -269,8 +269,8 @@ def test_sparse_scores_short_term_fills_in_when_no_bm25_hit(monkeypatch):
 
 def test_sparse_scores_unrelated_bm25_and_like_hits_do_not_affect_each_other(monkeypatch):
     # segment 1 只被長詞 bm25 命中；segment 2 只被短詞 LIKE 命中，各自獨立
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [(1, -6.0)])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [2])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [(1, -6.0)])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [2])
 
     scores = sparse._sparse_scores("全壘打的畫面", _TEN_IDS)
 
@@ -280,8 +280,8 @@ def test_sparse_scores_unrelated_bm25_and_like_hits_do_not_affect_each_other(mon
 def test_sparse_scores_skips_short_term_matching_too_large_a_fraction(monkeypatch):
     # 短詞比對到候選池 100%（遠超過 _SHORT_TERM_MAX_MATCH_RATIO=0.2），
     # 視為沒有鑑別力的泛用詞（例如「畫面」），整個跳過、不當 sparse 訊號
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: list(_TEN_IDS))
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: list(_TEN_IDS))
 
     scores = sparse._sparse_scores("畫面", _TEN_IDS)
 
@@ -290,8 +290,8 @@ def test_sparse_scores_skips_short_term_matching_too_large_a_fraction(monkeypatc
 
 def test_sparse_scores_keeps_short_term_just_under_ratio_threshold(monkeypatch):
     # 命中比例剛好等於門檻（不是超過）仍視為有鑑別力，正常套用哨兵分數
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [1, 2])  # 2/10 = 0.2，等於門檻
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [1, 2])  # 2/10 = 0.2，等於門檻
 
     scores = sparse._sparse_scores("畫面", _TEN_IDS)
 
@@ -342,8 +342,8 @@ def test_negated_segment_ids_no_marker_returns_empty_set():
 
 
 def test_negated_segment_ids_excludes_matched_segments(monkeypatch):
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [(3, -6.0)])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: [])
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [(3, -6.0)])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [])
 
     excluded = sparse._negated_segment_ids("不要機器人", _TEN_IDS)
 
@@ -353,8 +353,8 @@ def test_negated_segment_ids_excludes_matched_segments(monkeypatch):
 def test_negated_segment_ids_skips_overly_common_negative_term(monkeypatch):
     # 否定詞剛好比對到候選池 100%（例如「畫面」），套用 _sparse_scores()
     # 既有的比例門檻防呆，不會把幾乎全部片段都排除掉
-    monkeypatch.setattr(db, "fts_bm25_search", lambda terms: [])
-    monkeypatch.setattr(db, "fts_like_search", lambda term: list(_TEN_IDS))
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: list(_TEN_IDS))
 
     excluded = sparse._negated_segment_ids("不要畫面", _TEN_IDS)
 

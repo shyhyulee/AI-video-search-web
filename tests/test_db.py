@@ -551,6 +551,103 @@ def test_fts_like_search_finds_short_term(temp_db):
     assert db.fts_like_search("汽車") == [seg_id]
 
 
+def test_list_segments_for_videos_covers_every_given_video(temp_db):
+    first = _make_video()
+    second = _make_video()
+    third = _make_video()
+    a = _insert_segment_with_text(first, 0.0, 5.0, "第一支")
+    b = _insert_segment_with_text(second, 0.0, 5.0, "第二支")
+    _insert_segment_with_text(third, 0.0, 5.0, "第三支")
+
+    got = db.list_segments_for_videos([first, second])
+
+    assert sorted(s.id for s in got) == sorted([a, b])
+
+
+def test_list_segments_for_videos_empty_list_means_nothing_not_everything(temp_db):
+    """空 list 是「一支都沒選」，不是「全部」——退化成全部會讓限定範圍的搜尋
+    悄悄搜到全庫。"""
+    video_id = _make_video()
+    _insert_segment_with_text(video_id, 0.0, 5.0, "片段")
+
+    assert db.list_segments_for_videos([]) == []
+
+
+def test_fts_bm25_search_scope_excludes_other_videos(temp_db):
+    inside = _make_video()
+    outside = _make_video()
+    wanted = _insert_segment_with_text(inside, 0.0, 5.0, "機器人在工廠操作零件")
+    _insert_segment_with_text(outside, 0.0, 5.0, "機器人在別的工廠操作零件")
+
+    assert sorted(i for i, _ in db.fts_bm25_search(["機器人"])) == sorted(
+        [wanted, wanted + 1]
+    )
+    assert [i for i, _ in db.fts_bm25_search(["機器人"], video_ids=[inside])] == [wanted]
+
+
+def test_fts_bm25_search_scope_applies_before_the_limit(temp_db):
+    """LIMIT 是排序之後才截斷的：範圍外的片段不能佔走名額，否則限定範圍搜尋時
+    sparse channel 會整個落空（見 db/segments.py 的 _BM25_SQL 說明）。"""
+    # 範圍外的片段刻意做成「詞頻高、文件短」＝ bm25 分數一定比較好，
+    # 確保它們會穩定佔住前幾名。
+    noisy = _make_video()
+    for i in range(10):
+        _insert_segment_with_text(noisy, float(i), float(i) + 1, "機器人機器人機器人")
+    inside = _make_video()
+    wanted = _insert_segment_with_text(
+        inside, 0.0, 5.0, "這一段畫面裡有一台機器人正在產線末端把成品搬上輸送帶，旁邊有作業員在檢查"
+    )
+
+    # limit 3 遠小於範圍外的干擾筆數
+    assert wanted not in [i for i, _ in db.fts_bm25_search(["機器人"], limit=3)]
+    assert [i for i, _ in db.fts_bm25_search(["機器人"], limit=3, video_ids=[inside])] == [wanted]
+
+
+def test_fts_bm25_search_idf_is_computed_within_the_scope(temp_db):
+    """IDF 的分母（文件總數）與 n_hits 必須算在同一份語料上。範圍內只有一個
+    片段、而且它命中了，IDF 應該趨近 0（詞在這份語料裡不稀有），分數會明顯
+    小於「拿全庫文件數當分母」算出來的值。"""
+    noisy = _make_video()
+    for i in range(20):
+        _insert_segment_with_text(noisy, float(i), float(i) + 1, f"無關內容 {i}")
+    inside = _make_video()
+    _insert_segment_with_text(inside, 0.0, 5.0, "機器人在工廠操作零件")
+
+    (_, global_score), = db.fts_bm25_search(["機器人"])
+    (_, scoped_score), = db.fts_bm25_search(["機器人"], video_ids=[inside])
+
+    # 分數是負的、越負越相關；範圍內「不稀有」所以 IDF 較小、分數較接近 0
+    assert scoped_score > global_score
+
+
+def test_fts_like_search_scope_excludes_other_videos(temp_db):
+    inside = _make_video()
+    outside = _make_video()
+    wanted = _insert_segment_with_text(inside, 0.0, 5.0, "背景有幾輛汽車正在組裝")
+    _insert_segment_with_text(outside, 0.0, 5.0, "另一支影片也有汽車")
+
+    assert len(db.fts_like_search("汽車")) == 2
+    assert db.fts_like_search("汽車", video_ids=[inside]) == [wanted]
+    assert db.fts_like_search("汽車", video_ids=[]) == []
+
+
+def test_list_ocr_events_for_videos_covers_every_given_video(temp_db):
+    first = _make_video()
+    second = _make_video()
+    third = _make_video()
+    for video_id, text in ((first, "一"), (second, "二"), (third, "三")):
+        db.insert_ocr_event(
+            video_id=video_id, segment_id=None, start_sec=0.0, end_sec=1.0, frame_sec=0.5,
+            raw_text=text, resolved_text=text, confidence=0.9, bbox=None,
+            primary_engine="fake", ocr_pipeline_version="v1", embedding=None,
+        )
+
+    got = db.list_ocr_events_for_videos([first, second])
+
+    assert sorted(e.video_id for e in got) == sorted([first, second])
+    assert db.list_ocr_events_for_videos([]) == []
+
+
 def test_raw_insert_is_searchable_without_backfill(temp_db):
     """取代 SQLite 時期的 test_backfill_fts_covers_pre_existing_rows()。
 
