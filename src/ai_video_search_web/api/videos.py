@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, Response
 
 from .. import downloader
 from ..db import videos as db_videos
@@ -20,7 +20,7 @@ from ..pipeline import document as document_pipeline
 from ..schemas.jobs import JobOut
 from ..schemas.videos import VideoDocumentOut, VideoOut, YoutubeDownloadRequest
 from ..services import job_manager, video_service
-from ..services.errors import VideoNotFoundError
+from ..services.errors import DocumentNotFoundError, ThumbnailUnavailableError, VideoNotFoundError
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -146,16 +146,7 @@ def get_document(video_id: int) -> VideoDocumentOut:
     video = _get_video_or_raise(video_id)
     document = video_service.load_document(video)
     if document is None:
-        return JSONResponse(  # type: ignore[return-value]
-            status_code=404,
-            content={
-                "error": {
-                    "code": "DOCUMENT_NOT_FOUND",
-                    "message": "這支影片還沒有整理過的文件",
-                    "details": None,
-                }
-            },
-        )
+        raise DocumentNotFoundError("這支影片還沒有整理過的文件")
     return VideoDocumentOut(video_id=video_id, document=document, model=video.document_model)
 
 
@@ -170,8 +161,5 @@ def get_thumbnail(video_id: int) -> Response:
     video = _get_video_or_raise(video_id)
     thumbnail = video_service.generate_thumbnail(video)
     if thumbnail is None:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "THUMBNAIL_UNAVAILABLE", "message": "無法產生縮圖", "details": None}},
-        )
+        raise ThumbnailUnavailableError("無法產生縮圖")
     return Response(content=thumbnail, media_type="image/png")

@@ -48,5 +48,19 @@ class ConversationNotFoundError(ServiceError):
     """找不到指定的 conversation_id。"""
 
 
+class DocumentNotFoundError(ServiceError):
+    """這支影片還沒有整理過的文件。
+
+    對前端來說這是**正常狀態**不是錯誤（它靠這個 404 決定要顯示「尚未整理」
+    還是文件內容），但回應形狀跟其他 404 一樣，所以照樣走例外對映——原本是
+    端點自己手刻 JSONResponse，同一層有兩種產生錯誤回應的方式。
+    """
+
+
+class ThumbnailUnavailableError(ServiceError):
+    """產不出這支影片的縮圖（檔案不存在或 ffmpeg 擷取失敗）。理由同
+    DocumentNotFoundError。"""
+
+
 class YoutubeSearchError(ServiceError):
     """YouTube 搜尋失敗（yt-dlp 解析失敗、網路問題、YouTube 改版等）。"""

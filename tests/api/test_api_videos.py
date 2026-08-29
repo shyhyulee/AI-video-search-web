@@ -275,7 +275,11 @@ def test_thumbnail_unavailable_for_nonexistent_file_returns_404(client):
     video_id = make_video()  # file_path 指向不存在的檔案
     resp = client.get(f"/api/v1/videos/{video_id}/thumbnail")
     assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "THUMBNAIL_UNAVAILABLE"
+    # 逐欄位比對而不是只看 code：這個 body 原本是端點自己手刻的 JSONResponse，
+    # 改走統一的例外對映之後形狀必須一模一樣，前端才不會受影響。
+    assert resp.json() == {
+        "error": {"code": "THUMBNAIL_UNAVAILABLE", "message": "無法產生縮圖", "details": None}
+    }
 
 
 # ----------------------------------------------------------------------
@@ -357,7 +361,14 @@ def test_get_document_before_generating_returns_404(client):
     video_id = make_video(status=db.STATUS_ANALYZED)
     resp = client.get(f"/api/v1/videos/{video_id}/document")
     assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
+    # 逐欄位比對，理由同 test_thumbnail_unavailable_for_nonexistent_file_returns_404。
+    assert resp.json() == {
+        "error": {
+            "code": "DOCUMENT_NOT_FOUND",
+            "message": "這支影片還沒有整理過的文件",
+            "details": None,
+        }
+    }
 
 
 def test_get_document_returns_stored_document(client):
