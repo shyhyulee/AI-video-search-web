@@ -227,11 +227,11 @@
     <p class="sub">AI 影片搜尋 · <strong>第四輪重構（進行中）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
       第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">6 <small>/ 13</small></span></div>
-      <div class="stat"><span class="k">本輪提交數</span><span class="v">6 <small>（另有看板更新）</small></span></div>
-      <div class="stat"><span class="k">波 E</span><span class="v">5 / 5 <small>完成</small></span></div>
-      <div class="stat"><span class="k">測試</span><span class="v">410 <small>← 382</small></span></div>
-      <div class="stat"><span class="k">新增測試</span><span class="v">+28</span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">7 <small>/ 13</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">7 <small>（另有看板更新）</small></span></div>
+      <div class="stat"><span class="k">進度</span><span class="v">波 E 5/5 <small>· 波 F 1/6</small></span></div>
+      <div class="stat"><span class="k">後端測試</span><span class="v">410 <small>← 382</small></span></div>
+      <div class="stat"><span class="k">前端 e2e</span><span class="v">19 <small>← 0</small></span></div>
       <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（E3 timeout）</small></span></div>
     </div>
   </div>
@@ -242,20 +242,8 @@
 
   <!-- ============ 有規劃 ============ -->
   <section class="col" data-col="planned">
-    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">8</span></div>
+    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">7</span></div>
     <div class="cards">
-
-      <article class="card" data-kind="test">
-        <div class="card-top"><span class="id">F0</span><span class="tag test">測試</span><span class="tag">前端</span></div>
-        <h3>前端驗證方式：Playwright smoke</h3>
-        <p>前端 3,496 行、<strong>零測試檔</strong>。這是整個波 F 的前提——沒有它，後面每一步都只能靠手動點過一遍。</p>
-        <details><summary>細節</summary><ul>
-          <li><code>playwright</code> 已在 devDependencies，只是從來沒有測試檔</li>
-          <li>2026-08-29 決定：走 smoke（真的把 app 跑起來走一遍），不做元件層測試</li>
-          <li>範圍是「五個頁籤都開得起來、主要動作不炸」，不追求覆蓋率</li>
-        </ul></details>
-        <div class="commit">波 F · 下一步</div>
-      </article>
 
       <article class="card" data-kind="structure">
         <div class="card-top"><span class="id">F1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
@@ -265,6 +253,10 @@
         <span class="metric">狀態字面值比較 <b>19 處</b></span>
         <details><summary>細節</summary><ul>
           <li>新增 <code>lib/queryKeys.ts</code> 與 <code>lib/jobStatus.ts</code>（<code>isTerminal()</code>／<code>isActive()</code>）</li>
+          <li><strong>要一併加靜態檢查</strong>（F0 的突變測試逼出來的）：query key 字面值只准出現在
+              <code>queryKeys.ts</code>。smoke 抓得到「invalidate 的 key 打錯」，但抓不到
+              「兩個元件各自用了不同但都能運作的 key」——那只會多打一次 API，畫面看不出來。
+              從結構上禁止分岔比再加一支測試有效</li>
           <li>涉及 <code>LibraryPage</code>／<code>VideosPage</code>／<code>ConversationPage</code>／<code>Header</code>／
               <code>SearchScopeBar</code>／<code>YoutubeResultCard</code>／<code>useJobPolling</code></li>
           <li>實測盤點（2026-08-29）：<code>['videos','library']</code> ×9、<code>['stats']</code> ×6、
@@ -372,16 +364,55 @@
   <section class="col" data-col="doing">
     <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
     <div class="cards">
-      <div class="empty">目前沒有進行中的任務<br>波 E 已全數完成（5/5），下一步是 F0</div>
+      <div class="empty">目前沒有進行中的任務<br>波 E 完成 5/5、波 F 完成 1/6，下一步是 F1</div>
     </div>
   </section>
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">6 <small>+12</small></span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">7 <small>+12</small></span></div>
     <div class="cards">
 
       <p class="round-divider">第四輪（2026-08-29）</p>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">F0</span><span class="tag test">測試</span><span class="tag">前端</span><span class="tag">安全網</span></div>
+        <h3>前端有了可以拿來重構的 smoke</h3>
+        <p>前端 3,496 行、<strong>零測試檔</strong>。波 F 接下來要搬 query key、抽 hook、拆 574 行的頁面元件，
+          在這之前沒有任何東西會發現那些動作弄壞了什麼。</p>
+        <span class="metric">e2e <b>0 → 19 支</b></span>
+        <span class="metric">執行時間 <b>約 12 秒</b></span>
+        <details><summary>細節</summary><ul>
+          <li>驗的是「頁籤掛得起來、資料載得進來、互動有反應」：五個頁籤無 console error、
+              影片庫清單／分類 chips／庫內搜尋／狀態篩選／勾選搜尋範圍、待分析清單的分頁規則、
+              搜尋頁空狀態、頁籤 keep-alive 保住 state</li>
+          <li>斷言<strong>刻意寫得粗</strong>——比對「列在不在」而不是版面細節。改個 className 就轉紅的測試沒人會留著</li>
+          <li><strong>不碰花錢的路徑</strong>：分析／整理文件／對話送出／語意搜尋都呼叫 OpenAI，
+              常態驗證每跑一次付一次錢是錯的取捨。YouTube 搜尋免費但要打外網、會不穩，也排除</li>
+          <li><strong>不連正式資料庫</strong>：後端另起一個連 <code>avs_test</code> 的 process（port 8100／5273，
+              避開日常開發的 8000／5173），資料由 <code>scripts/seed_smoke_db.py</code> 填成固定 5 支假影片，
+              沿用 pytest 那道「名稱必須以 <code>_test</code> 結尾」的防護</li>
+        </ul></details>
+        <details><summary>突變測試發現了一個洞，補起來了</summary><ul>
+          <li>把 <code>['videos','library']</code> 改成 <code>['videos','libraryX']</code>——
+              <strong>18 支全過</strong>。react-query 換個 key 還是呼叫同一個 queryFn，清單照樣載入</li>
+          <li>key 打錯真正壞的是<strong>快取共用與 invalidation</strong>，而 invalidation 只在 mutation 之後看得出來
+              ——偏偏 mutation 幾乎都要花錢</li>
+          <li>唯一不花錢的 mutation 是<strong>刪除影片</strong>，所以補了一支「移除後清單與統計卡都跟著更新」，
+              種子資料也多了一支專門的犧牲品。補上之後，讀取端與 invalidate 端的 key 打錯都會轉紅</li>
+          <li>另兩個突變（庫內搜尋永遠回 true、主題分類永遠落到「其他」）分別讓 3 支與 1 支轉紅</li>
+          <li><strong>仍抓不到的</strong>：兩個元件各自用了不同但都能運作的 key（只會多打一次 API）。
+              F1 會加靜態檢查從結構上擋掉</li>
+        </ul></details>
+        <details><summary>順帶修掉的兩件事</summary><ul>
+          <li><code>e2e/</code> 與 <code>playwright.config.ts</code> 原本不在任何 tsconfig 的 include 裡——
+              Playwright 用 esbuild 轉譯、不做型別檢查，等於測試檔的 TS 沒人看。納進
+              <code>tsconfig.node.json</code>，並用故意植入的型別錯誤驗證 tsc 真的抓得到</li>
+          <li><code>vite.config.ts</code> 的 proxy 目標改成可用 <code>VITE_API_PROXY_TARGET</code> 覆寫，
+              預設值不變，一般開發不受影響</li>
+        </ul></details>
+        <div class="commit"><code>b0032b7</code></div>
+      </article>
 
       <article class="card" data-kind="structure">
         <div class="card-top"><span class="id">E5</span><span class="tag structure">結構</span><span class="tag">命名</span></div>
@@ -784,9 +815,9 @@
 <footer>
   <p>
     <strong>第四輪</strong>（進行中）對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
-    <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code>
-    （6 個 commit，<strong>波 E 已全數完成</strong>；看板更新另外提交）。
-    測試 <strong>382 → 410 passed</strong>，原始碼淨減約 93 行。
+    <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code> →
+    <code>b0032b7</code>（7 個 commit：<strong>波 E 已全數完成</strong>，波 F 起了頭；看板更新另外提交）。
+    後端測試 <strong>382 → 410 passed</strong>，前端 e2e <strong>0 → 19</strong>，原始碼淨減約 93 行。
   </p>
   <p>
     每一步都先補特徵測試、在<strong>舊實作</strong>上跑綠之後才改碼，而且都拿真實的東西驗過，不只是跑測試：
