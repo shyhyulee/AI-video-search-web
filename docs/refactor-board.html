@@ -182,6 +182,13 @@
     background: transparent;
   }
 
+  /* 已完成欄位裡分隔不同輪次的小標 */
+  .round-divider {
+    margin: 1.1rem 0 .2rem; padding-top: .7rem; border-top: 1px solid var(--border);
+    font-size: .78rem; font-weight: 700; letter-spacing: .04em; color: var(--text-muted);
+  }
+  .round-divider:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
   /* ---------- 刻意不做 ---------- */
   .section-title {
     margin: 2.5rem 0 .9rem; font-size: 1.05rem;
@@ -217,13 +224,14 @@
 <header>
   <div class="wrap">
     <h1>重構任務看板</h1>
-    <p class="sub">AI 影片搜尋 · 第三輪重構（Web 化之後）· 依 <code>.claude/skills/refactor/SKILL.md</code> 進行</p>
+    <p class="sub">AI 影片搜尋 · <strong>第四輪重構（進行中）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
+      第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">12 <small>/ 16</small></span></div>
-      <div class="stat"><span class="k">提交數</span><span class="v">9 <small>（全部已提交）</small></span></div>
-      <div class="stat"><span class="k">測試</span><span class="v">326 <small>← 266</small></span></div>
-      <div class="stat"><span class="k">新增測試</span><span class="v">+60</span></div>
-      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（C0 缺陷）</small></span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">4 <small>/ 13</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">4 <small>（全部已提交）</small></span></div>
+      <div class="stat"><span class="k">測試</span><span class="v">403 <small>← 382</small></span></div>
+      <div class="stat"><span class="k">新增測試</span><span class="v">+21</span></div>
+      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（E3 timeout）</small></span></div>
     </div>
   </div>
 </header>
@@ -233,53 +241,108 @@
 
   <!-- ============ 有規劃 ============ -->
   <section class="col" data-col="planned">
-    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">4</span></div>
+    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">8</span></div>
     <div class="cards">
 
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">D1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>前端字面值常數化</h3>
-        <p>react-query 的 query key 與 job 終態判斷散在 4 個檔案。</p>
-        <span class="metric">query key <b>7 處</b></span>
-        <span class="metric">終態判斷 <b>15 處</b></span>
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">F0</span><span class="tag test">測試</span><span class="tag">前端</span></div>
+        <h3>前端驗證方式：Playwright smoke</h3>
+        <p>前端 3,496 行、<strong>零測試檔</strong>。這是整個波 F 的前提——沒有它，後面每一步都只能靠手動點過一遍。</p>
         <details><summary>細節</summary><ul>
-          <li>新增 <code>api/queryKeys.ts</code> 與 <code>isTerminalJob()</code> helper</li>
-          <li>涉及 <code>LibraryPage</code>／<code>VideosPage</code>／<code>YoutubeResultCard</code>／<code>useJobPolling</code></li>
+          <li><code>playwright</code> 已在 devDependencies，只是從來沒有測試檔</li>
+          <li>2026-08-29 決定：走 smoke（真的把 app 跑起來走一遍），不做元件層測試</li>
+          <li>範圍是「五個頁籤都開得起來、主要動作不炸」，不追求覆蓋率</li>
         </ul></details>
-        <div class="commit">波 D · 尚未排程</div>
+        <div class="commit">波 F · 下一步</div>
       </article>
 
       <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">D2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>抽出 <code>useAnalysisJobs</code> hook</h3>
-        <p>VideosPage 的批次分析追蹤（job map ＋ 兩個衍生布林 ＋ 收尾 effect）目前全寫在頁面元件裡。</p>
+        <div class="card-top"><span class="id">F1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>前端字面值常數化<span class="tag">原 D1</span></h3>
+        <p>react-query 的 query key 與 job 狀態判斷散在 8 個檔案，改一個要同時改多處，漏一處＝快取分岔而且不會報錯。</p>
+        <span class="metric">query key 字面值 <b>22 處</b></span>
+        <span class="metric">狀態字面值比較 <b>19 處</b></span>
+        <details><summary>細節</summary><ul>
+          <li>新增 <code>lib/queryKeys.ts</code> 與 <code>lib/jobStatus.ts</code>（<code>isTerminal()</code>／<code>isActive()</code>）</li>
+          <li>涉及 <code>LibraryPage</code>／<code>VideosPage</code>／<code>ConversationPage</code>／<code>Header</code>／
+              <code>SearchScopeBar</code>／<code>YoutubeResultCard</code>／<code>useJobPolling</code></li>
+          <li>實測盤點（2026-08-29）：<code>['videos','library']</code> ×9、<code>['stats']</code> ×6、
+              <code>['videos','pending']</code> ×3、<code>['jobs','active','analysis']</code> ×2、<code>['job', id]</code> ×2</li>
+          <li>狀態字面值比較集中在 <code>VideosPage</code> 9 處、<code>LibraryPage</code> 6 處、
+              <code>YoutubeResultCard</code> 3 處、<code>useJobPolling</code> 1 處</li>
+        </ul></details>
+        <div class="commit">波 F</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>抽出 <code>useJobSettlement</code></h3>
+        <p>「同一個 job 只收尾一次」的 ref 去重機制有<strong>三份各自的實作</strong>。</p>
+        <details><summary>細節</summary><ul>
+          <li><code>LibraryPage</code> 的 <code>settledJobIds</code>、<code>VideosPage</code> 的 <code>notifiedJobIds</code>、
+              <code>YoutubeResultCard</code> 的 <code>handledDownload</code></li>
+          <li>不是效能微調：少了去重，effect 每次重跑都會再 invalidate 一輪，對後端連發請求</li>
+        </ul></details>
+        <div class="commit">波 F</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F3</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>抽出 <code>useAnalysisJobs</code> hook<span class="tag">原 D2</span></h3>
+        <p>VideosPage 的批次分析追蹤（job map ＋ 兩個衍生布林 ＋ 標題快照 ＋ 兩支收尾 effect）全寫在頁面元件裡。</p>
+        <span class="metric">VideosPage <b>392 → 約 250 行</b></span>
         <details><summary>細節</summary><ul>
           <li>純前端重構，不影響 API</li>
-          <li>前端目前沒有測試，需先確認驗證方式（實際操作或補測試）</li>
+          <li>驗證方式已定案（F0 的 Playwright smoke）</li>
         </ul></details>
-        <div class="commit">波 D · 尚未排程</div>
+        <div class="commit">波 F</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F4</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3><code>LibraryPage</code> 拆出詳細面板</h3>
+        <p>574 行的頁面檔裡，第 394~574 行的 <code>VideoDetailPanel</code> 是一個完整的獨立元件（2 個 mutation、1 個 query、2 個 effect）。</p>
+        <span class="metric">LibraryPage <b>574 → 約 390 行</b></span>
+        <details><summary>細節</summary><ul>
+          <li>這頁在第三輪之後又長了：主題分類、庫內搜尋、文件檢視、搜尋範圍勾選都加在這裡</li>
+          <li>搬進 <code>components/VideoDetailPanel.tsx</code>，不改任何行為</li>
+        </ul></details>
+        <div class="commit">波 F</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F5</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>刪除前端死碼</h3>
+        <p><code>api/client.ts</code> 的 <code>getVideo()</code> 與 <code>listJobs()</code> 定義了但沒有任何呼叫端。</p>
+        <details><summary>細節</summary><ul>
+          <li>跟 <code>uploadVideo()</code>／<code>regenerateSummary()</code> 不同——那兩支是刻意留註解說明的，這兩支沒有</li>
+        </ul></details>
+        <div class="commit">波 F</div>
       </article>
 
       <article class="card" data-kind="docs">
-        <div class="card-top"><span class="id">Q1</span><span class="tag">待決策</span></div>
+        <div class="card-top"><span class="id">Q1</span><span class="tag">已決策</span></div>
         <h3>三個模態旗標是否保留</h3>
-        <p><code>has_transcript</code>／<code>has_visual</code>／<code>has_ocr</code> 在 §8.7 移除模態篩選後，前端已完全沒有使用。</p>
+        <p><code>has_transcript</code>／<code>has_visual</code>／<code>has_ocr</code> 在 §8.7 移除模態篩選後，前端已完全沒有使用
+          （2026-08-29 重新確認：只剩 <code>api/types.ts</code> 的型別宣告，UI 零使用）。</p>
         <details><summary>細節</summary><ul>
           <li>移除可連 B1 的聚合查詢一起省掉</li>
-          <li>但這是<strong>對外契約變更</strong>，不屬於重構範圍，需要你決定</li>
+          <li>但這是<strong>對外契約變更</strong>，不屬於重構範圍</li>
+          <li><strong>2026-08-29 決定：維持現狀</strong>，第四輪不處理</li>
         </ul></details>
-        <div class="commit">需要決策</div>
+        <div class="commit">維持現狀</div>
       </article>
 
       <article class="card" data-kind="docs">
-        <div class="card-top"><span class="id">Q2</span><span class="tag">待決策</span></div>
+        <div class="card-top"><span class="id">Q2</span><span class="tag">已決策</span></div>
         <h3><code>POST /videos/upload</code> 端點去留</h3>
         <p>前端在 §8.5 移除本機上傳後就不再呼叫，但後端端點與測試都還在。</p>
         <details><summary>細節</summary><ul>
           <li>刪除是行為變更（對外少一個端點），刻意不在重構中處理</li>
-          <li>連帶影響 <code>video_service.register_uploaded_video()</code>／<code>probe_local_duration()</code></li>
+          <li>連帶影響 <code>video_service.register_uploaded_video()</code>／<code>probe_local_duration()</code>／<code>store_upload()</code></li>
+          <li><strong>2026-08-29 決定：維持現狀</strong>；E2 反而幫它把落檔邏輯搬進了 service，之後真要刪也更好刪</li>
         </ul></details>
-        <div class="commit">需要決策</div>
+        <div class="commit">維持現狀</div>
       </article>
 
     </div>
@@ -287,8 +350,47 @@
 
   <!-- ============ 待進行 ============ -->
   <section class="col" data-col="todo">
-    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">0</span></div>
+    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">3</span></div>
     <div class="cards">
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E4</span><span class="tag structure">結構</span></div>
+        <h3>共用 <code>_format_timestamp()</code></h3>
+        <p><code>pipeline/summary.py:64</code> 與 <code>pipeline/document.py:184</code> 逐字重複同一個 <code>divmod</code> 成 <code>MM:SS</code> 的函式。</p>
+        <details><summary>細節</summary><ul>
+          <li>兩者都是「把片段攤成 <code>[MM:SS] 欄位：…</code> 逐行素材」餵給 LLM 的同一種格式</li>
+          <li><strong>未決：放哪裡。</strong>不放 <code>media.py</code>（那是子行程／暫存檔的基礎設施，跟時間格式化無關）；
+              傾向新開一個小模組，而不是讓兩個平行的 pipeline 模組互相 import</li>
+          <li>順帶評估：兩邊組裝逐行素材的迴圈高度相似（<code>document.py</code> 多帶 <code>ocr_text</code>
+              並過濾 VLM 的佔位字串），要不要一起共用尚未決定</li>
+        </ul></details>
+        <div class="commit">波 E · 下一步</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E5</span><span class="tag structure">結構</span><span class="tag">命名</span></div>
+        <h3><code>pipeline/search/</code> 的跨模組函式去掉 <code>_</code> 前綴</h3>
+        <p>第三輪拆套件時保留了原名，結果是<strong>私有命名、公開用途</strong>——可見性語意跟實際相反。</p>
+        <span class="metric">涉及函式 <b>15 支</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>_strip_generic_terms</code>／<code>_sparse_scores</code>／<code>_rrf_scores</code>／
+              <code>_get_query_vectors</code>／<code>_best_score</code>／<code>_relevant_video_ids</code>／
+              <code>_hit_source</code>／<code>_apply_quality_filter</code>／<code>_negated_segment_ids</code>…</li>
+          <li>純改名，需同步 <code>tests/test_search.py</code> 與 <code>test_search_pipeline.py</code> 的 <strong>119 處</strong>引用</li>
+        </ul></details>
+        <div class="commit">波 E</div>
+      </article>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">G</span><span class="tag">文件</span></div>
+        <h3>文件同步</h3>
+        <p>README 專案結構補上 <code>pipeline/media.py</code> 與波 F 新增的 <code>lib/</code>；本輪記錄寫進開發時間軸。</p>
+        <details><summary>細節</summary><ul>
+          <li>照第三輪 DOC 卡片的格式寫進 <code>docs/01-development-timeline.md</code></li>
+          <li>這張看板本身在每一步完成後就更新，不留到最後</li>
+        </ul></details>
+        <div class="commit">波 G · 最後</div>
+      </article>
 
     </div>
   </section>
@@ -297,14 +399,104 @@
   <section class="col" data-col="doing">
     <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
     <div class="cards">
-      <div class="empty">目前沒有進行中的任務<br>波 A + B 已全數完成並提交</div>
+      <div class="empty">目前沒有進行中的任務<br>波 E 完成 3/5，下一步是 E4</div>
     </div>
   </section>
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">12</span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">4 <small>+12</small></span></div>
     <div class="cards">
+
+      <p class="round-divider">第四輪（2026-08-29）</p>
+
+      <article class="card" data-kind="bug">
+        <div class="card-top"><span class="id">FIX</span><span class="tag bug">缺陷</span><span class="tag">測試</span></div>
+        <h3>整合測試在斷言一個 pipeline 從未承諾的順序</h3>
+        <p><code>test_analyze_worker_full_pipeline</code> 用一條全序斷言鎖住全部階段，但 Phase E（本地 OCR）與
+          Phase F（產生摘要）是<strong>刻意平行</strong>的，誰先送出事件由執行緒排程決定。</p>
+        <span class="metric">失敗率 <b>約 1/3</b></span>
+        <span class="metric">修正後 <b>8/8 通過</b></span>
+        <details><summary>細節</summary><ul>
+          <li>固定失敗訊息：<code>At index 6 diff: '產生摘要中' != '本地 OCR 掃描中'</code></li>
+          <li>沒被發現的原因：這支測試只在 <code>-m integration</code> 手動執行，不在日常迴圈裡。
+              推測從第三輪 B3 平行化上線後就一直存在</li>
+          <li><strong>先證明是既有問題</strong>：把 E3 整包 stash 掉、回到只有 E1+E2 的 HEAD 跑 3 次，
+              2 次以完全相同的訊息失敗</li>
+          <li>前六個循序階段仍逐字鎖順序；後兩個改用<strong>集合相等</strong>（不是 subset），
+              少一個或多一個階段照樣轉紅——用改名 Phase F 的突變驗證過</li>
+          <li>是分析中發現的測試缺陷，照 C0 的先例<strong>獨立提交</strong>，產品程式碼零改動</li>
+        </ul></details>
+        <div class="commit"><code>6116096</code> · 分析中發現，非原計畫項目</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E3</span><span class="tag structure">結構</span><span class="tag bug">可用性</span></div>
+        <h3>ffmpeg 呼叫收進 <code>pipeline/media.py</code>，並全部補上 timeout</h3>
+        <p>五處各自決定要不要設 timeout，結果<strong>抽幀與抽音訊兩處都沒有</strong>——ffmpeg 卡住時分析執行緒
+          無限期停住、送不出終端事件，分析 slot 就永遠不釋放（跟第三輪 C0 是同一條失敗路徑的另一個入口）。</p>
+        <span class="metric">暫存檔樣板 <b>3 份 → 1 份</b></span>
+        <span class="metric">無 timeout <b>2 → 0</b></span>
+        <span class="metric">+18 支測試</span>
+        <details><summary>細節</summary><ul>
+          <li><code>timeout</code> 是 <code>run_ffmpeg()</code> 的<strong>必填關鍵字參數、沒有預設值</strong>：
+              抽一張畫面（15s）跟讀完一小時影片的音訊（300s）差一個數量級，給預設值只會讓下一個呼叫端不去想</li>
+          <li>失敗語意<strong>刻意不統一</strong>：<code>TimeoutExpired</code> 是 <code>SubprocessError</code> 的子類別，
+              所以本來吞例外的三處照樣吞、本來往外拋的兩處照樣拋</li>
+          <li><code>frames.py</code> 保留成獨立模組（domain：抽一張畫面）而不是併進 media.py（infra：跑一個子行程）</li>
+          <li><strong>驗證</strong>：11 支命令列特徵測試先寫在舊實作上跑綠，重構後原封不動仍綠——五條 argv 逐字未變。
+              測試 patch 的是共用的 <code>subprocess</code> 模組而不是各模組的名稱，所以不綁定模組結構</li>
+          <li>突變測試 3 種（拿掉 timeout／掉了 <code>-y</code>／<code>-ss</code> 移到 <code>-i</code> 之後）全部如預期轉紅</li>
+          <li>另外用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析（<code>-m integration</code>）驗過</li>
+          <li>這是本輪唯一的<strong>刻意行為變更</strong>：原本會無限等待 → 現在會超時失敗</li>
+        </ul></details>
+        <div class="commit"><code>cd25835</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E2</span><span class="tag structure">結構</span></div>
+        <h3>補齊 API → services 的邊界</h3>
+        <p>第三輪 C2 說「API 不再直呼 db」——就<em>呼叫</em>而言是真的，但 <code>api/videos.py</code> 還留著三條 import，
+          <code>db</code>／<code>downloader</code>／<code>pipeline</code> 三層都從端點模組構得到。</p>
+        <span class="metric">跨層 import <b>3 → 0</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>video_service</code> 再匯出 <code>VideoRecord</code>／<code>SegmentRecord</code>／<code>ModalityFlags</code>，
+              跟 <code>search_service</code> 匯出 <code>SearchResult</code> 是同一個作法</li>
+          <li>新增 <code>store_upload()</code>：落檔本來寫在端點裡，但 <code>delete_video()</code> 早就在 service 層
+              unlink 檔案——檔案生命週期的兩端各住一層。收 <code>BinaryIO</code> 而不是 <code>UploadFile</code>，
+              service 不需要認識 HTTP 型別；副檔名驗證（422）留在端點</li>
+          <li><code>document_model_name()</code> 用函式不用常數：常數會在 import 時定死，而測試正是用
+              <code>monkeypatch</code> 改 <code>document_pipeline.MODEL_NAME</code></li>
+          <li>uuid4 檔名（防 Path Traversal／覆蓋）原本只有註解沒有測試，現在有兩支，
+              改成固定檔名或換目錄都會轉紅</li>
+          <li><strong>驗證</strong>：真實 multipart 上傳「我的影片.mp4」→ 落檔為 32 位 hex，未沿用使用者檔名；
+              <code>.txt</code> 仍被擋成 422。跑在測試資料庫上，正式庫全程未寫入</li>
+          <li><code>api/main.py</code> 的 <code>db.init_db()</code> 刻意保留：那是應用組裝，不是端點邏輯</li>
+        </ul></details>
+        <div class="commit"><code>1268eac</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E1</span><span class="tag structure">結構</span></div>
+        <h3>錯誤回應統一走例外對映</h3>
+        <p>兩個端點自己手刻 <code>JSONResponse</code> 產生 404，其餘走 <code>api/errors.py</code> 的對映表。
+          同一個形狀三份 dict 字面值，改格式時漏掉一處不會有任何東西提醒。</p>
+        <span class="metric">手刻錯誤回應 <b>2 → 0</b></span>
+        <span class="metric"><code>type: ignore</code> <b>1 → 0</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>schemas/common.py</code> 的 <code>ErrorResponse</code>／<code>ErrorDetail</code> 描述了這個形狀，
+              但改動前<strong>全專案零引用</strong>——規格與實作是分開的兩份。現在對映表建 body 一定經過它們</li>
+          <li>新增 <code>DocumentNotFoundError</code>／<code>ThumbnailUnavailableError</code>，掛在
+              <code>ServiceError</code> 底下（跟 job 無關，不進 <code>JobManagerError</code>）</li>
+          <li>那個 <code>type: ignore</code> 是「宣告回傳 <code>VideoDocumentOut</code> 卻回 <code>JSONResponse</code>」的症狀，
+              改成 <code>raise</code> 之後簽章與實際一致</li>
+          <li><strong>驗證</strong>：兩支測試先從「只看 code」改成逐欄位比對完整 body、在舊實作上跑綠，再改碼。
+              另外用真的 server A/B——舊碼 :8000 與新碼 :8001 的 body <code>diff</code> 完全相同</li>
+        </ul></details>
+        <div class="commit"><code>f123a8e</code></div>
+      </article>
+
+      <p class="round-divider">第三輪</p>
 
       <article class="card" data-kind="docs">
         <div class="card-top"><span class="id">DOC</span><span class="tag">文件</span></div>
@@ -564,19 +756,22 @@
 
 <footer>
   <p>
-    卡片內容對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> →
+    <strong>第四輪</strong>（進行中）對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
+    <code>cd25835</code> → <code>6116096</code>（4 個 commit，波 E 完成 3/5）。
+    測試 <strong>382 → 403 passed</strong>。E1／E2 各自用真的 server 驗過（E1 是新舊碼並跑的 A/B
+    位元組比對，E2 是真實 multipart 上傳），E3 用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析驗過。
+    每一步都先補特徵測試、在<strong>舊實作</strong>上跑綠之後才改碼。
+  </p>
+  <p>
+    <strong>第三輪</strong>對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> →
     <code>60bd954</code> → <code>a322c73</code> → <code>0135b0e</code> → <code>992fbeb</code> →
     <code>06101cc</code>（8 個 commit）。每一步都遵守「先分析、確認後才動手、一次只做一步、
     每步都跑測試驗證」；最後三個 commit 在提交前各自匯出成獨立副本跑過完整測試，
-    確認每一個 commit 單獨 checkout 都是綠的。
+    確認每一個 commit 單獨 checkout 都是綠的。第三輪結束時全套測試 <strong>326 passed</strong>。
   </p>
   <p>
-    驗收標準已全數達成：C3 補上日誌／設定管理的一致性，C4 讓文件與程式碼對齊。
-    C0 是分析中發現的缺陷，屬於<strong>刻意的行為變更</strong>，與重構分開處理。
-  </p>
-  <p>
-    全套測試 <strong>326 passed</strong>；另外用真的 server 驗過 <code>/stats</code>、
-    <code>/videos</code> 旗標與錯誤格式。
+    兩輪各有一個<strong>分析中發現、與重構分開處理</strong>的項目：第三輪的 C0（分析 slot 永久洩漏，
+    刻意的行為變更），第四輪的 FIX（整合測試的假失敗，測試缺陷、產品程式碼零改動）。
   </p>
 </footer>
 
