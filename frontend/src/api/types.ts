@@ -24,9 +24,48 @@ export interface Video {
   segment_count: number | null
   cost_usd: number | null
   summary: string | null
+  /** 整理過的文件類型；null＝還沒整理過。清單刻意只帶類型不帶內容，
+   * 完整文件走 getVideoDocument()。 */
+  document_type: DocumentType | null
   has_transcript: boolean
   has_visual: boolean
   has_ocr: boolean
+}
+
+export type DocumentType = 'sop' | 'tutorial' | 'lecture_notes' | 'content_log'
+
+/** 對齊 pipeline/document.py 的 DOC_TYPE_LABELS。 */
+export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
+  sop: '流程 SOP',
+  tutorial: '教學步驟',
+  lecture_notes: '課堂筆記',
+  content_log: '內容紀錄',
+}
+
+export interface DocumentStep {
+  timestamp_sec: number
+  heading: string
+  detail: string
+}
+
+export interface DocumentSection {
+  heading: string
+  steps: DocumentStep[]
+}
+
+export interface VideoDocument {
+  doc_type: DocumentType
+  title: string
+  overview: string
+  sections: DocumentSection[]
+  /** 素材裡沒交代清楚、讀者要自己補的事。可以是空陣列。 */
+  uncovered: string[]
+}
+
+export interface VideoDocumentResponse {
+  video_id: number
+  document: VideoDocument
+  model: string | null
 }
 
 export type JobType = 'download' | 'analysis'

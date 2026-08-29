@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpDown } from 'lucide-react'
-import { listActiveJobs, listVideos, reanalyzeVideo, regenerateSummary } from '../api/client'
+import {
+  generateVideoDocument,
+  getVideoDocument,
+  listActiveJobs,
+  listVideos,
+  reanalyzeVideo,
+  regenerateSummary,
+} from '../api/client'
 import type { Job, Video } from '../api/types'
 import { Badge } from '../components/Badge'
 import { Button, IconButton } from '../components/Button'
@@ -12,6 +19,7 @@ import { ErrorState } from '../components/ErrorState'
 import { FilterChip } from '../components/FilterChip'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SearchField } from '../components/SearchField'
+import { VideoDocumentView } from '../components/VideoDocumentView'
 import { VideoListItem } from '../components/VideoListItem'
 import { VideoPoster } from '../components/VideoPoster'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
@@ -355,6 +363,25 @@ export function LibraryPage() {
   )
 }
 
+/** 詳細面板下半部的頁籤（摘要／整理文件）。選中態用底線而不是實心底色：
+ * 這排就在按鈕列下面，兩排都用實心色塊會分不出哪個是動作、哪個是檢視切換。 */
+function PanelTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`-mb-px border-b-2 px-3 py-1.5 text-sm font-bold transition-colors ${
+        active
+          ? 'border-primary text-primary-hover'
+          : 'border-transparent text-text-secondary hover:text-text-primary'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
 /** 空清單的四種成因要講不同的話，否則使用者分不出是關鍵字沒中、這個分類沒東西，
  * 還是整個影片庫本來就是空的。 */
 function emptyStateText({
@@ -401,7 +428,31 @@ function VideoDetailPanel({
 }) {
   const queryClient = useQueryClient()
   const [summaryStatus, setSummaryStatus] = useState('')
+  const [documentStatus, setDocumentStatus] = useState('')
+  const [tab, setTab] = useState<'summary' | 'document'>('summary')
   const [reanalysisJobId, setReanalysisJobId] = useState<number | null>(null)
+
+  // 只在真的要看文件時才抓。`video.document_type` 是清單就有的輕量旗標，
+  // 用它當 enabled 條件，沒整理過的影片就完全不會打這支 API（後端那時會回
+  // 404，那是正常狀態不是錯誤，不該讓 react-query 一直重試）。
+  const documentQuery = useQuery({
+    queryKey: ['video-document', video.id],
+    queryFn: () => getVideoDocument(video.id),
+    enabled: tab === 'document' && video.document_type !== null,
+    staleTime: Infinity, // 文件只有按下「整理成文件」才會變，不用自動重取
+  })
+
+  const documentMutation = useMutation({
+    mutationFn: () => generateVideoDocument(video.id),
+    onSuccess: (resp) => {
+      setDocumentStatus('✓ 文件已整理完成')
+      // 直接把結果塞進快取，省掉一次來回；成本變了所以清單與統計卡要重取。
+      queryClient.setQueryData(['video-document', video.id], resp)
+      queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+    },
+    onError: (err: Error) => setDocumentStatus(`整理文件失敗：${err.message}`),
+  })
 
   const summaryMutation = useMutation({
     mutationFn: () => regenerateSummary(video.id),
@@ -453,7 +504,8 @@ function VideoDetailPanel({
   // 影片自己的 status 也算 busy：重新整理後 job 還沒接回來的那幾秒，按鈕
   // 不能是可按的——後端會回 409，而且摘要／搜尋這時看到的是上一輪的結果。
   const analyzing = video.status === 'analyzing' || job?.status === 'running' || job?.status === 'queued'
-  const busy = summaryMutation.isPending || reanalyzeMutation.isPending || analyzing
+  const busy =
+    summaryMutation.isPending || documentMutation.isPending || reanalyzeMutation.isPending || analyzing
 
   return (
     <div className="flex flex-col gap-3 md:h-full">
@@ -492,6 +544,20 @@ function VideoDetailPanel({
         >
           重新產生摘要
         </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={video.status !== 'analyzed' || busy}
+          onClick={() => {
+            // 先切到文件頁籤再送出，使用者才看得到等待狀態長在哪裡——
+            // 這支請求要跑數十秒，停在摘要頁籤會像是沒反應。
+            setTab('document')
+            setDocumentStatus('整理中…影片越長越久，請稍候')
+            documentMutation.mutate()
+          }}
+        >
+          {video.document_type ? '重新整理文件' : '整理成文件'}
+        </Button>
         <Button variant="secondary" size="sm" disabled={busy} onClick={() => reanalyzeMutation.mutate()}>
           重新分析
         </Button>
@@ -515,16 +581,48 @@ function VideoDetailPanel({
           縮圖／標題／標籤／按鈕在每支影片都固定在同樣的高度。
           它同時是整個面板唯一會捲動的地方——上面全是 shrink-0，摘要吃掉剩下的
           高度（md:flex-1），真的塞不下才在自己內部捲，卡片本身不捲。 */}
+      <div className="flex shrink-0 gap-1 border-b border-border">
+        {/* 摘要與整理文件共用同一塊捲動區，用頁籤切換而不是上下堆疊：
+            一份 SOP 可能有二三十個步驟，堆在摘要底下會把面板拉得很長，
+            而且換影片時版面高度會跳。 */}
+        <PanelTab label="摘要" active={tab === 'summary'} onClick={() => setTab('summary')} />
+        <PanelTab label="整理文件" active={tab === 'document'} onClick={() => setTab('document')} />
+      </div>
+
       <div className="md:min-h-0 md:flex-1 md:overflow-auto">
-        <h4 className="mb-2 text-sm font-bold text-text-primary">摘要</h4>
-        <p className="text-sm leading-relaxed text-text-primary">
-          {video.summary ??
-            (video.status === 'analyzed' ? '尚未產生摘要，按上方「重新產生摘要」產生。' : '這支影片分析失敗，沒有片段可以產生摘要。')}
-        </p>
-        {summaryStatus && (
-          <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
-            {summaryStatus}
-          </p>
+        {tab === 'summary' ? (
+          <>
+            <p className="text-sm leading-relaxed text-text-primary">
+              {video.summary ??
+                (video.status === 'analyzed' ? '尚未產生摘要，按上方「重新產生摘要」產生。' : '這支影片分析失敗，沒有片段可以產生摘要。')}
+            </p>
+            {summaryStatus && (
+              <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
+                {summaryStatus}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            {documentMutation.isPending ? (
+              <LoadingSkeleton variant="list-item" count={3} />
+            ) : documentQuery.data ? (
+              <VideoDocumentView document={documentQuery.data.document} />
+            ) : documentQuery.isLoading ? (
+              <LoadingSkeleton variant="list-item" count={3} />
+            ) : (
+              <p className="text-sm leading-relaxed text-text-secondary">
+                {video.status === 'analyzed'
+                  ? '尚未整理成文件。按上方「整理成文件」，系統會依影片內容判斷要產生流程 SOP、教學步驟、課堂筆記，還是內容紀錄。'
+                  : '這支影片分析失敗，沒有片段可以整理成文件。'}
+              </p>
+            )}
+            {documentStatus && (
+              <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
+                {documentStatus}
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 from .. import db, downloader
-from ..pipeline import analyzer, summary as summary_pipeline
+from ..pipeline import analyzer, document as document_pipeline, summary as summary_pipeline
 from ..pipeline.openai_client import get_client
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,33 @@ def regenerate_summary(video_id: int, segments: list[db.SegmentRecord]) -> summa
     result = summary_pipeline.generate_summary(client, segments)
     db.update_video_summary(video_id, result.summary, summary_pipeline.MODEL_NAME, result.cost_usd)
     return result
+
+
+def generate_document(
+    video: db.VideoRecord, segments: list[db.SegmentRecord]
+) -> document_pipeline.DocumentResult:
+    """整理出一份結構化文件並存回影片記錄上（重複呼叫＝重新整理，直接覆蓋）。
+
+    存的是整包 JSON 而不是拆成欄位：文件的形狀由 pipeline 的 pydantic 模型
+    決定，之後 schema 演進時只要動那一個地方，DB 不用跟著改。
+    """
+    client = get_client()
+    result = document_pipeline.generate_document(client, video.title, segments)
+    db.update_video_document(
+        video.id,
+        result.document.model_dump_json(),
+        result.document.doc_type,
+        document_pipeline.MODEL_NAME,
+        result.cost_usd,
+    )
+    return result
+
+
+def load_document(video: db.VideoRecord) -> document_pipeline.VideoDocument | None:
+    """讀回已經整理過的文件；沒整理過回 None。"""
+    if not video.document_json:
+        return None
+    return document_pipeline.VideoDocument.model_validate_json(video.document_json)
 
 
 def generate_thumbnail(video: db.VideoRecord, size: tuple[int, int] = _THUMBNAIL_SIZE) -> bytes | None:

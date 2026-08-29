@@ -276,3 +276,75 @@ def test_thumbnail_unavailable_for_nonexistent_file_returns_404(client):
     resp = client.get(f"/api/v1/videos/{video_id}/thumbnail")
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "THUMBNAIL_UNAVAILABLE"
+
+
+# ----------------------------------------------------------------------
+# 整理成文件（POST/GET /videos/{id}/document）
+# ----------------------------------------------------------------------
+
+
+def _fake_document():
+    from ai_video_search_web.pipeline.document import DocumentSection, DocumentStep, VideoDocument
+
+    return VideoDocument(
+        doc_type="sop", title="生產流程", overview="概述",
+        sections=[DocumentSection(heading="階段一", steps=[
+            DocumentStep(timestamp_sec=12.0, heading="塗矽膏", detail="刷過鋼板"),
+        ])],
+        uncovered=[],
+    )
+
+
+def test_generate_document_returns_document_and_persists_type(client, monkeypatch):
+    from ai_video_search_web.services import video_service
+
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="第一步")
+    monkeypatch.setattr(
+        video_service.document_pipeline, "generate_document",
+        lambda client_, title, segments: type("R", (), {"document": _fake_document(), "cost_usd": 0.005})(),
+    )
+
+    resp = client.post(f"/api/v1/videos/{video_id}/document")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["document"]["doc_type"] == "sop"
+    assert body["document"]["sections"][0]["steps"][0]["timestamp_sec"] == 12.0
+    # 清單只帶類型不帶內容
+    listed = client.get("/api/v1/videos").json()[0]
+    assert listed["document_type"] == "sop"
+    assert "document_json" not in listed
+
+
+def test_generate_document_missing_video_returns_404_not_422(client):
+    """/summary 對不存在的 video 會回 422（先查片段再查影片），這支刻意不照抄
+    那個順序，維持 _get_video_or_raise 的 404 慣例。"""
+    resp = client.post("/api/v1/videos/999/document")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "VIDEO_NOT_FOUND"
+
+
+def test_generate_document_no_segments_returns_422(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    resp = client.post(f"/api/v1/videos/{video_id}/document")
+    assert resp.status_code == 422
+
+
+def test_get_document_before_generating_returns_404(client):
+    """還沒整理過是正常狀態，前端靠這個 404 決定顯示「尚未整理」。"""
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    resp = client.get(f"/api/v1/videos/{video_id}/document")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
+
+
+def test_get_document_returns_stored_document(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    db.update_video_document(video_id, _fake_document().model_dump_json(), "sop", "gpt-4o-mini", 0.005)
+
+    resp = client.get(f"/api/v1/videos/{video_id}/document")
+
+    assert resp.status_code == 200
+    assert resp.json()["document"]["title"] == "生產流程"
+    assert resp.json()["model"] == "gpt-4o-mini"

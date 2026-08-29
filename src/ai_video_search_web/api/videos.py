@@ -16,8 +16,9 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from .. import downloader
 from ..db import videos as db_videos
+from ..pipeline import document as document_pipeline
 from ..schemas.jobs import JobOut
-from ..schemas.videos import VideoOut, YoutubeDownloadRequest
+from ..schemas.videos import VideoDocumentOut, VideoOut, YoutubeDownloadRequest
 from ..services import job_manager, video_service
 from ..services.errors import VideoNotFoundError
 
@@ -114,6 +115,48 @@ def regenerate_summary(video_id: int) -> VideoOut:
     video_service.regenerate_summary(video_id, segments)
     video = _get_video_or_raise(video_id)
     return VideoOut.from_record(video, video_service.modality_flags([video_id]).get(video_id))
+
+
+@router.post("/{video_id}/document", response_model=VideoDocumentOut)
+def generate_document(video_id: int) -> VideoDocumentOut:
+    """把整支影片整理成一份結構化文件（SOP／教學步驟／課堂筆記／內容紀錄，
+    由模型自己依內容判斷），見 pipeline/document.py。
+
+    跟 /reanalyze 不同，這是**同步**端點、不進 jobs 表：單次 LLM 呼叫符合
+    docs/09-web-ui-migration-plan.md 的 Category B 判準。代價是回應時間比其他
+    同步端點長（輸出 token 比摘要多一個量級），前端要有明確的等待狀態。
+
+    先查影片再查片段，順序跟 /summary 相反是刻意的：那支對不存在的 video_id
+    會回 422「沒有分析片段」而不是 404，這裡照 _get_video_or_raise 的慣例做。
+    """
+    video = _get_video_or_raise(video_id)
+    segments = video_service.list_segments_for_video(video_id)
+    if not segments:
+        raise HTTPException(status_code=422, detail="這支影片還沒有任何分析片段，無法整理成文件")
+    result = video_service.generate_document(video, segments)
+    return VideoDocumentOut(
+        video_id=video_id, document=result.document, model=document_pipeline.MODEL_NAME
+    )
+
+
+@router.get("/{video_id}/document", response_model=VideoDocumentOut)
+def get_document(video_id: int) -> VideoDocumentOut:
+    """讀回已經整理好的文件。還沒整理過就是 404——這是正常狀態不是錯誤，
+    前端用它來決定要顯示「還沒整理」還是文件內容。"""
+    video = _get_video_or_raise(video_id)
+    document = video_service.load_document(video)
+    if document is None:
+        return JSONResponse(  # type: ignore[return-value]
+            status_code=404,
+            content={
+                "error": {
+                    "code": "DOCUMENT_NOT_FOUND",
+                    "message": "這支影片還沒有整理過的文件",
+                    "details": None,
+                }
+            },
+        )
+    return VideoDocumentOut(video_id=video_id, document=document, model=video.document_model)
 
 
 @router.get("/{video_id}/stream")

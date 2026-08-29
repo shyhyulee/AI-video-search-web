@@ -5,6 +5,7 @@ import type {
   Job,
   SearchResponse,
   Video,
+  VideoDocumentResponse,
   YoutubeSearchResponse,
 } from './types'
 import { ApiError } from './types'
@@ -63,6 +64,18 @@ export function reanalyzeVideo(videoId: number): Promise<Job> {
 
 export function regenerateSummary(videoId: number): Promise<Video> {
   return request<Video>(`/videos/${videoId}/summary`, { method: 'POST' })
+}
+
+/** 把整支影片整理成一份結構化文件。同步端點、會呼叫 LLM，比其他 POST 慢
+ * 得多（輸出 token 比摘要多一個量級），呼叫端要有明確的等待狀態。 */
+export function generateVideoDocument(videoId: number): Promise<VideoDocumentResponse> {
+  return request<VideoDocumentResponse>(`/videos/${videoId}/document`, { method: 'POST' })
+}
+
+/** 讀回已整理的文件。還沒整理過時後端回 404（正常狀態，不是錯誤），
+ * 呼叫端要自己接住。 */
+export function getVideoDocument(videoId: number): Promise<VideoDocumentResponse> {
+  return request<VideoDocumentResponse>(`/videos/${videoId}/document`)
 }
 
 export function getStreamUrl(videoId: number): string {

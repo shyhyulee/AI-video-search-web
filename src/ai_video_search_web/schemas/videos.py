@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from .. import db
+from ..pipeline.document import VideoDocument
 
 
 class VideoOut(BaseModel):
@@ -18,6 +19,10 @@ class VideoOut(BaseModel):
     segment_count: int | None
     cost_usd: float | None
     summary: str | None
+    #: 這支影片整理過的文件類型（None＝還沒整理過）。刻意**只帶類型、不帶內容**：
+    #: 影片庫清單每 3 秒輪詢一次，整包文件有數 KB，乘上整個清單的量太浪費。
+    #: 完整內容走 GET /videos/{id}/document，只有真的要看的時候才取。
+    document_type: str | None
     has_transcript: bool
     has_visual: bool
     has_ocr: bool
@@ -36,10 +41,20 @@ class VideoOut(BaseModel):
             duration_sec=record.duration_sec, status=record.status, pipeline_stage=record.pipeline_stage,
             created_at=record.created_at, analyzed_at=record.analyzed_at, segment_count=record.segment_count,
             cost_usd=record.cost_usd, summary=record.summary,
+            document_type=record.document_type,
             has_transcript=flags.has_transcript,
             has_visual=flags.has_visual,
             has_ocr=flags.has_ocr,
         )
+
+
+class VideoDocumentOut(BaseModel):
+    """整理出來的文件內容。document 直接沿用 pipeline 的 pydantic 模型當契約——
+    它本來就是 LLM 的 response_format，多包一層轉換只會多一個要同步維護的地方。
+    """
+    video_id: int
+    document: VideoDocument
+    model: str | None
 
 
 class YoutubeDownloadRequest(BaseModel):

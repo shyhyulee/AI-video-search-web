@@ -664,3 +664,25 @@ def test_raw_insert_is_searchable_without_backfill(temp_db):
         ).fetchone()["id"]
 
     assert db.fts_like_search("雄獅") == [segment_id]
+
+
+def test_update_video_document_stores_fields_and_accumulates_cost(temp_db):
+    video_id = _make_video()
+
+    db.update_video_document(video_id, '{"doc_type":"sop"}', "sop", "gpt-4o-mini", 0.005)
+    db.update_video_document(video_id, '{"doc_type":"tutorial"}', "tutorial", "gpt-4o-mini", 0.003)
+
+    video = db.get_video(video_id)
+    # 重新整理直接覆蓋，不留版本歷史
+    assert video.document_json == '{"doc_type":"tutorial"}'
+    assert video.document_type == "tutorial"
+    assert video.document_model == "gpt-4o-mini"
+    # 成本兩次都累加（跟 update_video_summary 一致）
+    assert video.cost_usd == pytest.approx(0.008)
+
+
+def test_video_document_fields_default_to_none(temp_db):
+    video = db.get_video(_make_video())
+    assert video.document_json is None
+    assert video.document_type is None
+    assert video.document_model is None

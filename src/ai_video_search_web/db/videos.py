@@ -36,6 +36,12 @@ class VideoRecord:
     embedding_model: str | None
     summary: str | None
     summary_model: str | None
+    #: pipeline/document.py 產生的結構化文件（VideoDocument 的 JSON）。
+    #: document_type 另外抽成一欄是為了讓清單頁不用解析整包 JSON 就知道
+    #: 這支影片整理出來的是 SOP 還是內容紀錄。
+    document_json: str | None
+    document_type: str | None
+    document_model: str | None
 
 
 @dataclass
@@ -69,8 +75,30 @@ def create_table(conn: psycopg.Connection) -> None:
             vlm_model TEXT,
             embedding_model TEXT,
             summary TEXT,
-            summary_model TEXT
+            summary_model TEXT,
+            -- 整理出來的結構化文件，見 pipeline/document.py。跟 summary 一樣是
+            -- 「LLM 產出的長文掛在影片上」，所以沿用同一個位置而不是另開一張表；
+            -- 重新整理直接覆蓋，不留版本歷史。
+            document_json TEXT,
+            document_type TEXT,
+            document_model TEXT
         )
+        """
+    )
+    # PostgreSQL 遷移時是全新資料庫，所以 SQLite 時期的 migrate_columns() 機制
+    # 被整個移除了（見上面的註解）。但那個前提在「遷移完成之後才新增欄位」時
+    # 就不成立了：`CREATE TABLE IF NOT EXISTS` 對既有資料庫是 no-op，欄位不會
+    # 自己長出來，_row_to_record() 會在下一次讀取時 KeyError。
+    #
+    # 這三行是為了那個情況存在的，不是要把整套 migration 機制加回來：
+    # ADD COLUMN IF NOT EXISTS 是冪等的，全新資料庫執行等於沒事，既有資料庫
+    # 則在啟動時自動補齊，不需要任何人手動下 SQL。之後再加欄位就照這個模式。
+    conn.execute(
+        """
+        ALTER TABLE videos
+            ADD COLUMN IF NOT EXISTS document_json TEXT,
+            ADD COLUMN IF NOT EXISTS document_type TEXT,
+            ADD COLUMN IF NOT EXISTS document_model TEXT
         """
     )
 
@@ -193,6 +221,28 @@ def update_video_summary(video_id: int, summary: str, summary_model: str, additi
         )
 
 
+def update_video_document(
+    video_id: int,
+    document_json: str,
+    document_type: str,
+    document_model: str,
+    additional_cost_usd: float,
+) -> None:
+    """設定整理出來的文件並把這次的花費累加進 cost_usd（可重複呼叫＝重新整理，
+    直接覆蓋舊文件，不留版本歷史）。成本累加方式跟 update_video_summary() 一致。
+    """
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE videos
+            SET document_json = %s, document_type = %s, document_model = %s,
+                cost_usd = COALESCE(cost_usd, 0) + %s
+            WHERE id = %s
+            """,
+            (document_json, document_type, document_model, additional_cost_usd, video_id),
+        )
+
+
 def clear_analysis_output(video_id: int) -> None:
     """只刪掉既有的 segments 與 ocr_events，videos 表的欄位一個都不動。
 
@@ -311,4 +361,7 @@ def _row_to_record(row: dict) -> VideoRecord:
         embedding_model=row["embedding_model"],
         summary=row["summary"],
         summary_model=row["summary_model"],
+        document_json=row["document_json"],
+        document_type=row["document_type"],
+        document_model=row["document_model"],
     )

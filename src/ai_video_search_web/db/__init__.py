@@ -79,6 +79,7 @@ from .videos import (
     mark_video_analyzed,
     reset_to_pending,
     update_video_status,
+    update_video_document,
     update_video_summary,
 )
 from .segments import (
@@ -135,7 +136,8 @@ __all__ = [
     "VideoRecord", "HeaderStatsData", "SegmentRecord", "ModalityFlags", "OcrEventRecord",
     "insert_video", "get_video", "find_by_source_url", "list_unanalyzed_videos",
     "get_header_stats", "list_analyzed_videos", "list_library_videos",
-    "update_video_summary", "reset_to_pending", "delete_video", "clear_analysis_output",
+    "update_video_summary", "update_video_document",
+    "reset_to_pending", "delete_video", "clear_analysis_output",
     "update_video_status", "mark_video_analyzed",
     "insert_segment", "list_segments_for_video", "list_segments_for_videos", "list_all_segments",
     "modality_flags_by_video",
