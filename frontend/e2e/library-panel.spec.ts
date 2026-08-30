@@ -320,3 +320,71 @@ test.describe('點時間戳進入觀看模式', () => {
     await expect(panelTitle(page, TECH)).toBeVisible()
   })
 })
+
+
+test.describe('超出影片長度的時間戳不給點', () => {
+  /** 種子影片是 30 秒（見 scripts/seed_smoke_db.py），所以 02:00 這一步一定
+   * 對不上——這正是實測 8 支真實文件裡 3 支會出現的情況：模型寫出影片裡根本
+   * 沒有的時間點（最誇張的是 18:33 的影片寫出 22:56 的步驟）。 */
+  const DOC_WITH_BAD_STEP = {
+    ...DOCUMENT,
+    sections: [
+      {
+        heading: '第一階段：晶圓進料',
+        steps: [
+          { timestamp_sec: 12, heading: '確認晶圓批號', detail: '核對批號與工單是否相符。' },
+          { timestamp_sec: 120, heading: '這一步的時間點不存在', detail: '模型編出來的步驟。' },
+        ],
+      },
+    ],
+  }
+
+  async function openDocument(page: Page) {
+    await page.route('**/api/v1/videos/*/document', (route) =>
+      route.fulfill(json({ video_id: 1, document: DOC_WITH_BAD_STEP, model: 'gpt-4o-mini' })),
+    )
+    await selectVideo(page, TECH)
+    await page.getByRole('button', { name: '整理成文件' }).click()
+    await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
+  }
+
+  test('對不上的時間戳停用，範圍內的照常可點', async ({ page }) => {
+    await openDocument(page)
+
+    await expect(
+      page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }),
+    ).toBeEnabled()
+    await expect(
+      page.getByRole('button', { name: '02:00：超出影片長度，無法播放' }),
+    ).toBeDisabled()
+  })
+
+  test('用一句話講出來，不是只靠 tooltip', async ({ page }) => {
+    await openDocument(page)
+
+    // 只有 title 的話，等於只有已經起疑的人才會發現
+    await expect(page.getByText(/有 1 個步驟的時間點超出影片長度（00:30）/)).toBeVisible()
+    await expect(page.getByText(/已停用它們的播放連結/)).toBeVisible()
+  })
+
+  test('點停用的時間戳不會進觀看模式', async ({ page }) => {
+    await openDocument(page)
+
+    // force 略過 Playwright 的可互動性檢查，模擬使用者硬點下去
+    await page.getByRole('button', { name: '02:00：超出影片長度，無法播放' }).click({ force: true })
+
+    await expect(page.locator('video')).toHaveCount(0)
+    await expect(page.getByLabel('搜尋影片庫')).toBeVisible()
+  })
+
+  test('沒有超出長度的文件不會出現那句提示', async ({ page }) => {
+    await page.route('**/api/v1/videos/*/document', (route) =>
+      route.fulfill(json({ video_id: 1, document: DOCUMENT, model: 'gpt-4o-mini' })),
+    )
+    await selectVideo(page, TECH)
+    await page.getByRole('button', { name: '整理成文件' }).click()
+    await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
+
+    await expect(page.getByText(/超出影片長度/)).toHaveCount(0)
+  })
+})

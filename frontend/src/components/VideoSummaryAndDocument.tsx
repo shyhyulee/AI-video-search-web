@@ -56,7 +56,11 @@ export function VideoSummaryAndDocument({
         {isGenerating || documentQuery.isLoading ? (
           <LoadingSkeleton variant="list-item" count={3} />
         ) : documentQuery.data ? (
-          <VideoDocumentView document={documentQuery.data.document} onSeek={onSeek} />
+          <VideoDocumentView
+            document={documentQuery.data.document}
+            durationSec={video.duration_sec}
+            onSeek={onSeek}
+          />
         ) : (
           <p className="text-sm leading-relaxed text-text-secondary">
             {video.status === 'analyzed'
