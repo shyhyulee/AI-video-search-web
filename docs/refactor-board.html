@@ -224,12 +224,12 @@
 <header>
   <div class="wrap">
     <h1>重構任務看板</h1>
-    <p class="sub">AI 影片搜尋 · <strong>第四輪重構（進行中）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
+    <p class="sub">AI 影片搜尋 · <strong>第四輪重構（已完成）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
       第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">12 <small>/ 13</small></span></div>
-      <div class="stat"><span class="k">本輪提交數</span><span class="v">12 <small>（另有看板更新）</small></span></div>
-      <div class="stat"><span class="k">進度</span><span class="v">波 E 5/5 <small>· 波 F 6/6</small></span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">13 <small>/ 13</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">13 <small>（另有看板更新）</small></span></div>
+      <div class="stat"><span class="k">進度</span><span class="v">E 5/5 <small>· F 6/6 · G 1/1</small></span></div>
       <div class="stat"><span class="k">後端測試</span><span class="v">410 <small>← 382</small></span></div>
       <div class="stat"><span class="k">前端 e2e</span><span class="v">32 <small>← 0</small></span></div>
       <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（E3 timeout）</small></span></div>
@@ -275,19 +275,10 @@
 
   <!-- ============ 待進行 ============ -->
   <section class="col" data-col="todo">
-    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">1</span></div>
+    <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">0</span></div>
     <div class="cards">
 
-      <article class="card" data-kind="docs">
-        <div class="card-top"><span class="id">G</span><span class="tag">文件</span></div>
-        <h3>文件同步</h3>
-        <p>README 專案結構補上 <code>pipeline/media.py</code> 與波 F 新增的 <code>lib/</code>；本輪記錄寫進開發時間軸。</p>
-        <details><summary>細節</summary><ul>
-          <li>照第三輪 DOC 卡片的格式寫進 <code>docs/01-development-timeline.md</code></li>
-          <li>這張看板本身在每一步完成後就更新，不留到最後</li>
-        </ul></details>
-        <div class="commit">波 G · 最後</div>
-      </article>
+      <div class="empty">全部完成</div>
 
     </div>
   </section>
@@ -296,16 +287,38 @@
   <section class="col" data-col="doing">
     <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
     <div class="cards">
-      <div class="empty">目前沒有進行中的任務<br>波 E、波 F 都已全數完成，只剩波 G（文件同步）</div>
+      <div class="empty">第四輪已全數完成<br>E 5 步、F 6 步、G 1 步，共 13 個 commit</div>
     </div>
   </section>
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">12 <small>+12</small></span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">13 <small>+12</small></span></div>
     <div class="cards">
 
       <p class="round-divider">第四輪（2026-08-29 ～ 30）</p>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">G</span><span class="tag">文件</span></div>
+        <h3>文件與程式碼對齊</h3>
+        <p>五份文件。判準只有一條，而且是專案自己的維護規則（<code>docs/README.md</code>）：
+          <strong>描述現況的更新，記錄當時的不動</strong>。</p>
+        <details><summary>細節</summary><ul>
+          <li><code>docs/04</code> 的測試清單最離譜：宣稱「截至第二輪重構、15 個檔案 151 個測試」，
+              還列著隨 Tkinter 一起移除的 <code>test_widgets.py</code>，也完全不知道前端已經有測試。
+              改成 30 個檔案 410 個後端測試 ＋ 32 支 e2e，依領域分組而不是一張長表，
+              並加一句「數字會漂，要現況跑 <code>pytest --collect-only -q</code>」</li>
+          <li>e2e 那一節明講「刻意不驗什麼、為什麼」，讓那些缺口讀起來是決定而不是疏漏</li>
+          <li><code>docs/02</code> 有一處引用 E4 內聯掉的 <code>_build_content()</code>，改指
+              <code>segment_material.build_material()</code></li>
+          <li><code>docs/09</code>／<code>docs/11</code> 裡 <code>settledJobIds</code> 等已不存在的名字
+              <strong>保持原樣</strong>——那是遷移與改版的階段紀錄，不是現況描述</li>
+          <li>README 專案結構補上 media.py／segment_material.py／前端四個 lib 模組／e2e/／
+              frontend/scripts/／seed_smoke_db.py；<code>docs/README.md</code> 補上兩份看板
+              （一直被別的文件連結，卻從來不在索引裡）</li>
+        </ul></details>
+        <div class="commit"><code>ea95366</code></div>
+      </article>
 
       <article class="card" data-kind="structure">
         <div class="card-top"><span class="id">F5</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
@@ -857,8 +870,8 @@
     <strong>第四輪</strong>（進行中）對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
     <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code> →
     <code>b0032b7</code> → <code>7d9e926</code> → <code>f783695</code> → <code>8a27855</code> →
-    <code>dddc675</code> → <code>d8e0c1b</code>
-    （12 個 commit：<strong>波 E 與波 F 都已全數完成</strong>，只剩波 G；看板更新另外提交）。
+    <code>dddc675</code> → <code>d8e0c1b</code> → <code>ea95366</code>
+    （13 個 commit，<strong>三波全數完成</strong>；看板更新另外提交）。
     後端測試 <strong>382 → 410 passed</strong>，前端 e2e <strong>0 → 32</strong>，
     <code>LibraryPage</code> 574→385 行、<code>VideosPage</code> 392→315 行。
   </p>
