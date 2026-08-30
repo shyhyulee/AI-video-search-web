@@ -7,8 +7,9 @@ import { Badge } from './Badge'
  * 刻意不引進 Markdown 函式庫：後端回的是結構化資料（章節／步驟／時間戳都是
  * 獨立欄位），直接用既有的排版元件畫就好，零新依賴。
  *
- * 給了 `onSeek` 時間戳就變成可點的按鈕（點了跳到影片那個時間點）；沒給就維持
- * 純文字標籤——不強迫每個呼叫端都要有播放器。 */
+ * 給了 `onSeek` 時間戳就變成可點的按鈕；沒給就維持純文字標籤——不強迫每個
+ * 呼叫端都要有播放器。兩個呼叫端做的事不同：影片庫的詳細面板是「切進觀看
+ * 模式」，觀看模式本身則是「就地 seek」，見 VideoWatchView。 */
 export function VideoDocumentView({
   document,
   onSeek,

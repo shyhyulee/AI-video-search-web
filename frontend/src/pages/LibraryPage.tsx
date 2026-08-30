@@ -12,6 +12,7 @@ import { FilterChip } from '../components/FilterChip'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SearchField } from '../components/SearchField'
 import { VideoDetailPanel } from '../components/VideoDetailPanel'
+import { VideoWatchView } from '../components/VideoWatchView'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { activeJobsKey, libraryVideosKey } from '../lib/queryKeys'
@@ -70,6 +71,14 @@ export function LibraryPage() {
   // navigate 只剩「在此／在選取影片內搜尋」在用（設好共用的搜尋範圍後跳到
   // 「搜尋影片」頁）；這頁上方原本那條自由文字搜尋列已移除，搜尋一律在
   // 「搜尋影片」頁進行。
+  // 觀看模式：點文件裡的步驟時間戳進去，左播放器、右摘要與文件（見
+  // VideoWatchView）。存的是「哪一支影片的第幾秒」，null＝正常的清單版面。
+  //
+  // 只放在 state、沒有同步到網址：頁籤是 keep-alive 的（見 App.tsx），切走再
+  // 切回來狀態還在，所以少了網址只影響「可分享」與「上一頁退出」。要做的話
+  // 得處理 keep-alive 下的參數消化，SearchPage 的 `consumedParams` 就是為此
+  // 存在的——那是獨立的一步，先不綁進來。
+  const [watching, setWatching] = useState<{ videoId: number; sec: number } | null>(null)
   const navigate = useNavigate()
   const { setScope } = useSearchScope()
 
@@ -176,6 +185,22 @@ export function LibraryPage() {
   const searchInVideos = (ids: number[]) => {
     setScope(ids)
     navigate('/search')
+  }
+
+  // 觀看中的影片可能已經被刪掉或還原成待分析（清單每 3 秒重取）；查不到就退回
+  // 清單，不要留在一個指向不存在影片的播放畫面。
+  const watchedVideo = watching ? (videos ?? []).find((v) => v.id === watching.videoId) : undefined
+  if (watching && watchedVideo) {
+    return (
+      <VideoWatchView
+        // key 讓換一支影片時整個重新掛載，播放器不會沿用上一支的狀態
+        key={watchedVideo.id}
+        video={watchedVideo}
+        category={categoryOf.get(watchedVideo.id)}
+        startSec={watching.sec}
+        onBack={() => setWatching(null)}
+      />
+    )
   }
 
   return (
@@ -342,6 +367,7 @@ export function LibraryPage() {
               category={categoryOf.get(selected.id)}
               activeJob={activeJobs?.find((j) => j.video_id === selected.id)}
               onSearchInVideo={(v) => searchInVideos([v.id])}
+              onWatchAt={(sec) => setWatching({ videoId: selected.id, sec })}
             />
           ) : (
             // 清單有東西時一定會有選取（預設第一筆），所以這個空狀態只在

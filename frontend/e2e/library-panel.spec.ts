@@ -47,6 +47,18 @@ const DOCUMENT = {
         { timestamp_sec: 24, heading: '送進光刻機', detail: '確認光罩對位。' },
       ],
     },
+    {
+      // 第二章節純粹是為了把文件撐長：窄螢幕「點時間戳要把播放器捲進視野」那
+      // 條，只有在時間戳真的落在畫面外時才驗得到——第一版文件太短，捲不動，
+      // 拿掉 scrollIntoView 測試照樣綠。真實文件本來就有 7~20 個步驟。
+      heading: '第二階段：蝕刻與檢測',
+      steps: [
+        { timestamp_sec: 26, heading: '乾式蝕刻', detail: '依製程配方設定氣體比例與時間。' },
+        { timestamp_sec: 27, heading: '光阻去除', detail: '以電漿灰化去除殘餘光阻。' },
+        { timestamp_sec: 28, heading: '線上量測', detail: '取樣量測關鍵尺寸並回報製程機台。' },
+        { timestamp_sec: 29, heading: '缺陷檢視', detail: '自動光學檢測後由工程師複判。' },
+      ],
+    },
   ],
   uncovered: ['影片沒有交代無塵室的更衣程序'],
 }
@@ -190,7 +202,7 @@ test('重新分析：接上進度，跑完顯示完成', async ({ page }) => {
 })
 
 
-test.describe('點文件時間戳直接播放', () => {
+test.describe('點時間戳進入觀看模式', () => {
   /** 讓面板出現一份文件。文件是攔截來的，不會呼叫 OpenAI。 */
   async function openDocument(page: Page) {
     await page.route('**/api/v1/videos/*/document', (route) =>
@@ -201,79 +213,110 @@ test.describe('點文件時間戳直接播放', () => {
     await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
   }
 
-  test('預設沒有播放器，點了才出現', async ({ page }) => {
+  /** 等播放器把影片載進來並跳到目標秒數。用 poll 而不是固定 sleep。 */
+  async function expectSeekedTo(page: Page, sec: number) {
+    const video = page.locator('video')
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
+      .toBeGreaterThan(sec - 1)
+    expect(await video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeLessThan(sec + 3)
+  }
+
+  test('清單版面沒有播放器，點時間戳才切進觀看模式', async ({ page }) => {
     await openDocument(page)
 
-    // 這個面板刻意不常駐播放器（滿版縮圖就是因為吃掉垂直空間被移除的）
+    // 摘要上方原本那塊播放器已經移除，清單版面完全沒有 <video>
     await expect(page.locator('video')).toHaveCount(0)
+    await expect(page.getByLabel('搜尋影片庫')).toBeVisible()
 
     await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
 
+    // 影片庫的清單收起來，換成觀看版面
     await expect(page.locator('video')).toHaveCount(1)
-    await expect(page.getByText('從 00:12 開始播放')).toBeVisible()
+    await expect(page.getByRole('button', { name: '返回影片庫' })).toBeVisible()
+    await expect(page.getByLabel('搜尋影片庫')).toHaveCount(0)
   })
 
-  test('真的跳到那個時間點', async ({ page }) => {
+  test('觀看模式右邊仍然看得到摘要與文件', async ({ page }) => {
     await openDocument(page)
     await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
 
-    const video = page.locator('video')
-    // 種子資料的這一支有真的影片檔（30 秒），所以 onLoadedMetadata 會觸發、
-    // seek 是真的發生。等 currentTime 追上去，不用固定 sleep。
-    await expect
-      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
-      .toBeGreaterThan(11)
-    const at12 = await video.evaluate((el: HTMLVideoElement) => el.currentTime)
-    expect(at12).toBeLessThan(14)
+    await expect(page.getByRole('heading', { name: '摘要' })).toBeVisible()
+    await expect(page.getByText(/從晶圓進料、光刻、蝕刻到封裝測試/)).toBeVisible()
+    await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
+    // 管理動作留在影片庫，觀看時不該出現
+    await expect(page.getByRole('button', { name: '整理成文件' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '重新分析' })).toHaveCount(0)
   })
 
-  test('點另一個步驟直接 seek，不重新載入整支影片', async ({ page }) => {
+  test('真的跳到點的那個時間點', async ({ page }) => {
     await openDocument(page)
     await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
-    const video = page.locator('video')
-    await expect
-      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
-      .toBeGreaterThan(11)
+    // 種子資料的這一支有真的影片檔（30 秒），seek 是真的發生
+    await expectSeekedTo(page, 12)
+  })
 
+  test('在觀看模式裡點另一個步驟直接 seek，不重新載入', async ({ page }) => {
+    await openDocument(page)
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+    await expectSeekedTo(page, 12)
+    const srcBefore = await page.locator('video').evaluate((el: HTMLVideoElement) => el.currentSrc)
+
+    // 這是這個版面存在的理由：邊看邊跳下一步，不用退回清單
     await page.getByRole('button', { name: '從 00:24 開始播放：送進光刻機' }).click()
 
-    await expect
-      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
-      .toBeGreaterThan(23)
-    // 同一個 <video> 元素、同一個 src——換片段是 seek 不是重載
-    await expect(video).toHaveCount(1)
+    await expectSeekedTo(page, 24)
+    expect(await page.locator('video').evaluate((el: HTMLVideoElement) => el.currentSrc)).toBe(srcBefore)
   })
 
   test('手動拖走之後再點同一個步驟，會回到那個時間點', async ({ page }) => {
-    // 這條是 seekKey 存在的理由：秒數沒變的話 effect 不會重跑，少了它這裡會沒反應
+    // 這條是 seekKey 存在的理由：秒數沒變的話 effect 不會重跑
     await openDocument(page)
     await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
-    const video = page.locator('video')
-    await expect
-      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
-      .toBeGreaterThan(11)
+    await expectSeekedTo(page, 12)
 
-    await video.evaluate((el: HTMLVideoElement) => {
+    await page.locator('video').evaluate((el: HTMLVideoElement) => {
       el.pause()
       el.currentTime = 2
     })
-    await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeLessThan(5)
+    await expect
+      .poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.currentTime))
+      .toBeLessThan(5)
 
     await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
 
-    await expect
-      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
-      .toBeGreaterThan(11)
+    await expectSeekedTo(page, 12)
   })
 
-  test('可以關掉播放器，把空間還給步驟', async ({ page }) => {
+  test('窄螢幕點時間戳時，播放器會捲進視野', async ({ page }) => {
+    // <md 是上下堆疊：時間戳在下方的文件裡，點了之後影片會在畫面外的上方開始
+    // 播——聽得到卻看不到。實跑 390px 才發現的，所以留一支測試看著。
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openDocument(page)
+    // 點文件最下面那個步驟：Playwright 會先把它捲進視野，播放器因此被推出畫面
+    // 外——這正是要驗的情境。
+    await page.getByRole('button', { name: '從 00:29 開始播放：缺陷檢視' }).click()
+    await expectSeekedTo(page, 29)
+
+    await expect
+      .poll(async () =>
+        page.locator('video').evaluate((el: HTMLVideoElement) => {
+          const r = el.getBoundingClientRect()
+          return r.top >= -5 && r.bottom <= window.innerHeight + 5
+        }),
+      )
+      .toBe(true)
+  })
+
+  test('返回影片庫回到清單，播放器消失', async ({ page }) => {
     await openDocument(page)
     await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
     await expect(page.locator('video')).toHaveCount(1)
 
-    await page.getByRole('button', { name: '關閉播放器' }).click()
+    await page.getByRole('button', { name: '返回影片庫' }).click()
 
     await expect(page.locator('video')).toHaveCount(0)
-    await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
+    await expect(page.getByLabel('搜尋影片庫')).toBeVisible()
+    await expect(panelTitle(page, TECH)).toBeVisible()
   })
 })

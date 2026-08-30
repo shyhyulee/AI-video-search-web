@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { generateVideoDocument, getVideoDocument, reanalyzeVideo } from '../api/client'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { generateVideoDocument, reanalyzeVideo } from '../api/client'
 import type { Job, Video } from '../api/types'
-import { formatCost, formatDateTime, formatDuration, formatTimestamp } from '../lib/format'
+import { formatCost, formatDateTime, formatDuration } from '../lib/format'
 import { isActive } from '../lib/jobStatus'
 import { libraryVideosKey, statsKey, videoDocumentKey } from '../lib/queryKeys'
 import { useJobPolling } from '../lib/useJobPolling'
 import { useJobSettlement } from '../lib/useJobSettlement'
 import type { VideoCategory } from '../lib/videoCategory'
 import { Badge } from './Badge'
-import { Button, IconButton } from './Button'
-import { LoadingSkeleton } from './LoadingSkeleton'
-import { VideoDocumentView } from './VideoDocumentView'
-import { VideoPlayer } from './VideoPlayer'
+import { Button } from './Button'
+import { VideoSummaryAndDocument } from './VideoSummaryAndDocument'
 
 export function VideoDetailPanel({
   video,
   category,
   activeJob,
   onSearchInVideo,
+  onWatchAt,
 }: {
   video: Video
   /** 由 `classifyVideo()` 從標題與摘要推導，不是資料庫欄位，見 lib/videoCategory.ts。 */
@@ -28,29 +26,16 @@ export function VideoDetailPanel({
    * `reanalysisJobId` 只活在 React state，F5 就沒了。 */
   activeJob: Job | undefined
   onSearchInVideo: (video: Video) => void
+  /** 點文件裡的步驟時間戳：切到觀看模式（左播放器、右摘要與文件）。
+   *
+   * 播放器刻意**不在這個面板裡**。試過在摘要上方就地展開一個 32vh 的播放器，
+   * 問題是這個面板只有半版寬——影片小、文件也被擠掉，兩件事都做不好。改成給
+   * 影片一個自己的畫面，見 VideoWatchView。 */
+  onWatchAt: (sec: number) => void
 }) {
   const queryClient = useQueryClient()
   const [documentStatus, setDocumentStatus] = useState('')
-  // 點文件裡的時間戳才會出現播放器。**刻意不常駐**：這個面板的滿版縮圖就是因為
-  // 「純裝飾卻吃掉 42vh」被移除的（見下方註解），而一份 SOP 有二三十個步驟，
-  // 最缺的就是垂直空間。使用者主動要看才給，看完可以收掉。
-  //
-  // 存的是 { 秒數, 請求序號 } 而不是單一秒數：重複點同一個步驟時秒數沒變，
-  // 少了序號就不會重新 seek——手動把進度拖走之後點回同一步會沒反應。
-  const [playRequest, setPlayRequest] = useState<{ sec: number; key: number } | null>(null)
-  const playAt = (sec: number) =>
-    setPlayRequest((prev) => ({ sec, key: (prev?.key ?? 0) + 1 }))
   const [reanalysisJobId, setReanalysisJobId] = useState<number | null>(null)
-
-  // `video.document_type` 是清單就有的輕量旗標，用它當 enabled 條件：沒整理過
-  // 的影片完全不會打這支 API（後端那時會回 404，那是正常狀態不是錯誤，不該讓
-  // react-query 一直重試）。
-  const documentQuery = useQuery({
-    queryKey: videoDocumentKey(video.id),
-    queryFn: () => getVideoDocument(video.id),
-    enabled: video.document_type !== null,
-    staleTime: Infinity, // 文件只有按下「整理成文件」才會變，不用自動重取
-  })
 
   const documentMutation = useMutation({
     mutationFn: () => generateVideoDocument(video.id),
@@ -160,31 +145,6 @@ export function VideoDetailPanel({
         </p>
       )}
 
-      {playRequest && (
-        <div className="shrink-0">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <p className="text-xs text-text-secondary" aria-live="polite">
-              從 {formatTimestamp(playRequest.sec)} 開始播放
-            </p>
-            <IconButton
-              icon={<X className="h-4 w-4" />}
-              aria-label="關閉播放器"
-              onClick={() => setPlayRequest(null)}
-            />
-          </div>
-          {/* max-h 限制是必要的：沒有它，16:9 的播放器在半版寬的面板裡會吃掉
-              大半個高度，下面的步驟就只剩幾行。object-contain 讓直式影片也不
-              會被裁掉。 */}
-          <VideoPlayer
-            videoId={video.id}
-            startSec={playRequest.sec}
-            seekKey={playRequest.key}
-            title={video.title}
-            className="max-h-[32vh] object-contain"
-          />
-        </div>
-      )}
-
       {/* 內容區放在最下面：長度不固定（幾行到二三十個步驟都有可能），擺在中間
           會把按鈕推到不固定的位置，換一支影片按鈕就跳一次。放最後之後，上面的
           標題／標籤／按鈕在每支影片都固定在同樣的高度。
@@ -195,32 +155,12 @@ export function VideoDetailPanel({
           （文件的 overview 就是摘要），分成兩個頁籤等於要使用者自己去對照兩段
           講同一件事的文字。摘要固定在最上面，位置不隨有沒有文件而變。 */}
       <div className="md:min-h-0 md:flex-1 md:overflow-auto">
-        <h4 className="mb-1 text-sm font-bold text-text-primary">摘要</h4>
-        <p className="text-sm leading-relaxed text-text-primary">
-          {video.summary ??
-            (video.status === 'analyzed'
-              ? '尚未產生摘要，按上方「整理成文件」會一併產生。'
-              : '這支影片分析失敗，沒有片段可以產生摘要。')}
-        </p>
-
-        <div className="mt-4 border-t border-border pt-4">
-          {documentMutation.isPending || documentQuery.isLoading ? (
-            <LoadingSkeleton variant="list-item" count={3} />
-          ) : documentQuery.data ? (
-            <VideoDocumentView document={documentQuery.data.document} onSeek={playAt} />
-          ) : (
-            <p className="text-sm leading-relaxed text-text-secondary">
-              {video.status === 'analyzed'
-                ? '尚未整理成文件。按上方「整理成文件」，系統會依影片內容判斷要產生流程 SOP、教學步驟、課堂筆記，還是內容紀錄，並同時更新上方的摘要。'
-                : '這支影片分析失敗，沒有片段可以整理成文件。'}
-            </p>
-          )}
-          {documentStatus && (
-            <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
-              {documentStatus}
-            </p>
-          )}
-        </div>
+        <VideoSummaryAndDocument
+          video={video}
+          onSeek={onWatchAt}
+          isGenerating={documentMutation.isPending}
+          status={documentStatus}
+        />
       </div>
     </div>
   )
