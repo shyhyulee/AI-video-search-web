@@ -80,6 +80,11 @@ _PROMPT_TEMPLATE = """以下是影片《{title}》依時間順序切出的素材
 class DocumentStep(BaseModel):
     # 時間戳是必填的，這是防幻覺的主要手段：講不出「這是影片第幾秒的內容」
     # 的步驟，通常就是模型自己補出來的。
+    #
+    # 但**反過來不成立**：講得出時間戳也可能是編造的。實測 8 支已整理文件，
+    # 3 支有超出影片長度的秒數（18:33 的影片寫出 22:56 的步驟）、2 支步驟時間
+    # 戳倒退。這裡刻意**不做夾住或過濾**——處理方式還沒決定，先讓資料照實存下
+    # 來，見 docs/05-known-limitations-and-open-items.md。
     timestamp_sec: float
     heading: str
     detail: str
