@@ -39,10 +39,6 @@ export function listVideos(status?: 'pending'): Promise<Video[]> {
   return request<Video[]>(`/videos${query}`)
 }
 
-export function getVideo(videoId: number): Promise<Video> {
-  return request<Video>(`/videos/${videoId}`)
-}
-
 export function deleteVideo(videoId: number): Promise<void> {
   return request<void>(`/videos/${videoId}`, { method: 'DELETE' })
 }
@@ -90,11 +86,6 @@ export function getThumbnailUrl(videoId: number): string {
 // 本機上傳（`uploadVideo()`，XHR + onProgress）在移除「影片與分析」頁的新增
 // 影片區塊時一併刪掉，見 docs/11 §8.5。後端 `POST /videos/upload` 仍在、測試
 // 也還在，之後要恢復的話是加回一個前端函式的事。
-
-export function listJobs(videoId?: number): Promise<Job[]> {
-  const query = videoId !== undefined ? `?video_id=${videoId}` : ''
-  return request<Job[]>(`/jobs${query}`)
-}
 
 /** 還沒到終態（queued／running）的工作。「影片與分析」頁靠它在重新整理後把
  * 進行中的分析接回進度顯示——追蹤清單本身只活在 React state，F5 就沒了。 */
