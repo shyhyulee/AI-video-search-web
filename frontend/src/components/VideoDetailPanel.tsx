@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { generateVideoDocument, getVideoDocument, reanalyzeVideo } from '../api/client'
 import type { Job, Video } from '../api/types'
-import { formatCost, formatDateTime, formatDuration } from '../lib/format'
+import { formatCost, formatDateTime, formatDuration, formatTimestamp } from '../lib/format'
 import { isActive } from '../lib/jobStatus'
 import { libraryVideosKey, statsKey, videoDocumentKey } from '../lib/queryKeys'
 import { useJobPolling } from '../lib/useJobPolling'
 import { useJobSettlement } from '../lib/useJobSettlement'
 import type { VideoCategory } from '../lib/videoCategory'
 import { Badge } from './Badge'
-import { Button } from './Button'
+import { Button, IconButton } from './Button'
 import { LoadingSkeleton } from './LoadingSkeleton'
 import { VideoDocumentView } from './VideoDocumentView'
+import { VideoPlayer } from './VideoPlayer'
 
 export function VideoDetailPanel({
   video,
@@ -29,6 +31,15 @@ export function VideoDetailPanel({
 }) {
   const queryClient = useQueryClient()
   const [documentStatus, setDocumentStatus] = useState('')
+  // 點文件裡的時間戳才會出現播放器。**刻意不常駐**：這個面板的滿版縮圖就是因為
+  // 「純裝飾卻吃掉 42vh」被移除的（見下方註解），而一份 SOP 有二三十個步驟，
+  // 最缺的就是垂直空間。使用者主動要看才給，看完可以收掉。
+  //
+  // 存的是 { 秒數, 請求序號 } 而不是單一秒數：重複點同一個步驟時秒數沒變，
+  // 少了序號就不會重新 seek——手動把進度拖走之後點回同一步會沒反應。
+  const [playRequest, setPlayRequest] = useState<{ sec: number; key: number } | null>(null)
+  const playAt = (sec: number) =>
+    setPlayRequest((prev) => ({ sec, key: (prev?.key ?? 0) + 1 }))
   const [reanalysisJobId, setReanalysisJobId] = useState<number | null>(null)
 
   // `video.document_type` 是清單就有的輕量旗標，用它當 enabled 條件：沒整理過
@@ -149,6 +160,31 @@ export function VideoDetailPanel({
         </p>
       )}
 
+      {playRequest && (
+        <div className="shrink-0">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <p className="text-xs text-text-secondary" aria-live="polite">
+              從 {formatTimestamp(playRequest.sec)} 開始播放
+            </p>
+            <IconButton
+              icon={<X className="h-4 w-4" />}
+              aria-label="關閉播放器"
+              onClick={() => setPlayRequest(null)}
+            />
+          </div>
+          {/* max-h 限制是必要的：沒有它，16:9 的播放器在半版寬的面板裡會吃掉
+              大半個高度，下面的步驟就只剩幾行。object-contain 讓直式影片也不
+              會被裁掉。 */}
+          <VideoPlayer
+            videoId={video.id}
+            startSec={playRequest.sec}
+            seekKey={playRequest.key}
+            title={video.title}
+            className="max-h-[32vh] object-contain"
+          />
+        </div>
+      )}
+
       {/* 內容區放在最下面：長度不固定（幾行到二三十個步驟都有可能），擺在中間
           會把按鈕推到不固定的位置，換一支影片按鈕就跳一次。放最後之後，上面的
           標題／標籤／按鈕在每支影片都固定在同樣的高度。
@@ -171,7 +207,7 @@ export function VideoDetailPanel({
           {documentMutation.isPending || documentQuery.isLoading ? (
             <LoadingSkeleton variant="list-item" count={3} />
           ) : documentQuery.data ? (
-            <VideoDocumentView document={documentQuery.data.document} />
+            <VideoDocumentView document={documentQuery.data.document} onSeek={playAt} />
           ) : (
             <p className="text-sm leading-relaxed text-text-secondary">
               {video.status === 'analyzed'

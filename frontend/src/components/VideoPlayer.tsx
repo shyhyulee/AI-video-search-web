@@ -10,13 +10,27 @@ interface VideoPlayerProps {
    * 看）；程式自己帶出來的預設選取要傳 false，只把畫面停在該時間點，不要
    * 未經指示就出聲。 */
   autoPlay?: boolean
+  /** 「請跳到 startSec」的請求識別碼，每次要求給一個新值。
+   *
+   * 沒有它的話，重複點同一個時間點不會有反應：`startSec` 值沒變，下面 effect
+   * 的 deps 就沒變，effect 不會重跑——使用者手動把進度拖走之後，再點同一個
+   * 步驟就回不去了。不傳＝維持原本行為（搜尋頁與對話頁沒有這個需求，它們每次
+   * 選的都是不同片段）。 */
+  seekKey?: number
 }
 
 /** 共用影片播放器：同一支影片內切換片段直接 seek，不重新載入整支影片；
  * 換成不同影片時讓瀏覽器自然重新載入（src 變更），由 onLoadedMetadata 處理 seek。
  * 取代 SearchPage／ConversationPage 各自手刻、且都得靠呼叫端記得寫
  * key={video_id} 才會正確 remount 的重複邏輯。 */
-export function VideoPlayer({ videoId, startSec, title, className = '', autoPlay = true }: VideoPlayerProps) {
+export function VideoPlayer({
+  videoId,
+  startSec,
+  title,
+  className = '',
+  autoPlay = true,
+  seekKey,
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const loadedVideoId = useRef<number | null>(null)
 
@@ -29,7 +43,7 @@ export function VideoPlayer({ videoId, startSec, title, className = '', autoPlay
       // 就不會播。
       if (autoPlay) el.play().catch(() => {})
     }
-  }, [videoId, startSec, autoPlay])
+  }, [videoId, startSec, autoPlay, seekKey])
 
   return (
     <video

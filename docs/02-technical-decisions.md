@@ -298,7 +298,7 @@
 
 **決定**：`pipeline/document.py` 用 `client.chat.completions.parse(response_format=VideoDocument)` 回傳結構化資料（doc_type／title／overview／sections[]／uncovered[]），不是 Markdown 字串。
 
-**理由**：前端**沒有任何 Markdown 函式庫**（`package.json` 只有 radix-dialog／react-query／lucide／react-router）。吐 Markdown 就得引進新依賴，或用 `whitespace-pre-wrap` 硬撐出沒有階層的一坨字。結構化資料可以直接用既有元件排版、零新依賴，而且**時間戳是獨立的 float 欄位**——之後要做「點時間戳跳到影片」不用回頭解析文字。
+**理由**：前端**沒有任何 Markdown 函式庫**（`package.json` 只有 radix-dialog／react-query／lucide／react-router）。吐 Markdown 就得引進新依賴，或用 `whitespace-pre-wrap` 硬撐出沒有階層的一坨字。結構化資料可以直接用既有元件排版、零新依賴，而且**時間戳是獨立的 float 欄位**——「點時間戳跳到影片」（2026-08-30 已實作）因此不用回頭解析文字，直接把秒數交給播放器。
 
 **已知限制**：`parsed` 在 refusal 或輸出被截斷時會是 None。`vlm.py`／`translation.py` 遇到這種情況可以退回空字串，這裡沒有合理的「空文件」可退，直接丟 `ValueError`，不把空殼存進資料庫。
 

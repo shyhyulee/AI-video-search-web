@@ -117,8 +117,8 @@ def generate_document(
 
     用 structured output（`client.chat.completions.parse`）而不是讓 LLM 吐
     Markdown：前端沒有任何 Markdown 函式庫，結構化資料可以直接用既有的 React
-    元件排版、零新依賴；而且時間戳是獨立欄位，之後要做「點時間戳跳到影片」
-    不用回頭解析文字。
+    元件排版、零新依賴；而且時間戳是獨立欄位，「點時間戳跳到影片」（前端的
+    VideoDocumentView／VideoDetailPanel）因此不用回頭解析文字。
     """
     if not segments:
         raise ValueError("這支影片還沒有任何分析片段，無法整理成文件")

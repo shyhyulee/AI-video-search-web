@@ -1,13 +1,22 @@
 import { DOC_TYPE_LABELS, type VideoDocument } from '../api/types'
+import { formatTimestamp } from '../lib/format'
 import { Badge } from './Badge'
 
 /** 顯示 pipeline/document.py 整理出來的結構化文件。
  *
  * 刻意不引進 Markdown 函式庫：後端回的是結構化資料（章節／步驟／時間戳都是
- * 獨立欄位），直接用既有的排版元件畫就好，零新依賴。時間戳目前是純文字標籤，
- * 「點時間戳跳到影片」需要這個面板有播放器，留待之後。
- */
-export function VideoDocumentView({ document }: { document: VideoDocument }) {
+ * 獨立欄位），直接用既有的排版元件畫就好，零新依賴。
+ *
+ * 給了 `onSeek` 時間戳就變成可點的按鈕（點了跳到影片那個時間點）；沒給就維持
+ * 純文字標籤——不強迫每個呼叫端都要有播放器。 */
+export function VideoDocumentView({
+  document,
+  onSeek,
+}: {
+  document: VideoDocument
+  /** 點某個步驟的時間戳時呼叫，參數是該步驟的秒數。 */
+  onSeek?: (sec: number) => void
+}) {
   // 內容紀錄是「這支影片沒有可整理的流程」的退路，用不同的 badge 顏色跟
   // 真正的流程文件區分開，使用者才不會以為系統整理失敗了。
   const isFallback = document.doc_type === 'content_log'
@@ -31,10 +40,26 @@ export function VideoDocumentView({ document }: { document: VideoDocument }) {
           <ol className="space-y-2">
             {section.steps.map((step, i) => (
               <li key={i} className="flex gap-3">
-                {/* 時間戳固定寬度靠右，多個步驟的數字才會對齊成一直排 */}
-                <span className="w-12 shrink-0 pt-0.5 text-right font-mono text-xs text-text-muted">
-                  {formatTimestamp(step.timestamp_sec)}
-                </span>
+                {/* 時間戳固定寬度靠右，多個步驟的數字才會對齊成一直排。可點的
+                    時候用 <button> 而不是加 onClick 的 <span>：鍵盤 Tab 得到、
+                    Enter 觸發、螢幕閱讀器讀得出這是個按鈕。 */}
+                {onSeek ? (
+                  <button
+                    type="button"
+                    onClick={() => onSeek(step.timestamp_sec)}
+                    // 帶上步驟標題：實測真實文件會有兩個步驟共用同一個時間戳
+                    // （LLM 判定它們發生在同一秒），只講秒數的話螢幕閱讀器會聽到
+                    // 兩個一模一樣的按鈕名稱，分不出是哪一步。
+                    aria-label={`從 ${formatTimestamp(step.timestamp_sec)} 開始播放：${step.heading}`}
+                    className={`${TIMESTAMP_CLASS} rounded text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary`}
+                  >
+                    {formatTimestamp(step.timestamp_sec)}
+                  </button>
+                ) : (
+                  <span className={`${TIMESTAMP_CLASS} text-text-muted`}>
+                    {formatTimestamp(step.timestamp_sec)}
+                  </span>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-text-primary">{step.heading}</p>
                   <p className="text-sm leading-relaxed text-text-secondary">{step.detail}</p>
@@ -63,9 +88,5 @@ export function VideoDocumentView({ document }: { document: VideoDocument }) {
   )
 }
 
-function formatTimestamp(sec: number): string {
-  const total = Math.round(sec)
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
+/** 可點與不可點兩種時間戳共用的排版，差別只有顏色與互動狀態。 */
+const TIMESTAMP_CLASS = 'w-12 shrink-0 pt-0.5 text-right font-mono text-xs'

@@ -2,7 +2,10 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "target": "es2023",
-    "lib": ["ES2023"],
+    /* 加 DOM 是為了 e2e：`page.evaluate()` 的 callback 在瀏覽器裡執行，
+       會用到 HTMLVideoElement 這類型別。vite.config.ts 不受影響（它只是多了
+       一組用不到的型別宣告）。 */
+    "lib": ["ES2023", "DOM"],
     "types": ["node"],
     "skipLibCheck": true,
 

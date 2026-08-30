@@ -40,7 +40,12 @@ const DOCUMENT = {
   sections: [
     {
       heading: '第一階段：晶圓進料',
-      steps: [{ timestamp_sec: 12, heading: '確認晶圓批號', detail: '核對批號與工單是否相符。' }],
+      steps: [
+        // 秒數刻意落在種子樣本影片（30 秒）之內，這樣「點時間戳跳到該時間點」
+        // 才驗得到真的有 seek，見 scripts/seed_smoke_db.py 的 _ensure_sample_video()
+        { timestamp_sec: 12, heading: '確認晶圓批號', detail: '核對批號與工單是否相符。' },
+        { timestamp_sec: 24, heading: '送進光刻機', detail: '確認光罩對位。' },
+      ],
     },
   ],
   uncovered: ['影片沒有交代無塵室的更衣程序'],
@@ -182,4 +187,93 @@ test('重新分析：接上進度，跑完顯示完成', async ({ page }) => {
   await expect(page.getByText('✓ 重新分析完成')).toBeVisible()
   // 這頁刻意不跳 toast，理由見 VideoDetailPanel 裡的說明
   await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+
+test.describe('點文件時間戳直接播放', () => {
+  /** 讓面板出現一份文件。文件是攔截來的，不會呼叫 OpenAI。 */
+  async function openDocument(page: Page) {
+    await page.route('**/api/v1/videos/*/document', (route) =>
+      route.fulfill(json({ video_id: 1, document: DOCUMENT, model: 'gpt-4o-mini' })),
+    )
+    await selectVideo(page, TECH)
+    await page.getByRole('button', { name: '整理成文件' }).click()
+    await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
+  }
+
+  test('預設沒有播放器，點了才出現', async ({ page }) => {
+    await openDocument(page)
+
+    // 這個面板刻意不常駐播放器（滿版縮圖就是因為吃掉垂直空間被移除的）
+    await expect(page.locator('video')).toHaveCount(0)
+
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+
+    await expect(page.locator('video')).toHaveCount(1)
+    await expect(page.getByText('從 00:12 開始播放')).toBeVisible()
+  })
+
+  test('真的跳到那個時間點', async ({ page }) => {
+    await openDocument(page)
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+
+    const video = page.locator('video')
+    // 種子資料的這一支有真的影片檔（30 秒），所以 onLoadedMetadata 會觸發、
+    // seek 是真的發生。等 currentTime 追上去，不用固定 sleep。
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
+      .toBeGreaterThan(11)
+    const at12 = await video.evaluate((el: HTMLVideoElement) => el.currentTime)
+    expect(at12).toBeLessThan(14)
+  })
+
+  test('點另一個步驟直接 seek，不重新載入整支影片', async ({ page }) => {
+    await openDocument(page)
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+    const video = page.locator('video')
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
+      .toBeGreaterThan(11)
+
+    await page.getByRole('button', { name: '從 00:24 開始播放：送進光刻機' }).click()
+
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
+      .toBeGreaterThan(23)
+    // 同一個 <video> 元素、同一個 src——換片段是 seek 不是重載
+    await expect(video).toHaveCount(1)
+  })
+
+  test('手動拖走之後再點同一個步驟，會回到那個時間點', async ({ page }) => {
+    // 這條是 seekKey 存在的理由：秒數沒變的話 effect 不會重跑，少了它這裡會沒反應
+    await openDocument(page)
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+    const video = page.locator('video')
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
+      .toBeGreaterThan(11)
+
+    await video.evaluate((el: HTMLVideoElement) => {
+      el.pause()
+      el.currentTime = 2
+    })
+    await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeLessThan(5)
+
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+
+    await expect
+      .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 })
+      .toBeGreaterThan(11)
+  })
+
+  test('可以關掉播放器，把空間還給步驟', async ({ page }) => {
+    await openDocument(page)
+    await page.getByRole('button', { name: '從 00:12 開始播放：確認晶圓批號' }).click()
+    await expect(page.locator('video')).toHaveCount(1)
+
+    await page.getByRole('button', { name: '關閉播放器' }).click()
+
+    await expect(page.locator('video')).toHaveCount(0)
+    await expect(page.getByText('第一階段：晶圓進料')).toBeVisible()
+  })
 })

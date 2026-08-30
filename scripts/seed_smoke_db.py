@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -28,6 +29,16 @@ from ai_video_search_web import db
 _TEST_SUFFIX = "_test"
 _TABLES = ["videos", "segments", "ocr_events", "search_log", "jobs", "conversations"]
 
+# 大部分種子影片的 file_path 刻意指向不存在的檔案——smoke 不播放影片，而且那樣
+# 才會走到「縮圖產不出來」的 404 路徑。但「點文件時間戳跳到該時間點播放」這個
+# 功能沒有真的影片檔就驗不到重點（`onLoadedMetadata` 不會觸發，seek 也就不會
+# 發生），所以標了 `real_file` 的那一支會現場用 ffmpeg 產一支迷你影片。
+#
+# 放在 video/smoke/ 底下跟真正下載的影片分開；`video/` 本來就在 .gitignore 裡。
+_SAMPLE_DIR = db.PROJECT_ROOT / "video" / "smoke"
+_SAMPLE_PATH = _SAMPLE_DIR / "sample.mp4"
+_SAMPLE_DURATION_SEC = 30
+
 # 固定的四支影片，每一支都在 smoke 裡有具體用途：
 #   - 兩支已分析、分屬不同主題分類（影片庫的 chips 至少要有兩顆才看得出分類有效）
 #   - 一支分析失敗（狀態篩選的另一個分支）
@@ -40,7 +51,10 @@ _VIDEOS = [
         "summary": "這支影片帶觀眾走過一條半導體晶片的生產線，從晶圓進料、光刻、蝕刻到封裝測試，"
                    "說明每個製程階段的設備與作業重點。",
         "status": db.STATUS_ANALYZED,
-        "duration_sec": 620,
+        # 這一支要有真的影片檔（見 _SAMPLE_PATH），長度跟著產生出來的檔案走，
+        # 不然畫面上的時長跟播放器實際能播的長度會對不起來。
+        "real_file": True,
+        "duration_sec": _SAMPLE_DURATION_SEC,
         "cost_usd": 0.18,
         "segments": [
             ("晶圓進料區的自動搬運系統", "首先我們看到的是晶圓進料", "STAGE 1"),
@@ -91,6 +105,30 @@ _VIDEOS = [
 ]
 
 
+def _ensure_sample_video() -> Path:
+    """產生（或沿用）給 e2e 用的迷你影片：30 秒純色、320x180、無音軌。
+
+    每秒一個關鍵影格（`-g 10`，fps 是 10）是刻意的：seek 的落點會被對齊到關鍵
+    影格，間隔太疏的話「跳到第 12 秒」實際可能停在第 8 秒，測試就得放寬到看不
+    出對錯的程度。
+
+    檔案已存在就不重做——這支腳本每次跑 e2e 都會執行，重複轉檔只是浪費時間。
+    """
+    if _SAMPLE_PATH.exists():
+        return _SAMPLE_PATH
+    _SAMPLE_DIR.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", f"color=c=navy:s=320x180:d={_SAMPLE_DURATION_SEC}:r=10",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "10",
+            str(_SAMPLE_PATH),
+        ],
+        check=True, capture_output=True, timeout=60,
+    )
+    return _SAMPLE_PATH
+
+
 def _guard(dsn: str) -> str:
     name = conninfo_to_dict(dsn).get("dbname", "")
     if not name.endswith(_TEST_SUFFIX):
@@ -137,12 +175,14 @@ def main() -> None:
         # 用索引而不是 hash(title)：str 的 hash 每個 process 都不一樣
         # （PYTHONHASHSEED 隨機化），那樣 source_url 每次跑都會變。
         slug = f"smoke{index:02d}"
+        file_path = (
+            str(_ensure_sample_video()) if item.get("real_file") else f"/nonexistent/{slug}.mp4"
+        )
         video_id = db.insert_video(
             title=item["title"],
             source=db.SOURCE_YOUTUBE,
             source_url=f"https://www.youtube.com/watch?v={slug}",
-            # 檔案刻意不存在：smoke 不播放影片、不抓縮圖，只看清單與面板
-            file_path=f"/nonexistent/{slug}.mp4",
+            file_path=file_path,
             duration_sec=item["duration_sec"],
         )
         for seg_index, (visual, transcript, ocr) in enumerate(item["segments"]):

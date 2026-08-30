@@ -21,6 +21,18 @@ export function formatDateTime(isoStr: string | null): string {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** 秒數轉 `MM:SS`。影片文件的步驟時間戳、以及點它之後播放器旁的標示共用同一個
+ * 格式；超過 60 分鐘不進位成 HH:MM:SS（分析長度上限就是 1 小時）。
+ *
+ * 註：`formatTimeRange()` 裡還有一份一模一樣的 inline `mmss`，那是既有的，
+ * 跟這次的功能無關，沒有一起動。 */
+export function formatTimestamp(sec: number): string {
+  const total = Math.round(sec)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 export function formatTimeRange(startSec: number, endSec: number): string {
   const mmss = (sec: number) => {
     const total = Math.round(sec)
