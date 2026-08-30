@@ -227,11 +227,11 @@
     <p class="sub">AI 影片搜尋 · <strong>第四輪重構（進行中）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
       第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">7 <small>/ 13</small></span></div>
-      <div class="stat"><span class="k">本輪提交數</span><span class="v">7 <small>（另有看板更新）</small></span></div>
-      <div class="stat"><span class="k">進度</span><span class="v">波 E 5/5 <small>· 波 F 1/6</small></span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">12 <small>/ 13</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">12 <small>（另有看板更新）</small></span></div>
+      <div class="stat"><span class="k">進度</span><span class="v">波 E 5/5 <small>· 波 F 6/6</small></span></div>
       <div class="stat"><span class="k">後端測試</span><span class="v">410 <small>← 382</small></span></div>
-      <div class="stat"><span class="k">前端 e2e</span><span class="v">19 <small>← 0</small></span></div>
+      <div class="stat"><span class="k">前端 e2e</span><span class="v">32 <small>← 0</small></span></div>
       <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（E3 timeout）</small></span></div>
     </div>
   </div>
@@ -242,76 +242,8 @@
 
   <!-- ============ 有規劃 ============ -->
   <section class="col" data-col="planned">
-    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">7</span></div>
+    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">2</span></div>
     <div class="cards">
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">F1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>前端字面值常數化<span class="tag">原 D1</span></h3>
-        <p>react-query 的 query key 與 job 狀態判斷散在 8 個檔案，改一個要同時改多處，漏一處＝快取分岔而且不會報錯。</p>
-        <span class="metric">query key 字面值 <b>22 處</b></span>
-        <span class="metric">狀態字面值比較 <b>19 處</b></span>
-        <details><summary>細節</summary><ul>
-          <li>新增 <code>lib/queryKeys.ts</code> 與 <code>lib/jobStatus.ts</code>（<code>isTerminal()</code>／<code>isActive()</code>）</li>
-          <li><strong>要一併加靜態檢查</strong>（F0 的突變測試逼出來的）：query key 字面值只准出現在
-              <code>queryKeys.ts</code>。smoke 抓得到「invalidate 的 key 打錯」，但抓不到
-              「兩個元件各自用了不同但都能運作的 key」——那只會多打一次 API，畫面看不出來。
-              從結構上禁止分岔比再加一支測試有效</li>
-          <li>涉及 <code>LibraryPage</code>／<code>VideosPage</code>／<code>ConversationPage</code>／<code>Header</code>／
-              <code>SearchScopeBar</code>／<code>YoutubeResultCard</code>／<code>useJobPolling</code></li>
-          <li>實測盤點（2026-08-29）：<code>['videos','library']</code> ×9、<code>['stats']</code> ×6、
-              <code>['videos','pending']</code> ×3、<code>['jobs','active','analysis']</code> ×2、<code>['job', id]</code> ×2</li>
-          <li>狀態字面值比較集中在 <code>VideosPage</code> 9 處、<code>LibraryPage</code> 6 處、
-              <code>YoutubeResultCard</code> 3 處、<code>useJobPolling</code> 1 處</li>
-        </ul></details>
-        <div class="commit">波 F</div>
-      </article>
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">F2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>抽出 <code>useJobSettlement</code></h3>
-        <p>「同一個 job 只收尾一次」的 ref 去重機制有<strong>三份各自的實作</strong>。</p>
-        <details><summary>細節</summary><ul>
-          <li><code>LibraryPage</code> 的 <code>settledJobIds</code>、<code>VideosPage</code> 的 <code>notifiedJobIds</code>、
-              <code>YoutubeResultCard</code> 的 <code>handledDownload</code></li>
-          <li>不是效能微調：少了去重，effect 每次重跑都會再 invalidate 一輪，對後端連發請求</li>
-        </ul></details>
-        <div class="commit">波 F</div>
-      </article>
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">F3</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>抽出 <code>useAnalysisJobs</code> hook<span class="tag">原 D2</span></h3>
-        <p>VideosPage 的批次分析追蹤（job map ＋ 兩個衍生布林 ＋ 標題快照 ＋ 兩支收尾 effect）全寫在頁面元件裡。</p>
-        <span class="metric">VideosPage <b>392 → 約 250 行</b></span>
-        <details><summary>細節</summary><ul>
-          <li>純前端重構，不影響 API</li>
-          <li>驗證方式已定案（F0 的 Playwright smoke）</li>
-        </ul></details>
-        <div class="commit">波 F</div>
-      </article>
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">F4</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3><code>LibraryPage</code> 拆出詳細面板</h3>
-        <p>574 行的頁面檔裡，第 394~574 行的 <code>VideoDetailPanel</code> 是一個完整的獨立元件（2 個 mutation、1 個 query、2 個 effect）。</p>
-        <span class="metric">LibraryPage <b>574 → 約 390 行</b></span>
-        <details><summary>細節</summary><ul>
-          <li>這頁在第三輪之後又長了：主題分類、庫內搜尋、文件檢視、搜尋範圍勾選都加在這裡</li>
-          <li>搬進 <code>components/VideoDetailPanel.tsx</code>，不改任何行為</li>
-        </ul></details>
-        <div class="commit">波 F</div>
-      </article>
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">F5</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>刪除前端死碼</h3>
-        <p><code>api/client.ts</code> 的 <code>getVideo()</code> 與 <code>listJobs()</code> 定義了但沒有任何呼叫端。</p>
-        <details><summary>細節</summary><ul>
-          <li>跟 <code>uploadVideo()</code>／<code>regenerateSummary()</code> 不同——那兩支是刻意留註解說明的，這兩支沒有</li>
-        </ul></details>
-        <div class="commit">波 F</div>
-      </article>
 
       <article class="card" data-kind="docs">
         <div class="card-top"><span class="id">Q1</span><span class="tag">已決策</span></div>
@@ -364,16 +296,124 @@
   <section class="col" data-col="doing">
     <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
     <div class="cards">
-      <div class="empty">目前沒有進行中的任務<br>波 E 完成 5/5、波 F 完成 1/6，下一步是 F1</div>
+      <div class="empty">目前沒有進行中的任務<br>波 E、波 F 都已全數完成，只剩波 G（文件同步）</div>
     </div>
   </section>
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">7 <small>+12</small></span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">12 <small>+12</small></span></div>
     <div class="cards">
 
-      <p class="round-divider">第四輪（2026-08-29）</p>
+      <p class="round-divider">第四輪（2026-08-29 ～ 30）</p>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F5</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>刪掉沒有人呼叫的兩支 API client 函式</h3>
+        <p><code>getVideo()</code> 與 <code>listJobs()</code> 沒有任何呼叫端。</p>
+        <details><summary>細節</summary><ul>
+          <li>跟 <code>uploadVideo()</code>／<code>regenerateSummary()</code> 不同——那兩支移除時留了註解說明
+              端點還在、前端為什麼不用了；這兩支是單純被留下來的</li>
+          <li>後端端點與測試都還在，要恢復是加回一個函式的事</li>
+        </ul></details>
+        <div class="commit"><code>d8e0c1b</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F4</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3><code>LibraryPage</code> 拆出 <code>VideoDetailPanel</code></h3>
+        <p>176 行的面板（自己的 query、兩個 mutation、job 輪詢、收尾、一個 effect）住在 572 行的頁面檔底部。
+          它是一個元件，現在放在 components/。</p>
+        <span class="metric">LibraryPage <b>572 → 385 行</b></span>
+        <span class="metric">+7 支 e2e</span>
+        <details><summary>細節</summary><ul>
+          <li><strong>純搬移，而且是機器驗證的</strong>：新檔的面板本體跟舊檔逐字元相同（差異只有
+              <code>export</code> 與 import 區），LibraryPage 留下的部分也逐字元相同</li>
+          <li>搬之前先補測試：面板三顆按鈕有兩顆會呼叫 OpenAI，smoke 停在它們前面，
+              等於最複雜的部分幾乎沒有覆蓋。用 <code>page.route()</code> 攔住後端，按下去不花錢</li>
+        </ul></details>
+        <details><summary>突變測試又抓到一個沒覆蓋的路徑</summary><ul>
+          <li>刪掉「重新整理後把進行中的重新分析接回來」那一行 → <strong>6 支全過</strong>。
+              因為我的測試都是自己按按鈕進入那個狀態，靠 <code>GET /jobs?active=true</code>
+              接回來的路徑從沒被走過——跟 F3 為 VideosPage 補的是同一個缺口</li>
+          <li>補上第 7 支之後那個突變會轉紅。另外兩個突變（文件不進快取、按鈕不依狀態停用）本來就抓得到</li>
+          <li>第一版測試賭了「預設會選中我想的那一支」，四支同時紅：影片庫按 <code>analyzed_at</code>
+              排序，而種子資料同一秒寫入，順序不保證。改成明確點選那一列</li>
+        </ul></details>
+        <div class="commit"><code>dddc675</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F3</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>分析佇列搬出 <code>VideosPage</code></h3>
+        <p>頁面裡塞著 job map、memo、輪詢、用索引對應查詢結果的 Map、衍生布林、兩個互相引用重取節奏的查詢、
+          同步後端工作的 effect、標題快照。394 行裡多數跟畫面無關。</p>
+        <span class="metric">VideosPage <b>394 → 315 行</b></span>
+        <span class="metric">+3 支 e2e</span>
+        <details><summary>細節</summary><ul>
+          <li><strong>跟計畫不同</strong>：看板原本叫 <code>useAnalysisJobs</code>、只打算搬 job 追蹤。
+              實際發現待分析清單的查詢**非得一起搬**——清單每 3 秒重取看「有沒有工作在跑」，
+              工作探索加密又看「清單裡有沒有 analyzing 卻還沒追蹤到的」，切在中間是循環不是接縫。
+              所以改名 <code>useAnalysisQueue</code></li>
+          <li>頁面現在完全不碰 react-query，剩下的是排版與動作</li>
+        </ul></details>
+        <details><summary>驗證：同一組測試在新舊實作上都綠</summary><ul>
+          <li>按下「開始分析」是全站唯一會花錢的動作，所以 smoke 停在它前面——
+              而它之後那一整段正好就是這次搬動的全部內容，等於零覆蓋</li>
+          <li>用 <code>page.route()</code> 攔住後端補了 3 支：queued→running→completed 的完整路徑、
+              失敗路徑、以及<strong>重新整理後靠 active jobs 接回進度</strong>（完全不點任何東西）。
+              <code>POST /analyze</code> 根本沒送到後端，沒有分析被啟動</li>
+          <li>把 VideosPage stash 回搬動前、刪掉新 hook，<strong>同一組測試也是 3 passed</strong>——
+              它們描述的是沒有改變的行為，不是我剛寫出來的行為。還原後用備份 patch 做 diff 確認無損</li>
+          <li>突變 3 種（不同步 activeJobs／jobFor 永遠回 undefined／標題快照失效）全部轉紅</li>
+        </ul></details>
+        <div class="commit"><code>8a27855</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>「每個工作只收尾一次」收成一份</h3>
+        <p>三份各自的實作：<code>settledJobIds</code>／<code>notifiedJobIds</code>／<code>handledDownload</code>，
+          一個用 Set、一個用單一 id。少了它們，輪詢每讀到一次終態就再收尾一輪——對後端連發 invalidate、
+          對使用者疊出一模一樣的通知。</p>
+        <span class="metric">3 份 → 1 份</span>
+        <span class="metric">+3 支 e2e</span>
+        <details><summary>細節</summary><ul>
+          <li>callback 收的是「這一輪<strong>新</strong>到終態的那幾個」而不是單一 job：
+              VideosPage 要每支各跳一則通知、但清單與統計一輪只刷一次</li>
+          <li><code>YoutubeResultCard</code> 順帶拿掉手動重設——重按會建立新 job、新 id 本來就不在集合裡</li>
+          <li>那張卡片<strong>原本零覆蓋</strong>（真搜尋要打 YouTube、真下載要跑 yt-dlp），
+              所以先用 <code>page.route()</code> 補了 3 支特徵測試，在舊實作上跑綠才動它</li>
+        </ul></details>
+        <details><summary>突變推翻了我自己寫的註解</summary><ul>
+          <li>我寫「先記錄再呼叫 callback，否則 callback 裡的 setState 會讓 effect 重跑、同一批收尾兩次」。
+              把兩行調換過來——<strong>22 支全過</strong>。effect 裡的 setState 要等 effect 執行完才重繪，
+              那時記錄早就寫好了</li>
+          <li>順序保留（讓不變式跟 callback 做什麼無關），但註解改成講真話。
+              這正是第三輪 P2 記的教訓：不要宣稱一個不存在的因果</li>
+        </ul></details>
+        <div class="commit"><code>f783695</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>query key 具名化，並禁止再手打字面值</h3>
+        <p>22 處字面值散在 8 個檔案，而打錯<strong>不會報錯也不會壞畫面</strong>——F0 實測過，
+          改壞一個 key 之後 19 支 smoke 有 18 支照樣綠燈。</p>
+        <span class="metric">key 字面值 <b>22 → 0</b></span>
+        <span class="metric">狀態比較 <b>19 → 12</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>lib/queryKeys.ts</code> 只是一半；另一半是 <code>scripts/check-query-keys.mjs</code>
+              掛在 <code>npm run lint</code> 上，不准字面值出現在別處。少了它，那個模組只是建議不是唯一來源
+              ——e2e 抓得到「invalidate 的 key 跟讀取的不一致」，但抓不到「兩個元件各用不同卻都能運作的 key」，
+              那只會多打一次 API。實測塞回一個字面值，<code>npm run lint</code> exit 1</li>
+          <li><code>lib/jobStatus.ts</code> 只抽 <code>isTerminal()</code>／<code>isActive()</code>，6 個呼叫端。
+              其餘 12 處<strong>刻意保留</strong>：它們是顯示分支，要分辨的正是這兩個函式抹平的差別</li>
+          <li>兩處保留 <code>!job ||</code> 而不是折進 <code>isActive(job?.status)</code>——它同時是型別 narrowing，
+              拿掉之後 tsc 直接報 8 個 <code>'job' is possibly 'undefined'</code></li>
+        </ul></details>
+        <div class="commit"><code>7d9e926</code></div>
+      </article>
 
       <article class="card" data-kind="test">
         <div class="card-top"><span class="id">F0</span><span class="tag test">測試</span><span class="tag">前端</span><span class="tag">安全網</span></div>
@@ -816,8 +856,11 @@
   <p>
     <strong>第四輪</strong>（進行中）對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
     <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code> →
-    <code>b0032b7</code>（7 個 commit：<strong>波 E 已全數完成</strong>，波 F 起了頭；看板更新另外提交）。
-    後端測試 <strong>382 → 410 passed</strong>，前端 e2e <strong>0 → 19</strong>，原始碼淨減約 93 行。
+    <code>b0032b7</code> → <code>7d9e926</code> → <code>f783695</code> → <code>8a27855</code> →
+    <code>dddc675</code> → <code>d8e0c1b</code>
+    （12 個 commit：<strong>波 E 與波 F 都已全數完成</strong>，只剩波 G；看板更新另外提交）。
+    後端測試 <strong>382 → 410 passed</strong>，前端 e2e <strong>0 → 32</strong>，
+    <code>LibraryPage</code> 574→385 行、<code>VideosPage</code> 392→315 行。
   </p>
   <p>
     每一步都先補特徵測試、在<strong>舊實作</strong>上跑綠之後才改碼，而且都拿真實的東西驗過，不只是跑測試：
