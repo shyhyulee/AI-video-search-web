@@ -157,7 +157,10 @@ src/ai_video_search_web/
     evaluation.py            #   Golden Set 評分
 frontend/          # React + TypeScript + Vite + Tailwind + TanStack Query
   src/api/           #   後端 API client 與型別
-  src/components/    #   共用元件（Badge／StatCard／EmptyState...）與 VideoDetailPanel
+  src/components/    #   共用元件（Badge／StatCard／EmptyState...）
+    VideoDetailPanel.tsx      #     影片庫右側：標題、三顆操作鈕、摘要與文件
+    VideoWatchView.tsx        #     觀看模式：左播放器、右摘要與文件（點文件時間戳進入）
+    VideoSummaryAndDocument.tsx #   上面兩者共用的「摘要＋文件」
   src/pages/         #   五個頁面（YoutubeSearchPage／VideosPage／LibraryPage／SearchPage／ConversationPage）
   src/lib/           #   共用邏輯：格式化、主題分類，以及下面四個跟背景工作有關的
     queryKeys.ts       #     react-query 的 query key 唯一來源（有 lint 檢查擋著手打字面值）

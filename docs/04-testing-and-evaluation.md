@@ -8,7 +8,7 @@
 專案在 08-19 才第一次導入 `pytest`（本地 OCR 雙引擎 Phase 1 開發時），此後每個功能都同步補測試。目前有兩套：
 
 - **後端 `pytest`：30 個檔案、410 個測試**，全部是不呼叫真實 API 的純邏輯／mock 測試（`uv run pytest` 預設執行），另有 1 個需要真實 API 的整合測試（`integration` marker，預設不執行）。
-- **前端 Playwright e2e：4 個檔案、32 個檢查**（`cd frontend && npm run test:e2e`）。第四輪重構之前前端**一個測試都沒有**，見 [`01-development-timeline.md`](01-development-timeline.md) 的第四輪重構。
+- **前端 Playwright e2e：4 個檔案、43 個檢查**（`cd frontend && npm run test:e2e`）。第四輪重構之前前端**一個測試都沒有**，見 [`01-development-timeline.md`](01-development-timeline.md) 的第四輪重構。
 
 > 下表的數字會隨開發變動，重點是**涵蓋範圍**而不是精確筆數。要現況數字跑
 > `uv run pytest --collect-only -q`。
@@ -55,7 +55,7 @@
 | 測試檔案 | 檢查數 | 涵蓋範圍 |
 |---|---:|---|
 | `smoke.spec.ts` | 19 | 五個頁籤都掛得起來且無 console error、影片庫清單／分類 chips／庫內搜尋／狀態篩選／勾選搜尋範圍、待分析清單的分界、搜尋頁空狀態、頁籤 keep-alive、移除影片後 invalidation 有生效 |
-| `library-panel.spec.ts` | 7 | 詳細面板：整理成文件（含失敗路徑）、重新分析、重新整理後接回進度、分析失敗影片的按鈕停用 |
+| `library-panel.spec.ts` | 18 | 詳細面板：整理成文件（含失敗路徑）、重新分析、重新整理後接回進度、分析失敗影片的按鈕停用；**觀看模式**：點時間戳切進去、右欄仍可點著跳、真的 seek 到目標秒數、窄螢幕把播放器捲進視野、返回清單；**超出影片長度的時間戳**停用且不可進入觀看模式 |
 | `analysis-tracking.spec.ts` | 3 | 送出分析後的完整狀態機、失敗路徑、重新整理後靠 active jobs 接回進度 |
 | `youtube-card.spec.ts` | 3 | YouTube 結果卡片的下載狀態機與重複影片的錯誤訊息 |
 
