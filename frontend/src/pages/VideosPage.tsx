@@ -14,9 +14,10 @@ import { ErrorState } from '../components/ErrorState'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatDateTime, formatDuration, formatElapsed } from '../lib/format'
-import { isActive, isTerminal } from '../lib/jobStatus'
+import { isActive } from '../lib/jobStatus'
 import { activeJobsKey, libraryVideosKey, pendingVideosKey, statsKey } from '../lib/queryKeys'
 import { useJobsPolling } from '../lib/useJobPolling'
+import { useJobSettlement } from '../lib/useJobSettlement'
 import { useToast } from '../lib/useToast'
 
 const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本機' }
@@ -148,24 +149,20 @@ export function VideosPage() {
     for (const v of pending ?? []) titleByVideoId.current[v.id] = v.title
   }, [pending])
 
-  // 每個 job 只通知一次。用 ref 而不是 state：它只是去重用的備忘錄，
-  // 寫進去不需要（也不該）觸發重繪。
-  const notifiedJobIds = useRef<Set<number>>(new Set())
-  useEffect(() => {
-    let settledAny = false
-    for (const query of jobQueries) {
-      const job = query.data
-      if (!job || !isTerminal(job.status)) continue
-      if (notifiedJobIds.current.has(job.id)) continue
-      notifiedJobIds.current.add(job.id)
-      settledAny = true
-      const title = (job.video_id !== null && titleByVideoId.current[job.video_id]) || '影片'
-      if (job.status === 'completed') toast.show(`「${title}」分析完成，已移到影片庫`, 'success')
-      else toast.show(`「${title}」分析失敗：${job.error_message ?? '未知錯誤'}`, 'error')
-    }
-    // 一輪只刷一次清單／統計，不是每支影片各刷一次。
-    if (settledAny) invalidateAfterChange()
-  }, [jobQueries, invalidateAfterChange, toast])
+  // 每支跑完的影片各跳一則通知，但清單／統計一輪只刷一次——不是每支影片各刷
+  // 一次。所以 useJobSettlement 的 callback 收的是「這一輪新到終態的那幾個」
+  // 而不是單一 job。
+  useJobSettlement(
+    jobQueries.map((query) => query.data),
+    (settled) => {
+      for (const job of settled) {
+        const title = (job.video_id !== null && titleByVideoId.current[job.video_id]) || '影片'
+        if (job.status === 'completed') toast.show(`「${title}」分析完成，已移到影片庫`, 'success')
+        else toast.show(`「${title}」分析失敗：${job.error_message ?? '未知錯誤'}`, 'error')
+      }
+      invalidateAfterChange()
+    },
+  )
 
   // --- 待分析清單 ---
   const toggleSelected = (id: number) => {

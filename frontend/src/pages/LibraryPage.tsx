@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpDown } from 'lucide-react'
@@ -21,9 +21,10 @@ import { SearchField } from '../components/SearchField'
 import { VideoDocumentView } from '../components/VideoDocumentView'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
-import { isActive, isTerminal } from '../lib/jobStatus'
+import { isActive } from '../lib/jobStatus'
 import { activeJobsKey, libraryVideosKey, statsKey, videoDocumentKey } from '../lib/queryKeys'
 import { useJobPolling } from '../lib/useJobPolling'
+import { useJobSettlement } from '../lib/useJobSettlement'
 import { useSearchScope } from '../lib/useSearchScope'
 import { CATEGORY_ORDER, classifyVideo, matchesLibraryQuery, type VideoCategory } from '../lib/videoCategory'
 
@@ -453,24 +454,19 @@ function VideoDetailPanel({
   const jobQuery = useJobPolling(reanalysisJobId)
   const job = jobQuery.data
 
-  // 每個 job 只收尾一次。這道去重不是效能微調——沒有它的話，effect 每次被
-  // 重跑都會再 invalidate 一輪，對後端連發 /videos 與 /stats。
-  const settledJobIds = useRef<Set<number>>(new Set())
-  useEffect(() => {
-    // 重新分析結束（成功或失敗）要讓列表與統計卡跟著更新。
-    //
-    // 這裡刻意不跳 toast。原本會跳「重新分析完成」，結果是無限迴圈：
-    // `toast` 來自 ToastContext，跳一則通知會讓 ToastProvider 重繪、context
-    // value 換成新物件，effect 的 deps 就變了、再跑一次、再跳一則……畫面被同
-    // 一則訊息疊滿。ToastProvider 的 value 已經改成 useMemo 穩定住（見
-    // components/Toast.tsx），但這則通知本身也不需要——影片跑完會自己從
-    // 「分析中」變回「分析完成」，畫面上看得出來。
-    if (!job || !isTerminal(job.status)) return
-    if (settledJobIds.current.has(job.id)) return
-    settledJobIds.current.add(job.id)
+  // 重新分析結束（成功或失敗）要讓列表與統計卡跟著更新。去重由
+  // useJobSettlement 負責（見那裡的說明）。
+  //
+  // 這裡刻意不跳 toast。原本會跳「重新分析完成」，結果是無限迴圈：
+  // `toast` 來自 ToastContext，跳一則通知會讓 ToastProvider 重繪、context
+  // value 換成新物件，effect 的 deps 就變了、再跑一次、再跳一則……畫面被同
+  // 一則訊息疊滿。ToastProvider 的 value 已經改成 useMemo 穩定住（見
+  // components/Toast.tsx），但這則通知本身也不需要——影片跑完會自己從
+  // 「分析中」變回「分析完成」，畫面上看得出來。
+  useJobSettlement([job], () => {
     queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
     queryClient.invalidateQueries({ queryKey: statsKey() })
-  }, [job, queryClient])
+  })
 
   // 影片自己的 status 也算 busy：重新整理後 job 還沒接回來的那幾秒，按鈕
   // 不能是可按的——後端會回 409，而且摘要／搜尋這時看到的是上一輪的結果。
