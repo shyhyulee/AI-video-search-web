@@ -338,3 +338,46 @@ prompt 沒有回歸測試可擋。幻覺步驟的風險只是被緩解（時間�
 
 **已知取捨**：8 支已有文件的影片，摘要仍是分析時產生的舊版本，要等下次按「整理成文件」才會被
 覆蓋。兩種摘要都合格，沒有急迫性，所以沒有為了統一而花錢重跑。
+
+## 2026-08-29～30：第四輪重構
+
+依 `.claude/skills/refactor/SKILL.md` 進行第四輪不改變外部行為的重構。第三輪收拾的是 Web 化長出來的後端；這一輪的範圍是**第三輪之後又長出來的東西**——後端剩下的幾處一致性缺口，以及**從頭到尾沒有任何測試的前端**（3,496 行）。分兩波共 13 個 commit，後端測試從 326 增加到 **410**、前端 e2e 從 **0 增加到 32**。
+
+### 波 E（後端一致性，5 步）
+
+- **E1 錯誤回應統一**：兩個端點自己手刻 `JSONResponse` 產生 404，其餘走 `api/errors.py` 的對映表——同一個形狀三份 dict 字面值。而 `schemas/common.py` 早就定義了那個形狀（`ErrorResponse`／`ErrorDetail`），卻**全專案零引用**：規格與實作是分開的兩份。改成兩個 service 例外走同一張對映表，順帶消掉一個 `# type: ignore[return-value]`（那是「宣告回傳 `VideoDocumentOut` 卻回 `JSONResponse`」的症狀）。
+- **E2 補齊 API → services 邊界**：第三輪的 commit 寫了「API 不再直呼 db」，就*呼叫*而言是真的，但 `api/videos.py` 還留著三條 import（`downloader`／`db.videos`／`pipeline.document`）。收乾淨後 `api/` 只剩 `main.py` 的 `db.init_db()`（應用組裝，刻意保留）。順帶把落檔搬進 `video_service.store_upload()`——`delete_video()` 早就在 service 層 unlink 檔案，落檔卻寫在端點裡，檔案生命週期的兩端各住一層。uuid4 檔名（防 Path Traversal）原本只有註解沒有測試，現在有兩支。
+- **E3 ffmpeg 呼叫收進 `pipeline/media.py`**：五處各自決定要不要設 timeout，結果**抽幀與抽音訊兩處都沒有**——ffmpeg 卡住時分析執行緒會無限期停住、送不出終端事件，分析 slot 永不釋放（跟第三輪 C0 是同一條失敗路徑的另一個入口）。`timeout` 改成必填關鍵字參數且**不給預設值**：抽一張畫面（15s）跟讀完一小時影片的音訊（300s）差一個數量級。失敗語意刻意不統一（`TimeoutExpired` 是 `SubprocessError` 子類別，本來吞例外的三處照樣吞）。這是本輪唯一的刻意行為變更。
+- **E4 摘要與文件共用素材格式**：`_format_timestamp()` 只是表面，真正重複的是整個「片段 → `[MM:SS] 畫面：…；字幕：…`」的格式。抽成 `pipeline/segment_material.py`，只留一個 `include_ocr` 開關；截斷留在各自呼叫端（摘要取前 200 段控制 prompt 長度，文件刻意不截——SOP 少掉尾段等於少掉最後幾個製程步驟）。
+- **E5 讓 `pipeline/search/` 的底線前綴恢復可信**：第三輪拆套件時保留原名，結果是「私有命名、公開用途」——`service.py` 呼叫 `dense._get_query_vectors()`。11 支跨模組的去掉前綴，4 支真正的同檔私有保留（用 AST 判定，不是 grep：註解與 docstring 也會提到這些名字，用 grep 數已經錯過一次）。
+
+### 波 F（前端，6 步）
+
+- **F0 建立驗證方式**：前端零測試檔，而波 F 接下來要搬 query key、抽 hook、拆頁面元件。19 支 Playwright smoke，跑在 `avs_test` 上（固定種子資料、與 pytest 同一道 `_test` 結尾防護），port 8100／5273 避開日常開發的 8000／5173。**不碰任何呼叫 OpenAI 的路徑**。
+- **F1 query key 具名化**：22 處字面值散在 8 個檔案。除了 `lib/queryKeys.ts`，另一半是 `scripts/check-query-keys.mjs` 掛在 `npm run lint` 上禁止字面值出現在別處——少了它那個模組只是建議不是唯一來源。另抽 `lib/jobStatus.ts` 的 `isTerminal()`／`isActive()`（6 個呼叫端），其餘 12 處狀態比較刻意保留，它們是顯示分支。
+- **F2 「每個工作只收尾一次」收成一份**：三份各自的實作（`settledJobIds`／`notifiedJobIds`／`handledDownload`）。
+- **F3 分析佇列搬出 `VideosPage`**（394 → 315 行）：看板原本叫 `useAnalysisJobs`、只打算搬 job 追蹤，實際發現待分析清單的查詢**非得一起搬**——清單重取節奏看「有沒有工作在跑」、工作探索節奏看「清單裡有沒有 analyzing 卻還沒追蹤到的」，切在中間是循環不是接縫，所以改名 `useAnalysisQueue`。
+- **F4 拆出 `VideoDetailPanel`**（`LibraryPage` 572 → 385 行）：純搬移，而且是機器驗證的——新檔的面板本體與舊檔逐字元相同，`LibraryPage` 留下的部分也逐字元相同。
+- **F5 刪掉沒有呼叫端的 `getVideo()`／`listJobs()`**。
+
+### 驗證方式：每一步都拿真的東西比對
+
+不只是跑測試。E1 用新舊碼並跑兩個 server 做位元組級 A/B；E2 用真實 multipart 上傳驗證落檔規則；E3 用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析；E4 拿真實資料庫 **1,156 個片段**做新舊實作逐字元比對（這是動手前就做的——`document.py` 有 `_clean()` 而 `summary.py` 沒有，合併等於讓 summary 也吃到，先證明對現有資料零差異才改）；E5 拿改名前的完整備份樹對同一個資料庫跑 9 組查詢比對 62 筆結果。F3 更直接：把 `VideosPage` stash 回重構前，**同一組測試在新舊實作上都是綠的**。
+
+前端三處「會花錢所以 smoke 碰不到」的流程（YouTube 卡片下載、批次分析追蹤、詳細面板的兩顆按鈕），改用 `page.route()` 攔住後端來驗——不打網路、不跑 yt-dlp、不呼叫 OpenAI，走的卻是元件真正的程式碼路徑，而且狀態轉換由測試餵、不用等真的跑完。
+
+### 過程中被推翻的三件事
+
+寫下來是因為它們都是「以為對、實際不是」，而且都是突變測試逼出來的：
+
+1. **smoke 抓不到 query key 打錯**。改壞一個 key 之後 19 支有 18 支照樣綠——react-query 換個 key 還是呼叫同一個 queryFn，清單照樣載入。真正壞的是快取共用與 invalidation，而 invalidation 只在 mutation 之後看得出來。唯一不花錢的 mutation 是刪除影片，所以補了那一支，並在 F1 加了靜態檢查從結構上擋掉測試構不到的那一半。
+2. **我寫的註解宣稱了一個不存在的因果**。`useJobSettlement` 裡我寫「先記錄再呼叫 callback，否則 setState 會讓 effect 重跑、同一批收尾兩次」——把兩行調換過來 22 支全過。順序保留（讓不變式跟 callback 做什麼無關），但註解改成講真話。這是第三輪 P2 的同一個教訓。
+3. **同一個測試盲點出現兩次**。F3 與 F4 各有一個「重新整理後靠後端把進行中的工作接回來」的路徑，兩次都是突變穿過全綠才發現——因為我的測試都是自己按按鈕進入那個狀態，reload 那條從沒被走過。
+
+另外整合測試 `test_analyze_worker_full_pipeline` 被發現約 1/3 機率假失敗：它用一條全序斷言鎖住全部階段，但 Phase E／F 是第三輪刻意平行化的，事件先後本來就不保證。**先證明是既有問題**（stash 掉當時的改動、回到未修改的 HEAD 跑 3 次，2 次以完全相同的訊息失敗）才修，並照 C0 的先例獨立提交。
+
+### 刻意不做
+
+不拆 `analyzer.py`（第三輪剛重整過，是唯一花錢路徑，收益證明不了風險）；不合併 5 份 gpt-4o-mini 定價常數（程式碼註解已說明是刻意的，之後可能分開演進）；不動三個模態旗標與 `POST /videos/upload` 的去留（對外契約變更，不屬於重構）；不改搜尋每次載入全庫片段的作法（那是效能議題不是結構債）。
+
+完整看板（含每張卡的驗證方式與被推翻的假設）見 [`refactor-board.html`](refactor-board.html)。

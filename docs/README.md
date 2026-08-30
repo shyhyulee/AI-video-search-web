@@ -75,6 +75,8 @@
 | `golden-set.csv` | 17 題固定查詢集，搜尋品質評測的基準 |
 | `eval-runs/` | 歷次 Golden Set 評測結果（JSON），由 `scripts/run_golden_set_eval.py` 產生 |
 | `ui-reference/UI_0*.png` | Tkinter 時期的介面截圖，原始需求的附件 |
+| `refactor-board.html` | 歷次重構的任務看板（第三、四輪），含每張卡的驗證方式、刻意不做的理由，以及過程中被推翻的假設 |
+| `pg-migration-board.html` | SQLite → PostgreSQL 遷移的階段看板 |
 | `專題發表投影片*.html`／`*.pptx` | 專題發表投影片本體，說明見 `13`（同資料夾的 `16-*.html` 不是投影片，是技術文件） |
 
 ## 維護規則

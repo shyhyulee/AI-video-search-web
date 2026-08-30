@@ -147,6 +147,8 @@ src/ai_video_search_web/
     vlm.py                #   畫面描述＋畫面文字（GPT-4o-mini）
     ocr_service.py        #   本地 OCR 掃描（EasyOCR，補 VLM 漏掉的文字）
     embedding.py           #   文字向量化
+    media.py                #   ffmpeg／ffprobe 呼叫與暫存檔，五個呼叫端共用（含 timeout）
+    segment_material.py     #   把片段攤成餵給 LLM 的逐行素材，摘要與文件共用
     search/                 #   Hybrid（Dense+BM25）+ RRF 融合搜尋，一個模組一種責任
       query/sparse/dense/fusion/results/service
     conversation.py         #   多輪對話 orchestrator
@@ -155,14 +157,23 @@ src/ai_video_search_web/
     evaluation.py            #   Golden Set 評分
 frontend/          # React + TypeScript + Vite + Tailwind + TanStack Query
   src/api/           #   後端 API client 與型別
-  src/components/    #   共用元件（Badge／StatCard／EmptyState...）
+  src/components/    #   共用元件（Badge／StatCard／EmptyState...）與 VideoDetailPanel
   src/pages/         #   五個頁面（YoutubeSearchPage／VideosPage／LibraryPage／SearchPage／ConversationPage）
+  src/lib/           #   共用邏輯：格式化、主題分類，以及下面四個跟背景工作有關的
+    queryKeys.ts       #     react-query 的 query key 唯一來源（有 lint 檢查擋著手打字面值）
+    jobStatus.ts       #     isTerminal()／isActive()
+    useJobSettlement.ts #     每個工作到終態時收尾剛好一次
+    useAnalysisQueue.ts #     「影片與分析」頁的資料層：待分析清單＋跑在上面的工作
+  e2e/               #   Playwright smoke（見上方「前端 e2e smoke」）
+  scripts/           #   check-query-keys.mjs，掛在 npm run lint 上
 tests/             # pytest 測試（單元測試 + integration marker）
   api/               #   FastAPI TestClient 測試
 scripts/           # 手動執行的工具腳本
   run_golden_set_eval.py   #   Golden Set 評測
+  seed_smoke_db.py         #   把測試資料庫填成固定假資料，供前端 e2e 使用
   migrate_sqlite_to_pg.py  #   一次性：把舊的 app.db 搬進 PostgreSQL（見 docs/14）
 docs/              # 開發文件、規劃記錄與 Golden Set
+  refactor-board.html      #   歷次重構的任務看板（目前記到第四輪）
 ```
 
 ## 成本與限制

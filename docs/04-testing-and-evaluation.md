@@ -5,25 +5,61 @@
 
 ## 1. 測試套件現況
 
-專案在 08-19 才第一次導入 `pytest`（本地 OCR 雙引擎 Phase 1 開發時），此後每個功能都同步補測試。目前（截至 08-20 第二輪重構完成）共 **15 個測試檔案、151 個測試**，其中 150 個是不呼叫真實 API 的純邏輯／mock 測試（`uv run pytest` 預設執行），1 個是需要真實 API 的整合測試（`integration` marker，預設不執行）。
+專案在 08-19 才第一次導入 `pytest`（本地 OCR 雙引擎 Phase 1 開發時），此後每個功能都同步補測試。目前有兩套：
+
+- **後端 `pytest`：30 個檔案、410 個測試**，全部是不呼叫真實 API 的純邏輯／mock 測試（`uv run pytest` 預設執行），另有 1 個需要真實 API 的整合測試（`integration` marker，預設不執行）。
+- **前端 Playwright e2e：4 個檔案、32 個檢查**（`cd frontend && npm run test:e2e`）。第四輪重構之前前端**一個測試都沒有**，見 [`01-development-timeline.md`](01-development-timeline.md) 的第四輪重構。
+
+> 下表的數字會隨開發變動，重點是**涵蓋範圍**而不是精確筆數。要現況數字跑
+> `uv run pytest --collect-only -q`。
+
+### 1.1 後端：pipeline
 
 | 測試檔案 | 測試數 | 涵蓋範圍 |
 |---|---:|---|
-| `test_db.py` | 23 | `init_db()` 建表與 migration 冪等性、`mark_video_analyzed()` 的 COALESCE 語意、`reset_to_pending()`／`delete_video()` 級聯刪除、CRUD round-trip |
-| `test_evaluation.py` | 23 | Golden Set 解析、`temporal_iou()`、Recall@K／MRR／nDCG@K／`is_hit()`／`predicted_answerable()` 等純評分邏輯 |
-| `test_search.py` | 24 | `best_score()`、`_select_relevant_ids()`、`extract_terms()`、`rrf_scores()`、`hit_source_label()`，純向量／邏輯運算，不呼叫 API |
-| `test_analyzer.py` | 19 | 本地 OCR 場景過濾、Phase C 平行 embedding 的 budget 截斷時機、Phase E／F 平行執行的失敗隔離與成本加總、Phase B 批次平行的場景順序保證與 rate limit 重試 |
+| `test_search.py` | 49 | `best_score()`／`select_relevant_ids()`／`extract_terms()`／`rrf_scores()`／`hit_source_label()`／否定句切分與排除，純向量與邏輯運算，不呼叫 API |
+| `test_search_pipeline.py` | 20 | `search()` 端到端特徵測試：真實臨時資料庫，只把兩個 OpenAI 呼叫換掉，向量刻意用 4 維讓 cosine 值可人工推算 |
+| `test_analyzer.py` | 28 | 本地 OCR 場景過濾、Phase C 平行 embedding 的 budget 截斷時機、Phase E／F 平行執行的失敗隔離與成本加總、Phase B 批次平行的場景順序保證與 rate limit 重試 |
+| `test_media.py` | 18 | 五個 ffmpeg／ffprobe 呼叫端的命令列逐字鎖定、每一處都有 timeout、超時的失敗語意 |
 | `test_ocr_service.py` | 15 | 文字正規化、場景內取樣邊界、事件去重合併 |
-| `test_scene_detect.py` | 12 | merge/split 合併門檻邊界、結尾殘留片段處理、均分切割邊界對齊、無場景切換 fallback |
+| `test_scene_detect.py` | 13 | merge/split 合併門檻邊界、結尾殘留片段處理、均分切割邊界對齊、無場景切換 fallback |
+| `test_segment_material.py` | 11 | 摘要與文件共用的素材格式：欄位順序、`include_ocr` 開關、佔位字串過濾、時間戳 |
 | `test_asr.py` | 10 | 幻覺字幕模式 A／B 的判斷邏輯（合成資料） |
-| `test_widgets.py` | 4 | UI 格式化函式（`format_analysis_result_note()` 等） |
-| `test_ocr_adapters.py` | 4 | EasyOCR adapter 輸出轉換（假 reader 物件，不下載真實模型） |
+| `test_document.py` | 8 | doc_type 判斷、片段數上限、prompt 組裝與成本計算 |
+| `test_intent.py` | 7 | 對話意圖判斷的 schema 解析與退回邏輯 |
+| `test_vlm.py` | 6 | 畫面描述的成本計算特徵測試（mock OpenAI client＋`frames.extract_frame`） |
 | `test_progress_estimation.py` | 5 | 共用的背景執行緒＋預估進度 helper（假 `work()` callable） |
-| `test_openai_client.py` | 2 | `chat_completion_cost()` 成本計算公式 |
-| `test_summary.py` | 3 | 摘要產生的成本計算特徵測試（mock OpenAI client） |
+| `test_ocr_adapters.py` | 4 | EasyOCR adapter 輸出轉換（假 reader 物件，不下載真實模型） |
 | `test_translation.py` | 3 | 查詢翻譯的成本計算與退回邏輯特徵測試（mock OpenAI client） |
-| `test_vlm.py` | 3 | 畫面描述的成本計算特徵測試（mock OpenAI client＋`frames.extract_frame`）|
+| `test_summary.py` | 3 | 摘要產生的成本計算特徵測試（mock OpenAI client） |
+| `test_openai_client.py` | 2 | `chat_completion_cost()` 成本計算公式 |
+| `test_conversation.py` | 21 | 多輪對話 orchestrator：四種意圖的分支、搜尋範圍收窄的硬邊界、歷史摘要截斷 |
+| `test_evaluation.py` | 23 | Golden Set 解析、`temporal_iou()`、Recall@K／MRR／nDCG@K／`is_hit()`／`predicted_answerable()` 等純評分邏輯 |
+
+### 1.2 後端：db、services、api
+
+| 測試檔案 | 測試數 | 涵蓋範圍 |
+|---|---:|---|
+| `test_db.py` | 47 | `init_db()` 建表冪等性、`mark_video_analyzed()` 的 COALESCE 語意、`reset_to_pending()`／`delete_video()` 級聯刪除、BM25 與 LIKE 檢索的範圍下推、CRUD round-trip |
+| `test_job_manager.py` | 27 | 全專案唯一有 process 級共享狀態（分析 slot 旗標＋鎖）與 pump thread 的模組：queue 事件→jobs 欄位對映、**失敗路徑也要釋放 slot**、每個 job 各自的下載目錄、retry 狀態機 |
+| `test_services_video.py` | 23 | 委派正確性、`store_upload()` 的 uuid4 檔名與不覆蓋既有上傳、縮圖與長度探測的失敗退回 |
+| `test_services_conversation.py` | 5 | 對話狀態的 JSON 序列化 round-trip |
+| `test_services_search.py` / `test_services_stats.py` | 3 | 薄包裝層的委派 |
+| `tests/api/*.py` | 59 | FastAPI TestClient：六個 router 的狀態碼、錯誤 body 形狀、影片庫／待分析兩個清單的分界、文件端點 |
 | `test_analyzer_integration.py` | 1 | `integration` marker，真的跑一次完整分析流程，約 US$0.002／次 |
+
+### 1.3 前端 e2e（Playwright）
+
+跑法與刻意不做的事見 [`README.md`](../README.md) 的「前端 e2e smoke」一節。要點：**不碰任何呼叫 OpenAI 的路徑**，資料由 `scripts/seed_smoke_db.py` 填進 `avs_test`（與 pytest 同一道 `_test` 結尾防護）。
+
+| 測試檔案 | 檢查數 | 涵蓋範圍 |
+|---|---:|---|
+| `smoke.spec.ts` | 19 | 五個頁籤都掛得起來且無 console error、影片庫清單／分類 chips／庫內搜尋／狀態篩選／勾選搜尋範圍、待分析清單的分界、搜尋頁空狀態、頁籤 keep-alive、移除影片後 invalidation 有生效 |
+| `library-panel.spec.ts` | 7 | 詳細面板：整理成文件（含失敗路徑）、重新分析、重新整理後接回進度、分析失敗影片的按鈕停用 |
+| `analysis-tracking.spec.ts` | 3 | 送出分析後的完整狀態機、失敗路徑、重新整理後靠 active jobs 接回進度 |
+| `youtube-card.spec.ts` | 3 | YouTube 結果卡片的下載狀態機與重複影片的錯誤訊息 |
+
+後三個檔案用 `page.route()` 把後端回應攔下來：那些流程真的跑會呼叫 OpenAI 或打 YouTube，攔截之後不花錢、不出網路，但走的是元件真正的程式碼路徑，狀態轉換也由測試餵、不必等真的跑完。
 
 **測試慣例**：`pyproject.toml` 設定 `addopts = "-m 'not integration'"`，一般 `uv run pytest` 不會意外花錢或因網路問題變得不穩定；要跑整合測試用 `uv run pytest -m integration`。純邏輯函式（不呼叫外部 API 的部分）一律拆成獨立函式方便直接單元測試，這是貫穿整個專案的設計原則，不是 08-19 之後才追加的慣例。
 

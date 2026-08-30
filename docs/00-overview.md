@@ -99,7 +99,7 @@ frontend/（React SPA，透過 Vite dev server proxy 呼叫 /api/*）
                     jobs／conversations）
 ```
 
-單向依賴、無循環依賴：`db/` 不 import 任何 `pipeline/`／`services/`／`api/`；`pipeline/*` 不 import `services/`／`api/`。這個結構經過兩輪重構驗證仍然健康（見 [`02-technical-decisions.md`](02-technical-decisions.md#重構)），Web UI 遷移（見 3.5 節）延續同樣的單向依賴慣例，只在最外層新增 `services/`／`api/`／`frontend/`。原本的 `app.py`／`ui/*.py`（Tkinter）已於 Phase 4 移除，見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
+單向依賴、無循環依賴：`db/` 不 import 任何 `pipeline/`／`services/`／`api/`；`pipeline/*` 不 import `services/`／`api/`。這個結構經過四輪重構驗證仍然健康（見 [`02-technical-decisions.md`](02-technical-decisions.md#重構)），Web UI 遷移（見 3.5 節）延續同樣的單向依賴慣例，只在最外層新增 `services/`／`api/`／`frontend/`。原本的 `app.py`／`ui/*.py`（Tkinter）已於 Phase 4 移除，見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
 
 ### 3.3 整體資料流
 
