@@ -9,6 +9,7 @@ import { ErrorState } from '../components/ErrorState'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { SearchField } from '../components/SearchField'
 import { YoutubeResultCard } from '../components/YoutubeResultCard'
+import { youtubeSearchKey } from '../lib/queryKeys'
 
 /** 對齊後端 youtube_search_service 的 DEFAULT_LIMIT；上限（MAX_LIMIT）是 50。 */
 const RESULT_LIMIT = 40
@@ -41,7 +42,7 @@ export function YoutubeSearchPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['youtube-search', submittedQuery],
+    queryKey: youtubeSearchKey(submittedQuery),
     queryFn: () => searchYoutube(submittedQuery, RESULT_LIMIT),
     // 只有按下搜尋才查，不邊打字邊打 YouTube。
     enabled: submittedQuery !== '',

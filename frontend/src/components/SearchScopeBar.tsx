@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { listVideos } from '../api/client'
+import { libraryVideosKey } from '../lib/queryKeys'
 import { useSearchScope } from '../lib/useSearchScope'
 
 /** 目前搜尋範圍的 chips，「搜尋影片」與「對話搜尋」兩頁共用同一份狀態
@@ -13,7 +14,7 @@ import { useSearchScope } from '../lib/useSearchScope'
  */
 export function SearchScopeBar({ className = '' }: { className?: string }) {
   const { videoIds, clearScope, removeVideo } = useSearchScope()
-  const { data: videos } = useQuery({ queryKey: ['videos', 'library'], queryFn: () => listVideos() })
+  const { data: videos } = useQuery({ queryKey: libraryVideosKey(), queryFn: () => listVideos() })
 
   if (videoIds.length === 0) return null
 

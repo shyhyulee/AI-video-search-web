@@ -21,6 +21,8 @@ import { SearchField } from '../components/SearchField'
 import { VideoDocumentView } from '../components/VideoDocumentView'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
+import { isActive, isTerminal } from '../lib/jobStatus'
+import { activeJobsKey, libraryVideosKey, statsKey, videoDocumentKey } from '../lib/queryKeys'
 import { useJobPolling } from '../lib/useJobPolling'
 import { useSearchScope } from '../lib/useSearchScope'
 import { CATEGORY_ORDER, classifyVideo, matchesLibraryQuery, type VideoCategory } from '../lib/videoCategory'
@@ -86,7 +88,7 @@ export function LibraryPage() {
     isError: videosError,
     refetch: refetchVideos,
   } = useQuery({
-    queryKey: ['videos', 'library'],
+    queryKey: libraryVideosKey(),
     queryFn: () => listVideos(),
     // 有影片在重新分析時清單要跟著重取：`status` 什麼時候變回 analyzed、片段數
     // 與成本什麼時候換成新一輪的，只有清單知道，job 輪詢看不到。
@@ -97,7 +99,7 @@ export function LibraryPage() {
   // 重新分析的進度來源。跟「影片與分析」頁共用同一個 query key，兩頁只會有
   // 一份快取、一組請求；重新整理後也是靠它把進行中的工作接回來。
   const { data: activeJobs } = useQuery({
-    queryKey: ['jobs', 'active', 'analysis'],
+    queryKey: activeJobsKey('analysis'),
     queryFn: () => listActiveJobs('analysis'),
     refetchInterval: LIBRARY_POLL_MS,
   })
@@ -413,7 +415,7 @@ function VideoDetailPanel({
   // 的影片完全不會打這支 API（後端那時會回 404，那是正常狀態不是錯誤，不該讓
   // react-query 一直重試）。
   const documentQuery = useQuery({
-    queryKey: ['video-document', video.id],
+    queryKey: videoDocumentKey(video.id),
     queryFn: () => getVideoDocument(video.id),
     enabled: video.document_type !== null,
     staleTime: Infinity, // 文件只有按下「整理成文件」才會變，不用自動重取
@@ -426,9 +428,9 @@ function VideoDetailPanel({
       // 直接把結果塞進快取，省掉一次來回。清單一定要 invalidate——摘要也是這
       // 一次呼叫產出的（見後端 video_service.generate_document），上方那段
       // 摘要讀的是清單裡的 video.summary，不重取就不會跟著換。
-      queryClient.setQueryData(['video-document', video.id], resp)
-      queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      queryClient.setQueryData(videoDocumentKey(video.id), resp)
+      queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
+      queryClient.invalidateQueries({ queryKey: statsKey() })
     },
     onError: (err: Error) => setDocumentStatus(`整理失敗：${err.message}`),
   })
@@ -437,7 +439,7 @@ function VideoDetailPanel({
     mutationFn: () => reanalyzeVideo(video.id),
     onSuccess: (job) => {
       setReanalysisJobId(job.id)
-      queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
+      queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
     },
   })
 
@@ -463,16 +465,16 @@ function VideoDetailPanel({
     // 一則訊息疊滿。ToastProvider 的 value 已經改成 useMemo 穩定住（見
     // components/Toast.tsx），但這則通知本身也不需要——影片跑完會自己從
     // 「分析中」變回「分析完成」，畫面上看得出來。
-    if (!job || (job.status !== 'completed' && job.status !== 'failed')) return
+    if (!job || !isTerminal(job.status)) return
     if (settledJobIds.current.has(job.id)) return
     settledJobIds.current.add(job.id)
-    queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
-    queryClient.invalidateQueries({ queryKey: ['stats'] })
+    queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
+    queryClient.invalidateQueries({ queryKey: statsKey() })
   }, [job, queryClient])
 
   // 影片自己的 status 也算 busy：重新整理後 job 還沒接回來的那幾秒，按鈕
   // 不能是可按的——後端會回 409，而且摘要／搜尋這時看到的是上一輪的結果。
-  const analyzing = video.status === 'analyzing' || job?.status === 'running' || job?.status === 'queued'
+  const analyzing = video.status === 'analyzing' || isActive(job?.status)
   const busy = documentMutation.isPending || reanalyzeMutation.isPending || analyzing
 
   return (

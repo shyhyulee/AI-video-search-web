@@ -5,6 +5,8 @@ import { downloadYoutube } from '../api/client'
 import { ApiError } from '../api/types'
 import type { YoutubeSearchItem } from '../api/types'
 import { formatDuration, formatViewCount } from '../lib/format'
+import { isActive } from '../lib/jobStatus'
+import { pendingVideosKey, statsKey } from '../lib/queryKeys'
 import { useJobPolling } from '../lib/useJobPolling'
 import { Button } from './Button'
 import { Card } from './Card'
@@ -78,8 +80,8 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
       handledDownload.current = downloadJob.id
       // 下載完成 = 影片已經以 pending 狀態進 DB，刷新「待分析影片」清單與
       // Header 統計卡；分析要不要跑、什麼時候跑，交給「影片與分析」頁決定。
-      queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      queryClient.invalidateQueries({ queryKey: pendingVideosKey() })
+      queryClient.invalidateQueries({ queryKey: statsKey() })
       // oxlint-disable-next-line react/set-state-in-effect
       setAdded(true)
       toast.show(`已把「${item.title}」加入待分析清單`, 'success')
@@ -95,7 +97,7 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
   }, [downloadJob])
 
   const busy =
-    downloadMutation.isPending || (downloadJob ? downloadJob.status === 'queued' || downloadJob.status === 'running' : false)
+    downloadMutation.isPending || isActive(downloadJob?.status)
 
   const progressText = (() => {
     if (failure) return failure

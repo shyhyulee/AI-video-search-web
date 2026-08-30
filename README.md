@@ -83,10 +83,16 @@ uv run pytest -m integration   # 整合測試，呼叫真實 OpenAI API，有極
 # 前端
 cd frontend
 npx tsc -b --noEmit             # 型別檢查（含 e2e/ 與 playwright.config.ts）
-npx oxlint                      # lint
+npm run lint                    # oxlint ＋ query key 字面值檢查（見下方）
 npm run build                   # production build
 npm run test:e2e                # e2e smoke（見下方）
 ```
+
+`npm run lint` 除了 oxlint，還會跑 `scripts/check-query-keys.mjs`：react-query 的
+query key 字面值只准出現在 `src/lib/queryKeys.ts`。這條檢查存在是因為 key 打錯
+**不會報錯也不會壞畫面**——換一個 key 照樣呼叫同一個 queryFn，壞掉的只有「誰跟
+誰共用快取」與「invalidate 打得到誰」，而那種分岔連 e2e 都看不出來（只會多打一次
+API）。只能從結構上禁止。
 
 ### 前端 e2e smoke
 

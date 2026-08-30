@@ -1,9 +1,11 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { getJob } from '../api/client'
 import type { Job } from '../api/types'
+import { isTerminal } from './jobStatus'
+import { jobKey } from './queryKeys'
 
 function stopWhenTerminal(status: Job['status'] | undefined): number | false {
-  return status === 'completed' || status === 'failed' ? false : 1000
+  return isTerminal(status) ? false : 1000
 }
 
 /** 輪詢單一 job 直到終態（completed／failed），對齊 Tkinter 版
@@ -12,7 +14,7 @@ function stopWhenTerminal(status: Job['status'] | undefined): number | false {
  * 150ms 稀疏——HTTP 輪詢不需要那麼即時，多數階段本來就只有預估進度。 */
 export function useJobPolling(jobId: number | null) {
   return useQuery<Job>({
-    queryKey: ['job', jobId],
+    queryKey: jobKey(jobId),
     queryFn: () => getJob(jobId as number),
     enabled: jobId !== null,
     refetchInterval: (query) => stopWhenTerminal(query.state.data?.status),
@@ -25,7 +27,7 @@ export function useJobPolling(jobId: number | null) {
 export function useJobsPolling(jobIds: number[]) {
   return useQueries({
     queries: jobIds.map((id) => ({
-      queryKey: ['job', id],
+      queryKey: jobKey(id),
       queryFn: () => getJob(id),
       refetchInterval: (query: { state: { data?: Job } }) => stopWhenTerminal(query.state.data?.status),
     })),

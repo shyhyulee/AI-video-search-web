@@ -10,6 +10,7 @@ import { FilterChip } from '../components/FilterChip'
 import { SearchResultCard } from '../components/SearchResultCard'
 import { SearchScopeBar } from '../components/SearchScopeBar'
 import { VideoPlayer } from '../components/VideoPlayer'
+import { libraryVideosKey, statsKey } from '../lib/queryKeys'
 import { useSearchScope } from '../lib/useSearchScope'
 
 const GREETING =
@@ -66,12 +67,12 @@ export function ConversationPage() {
   const [statusText, setStatusText] = useState('')
   const transcriptRef = useRef<HTMLDivElement>(null)
 
-  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats })
+  const { data: stats } = useQuery({ queryKey: statsKey(), queryFn: getStats })
   // 搜尋範圍跟「搜尋影片」頁共用同一份（在影片庫勾選），見 lib/useSearchScope.tsx。
   const { videoIds: scopeVideoIds } = useSearchScope()
   // 只為了把回報的範圍 id 換成標題。跟 LibraryPage／SearchScopeBar 同一個
   // query key，react-query 共用快取、不會多打一次 API。
-  const { data: videos } = useQuery({ queryKey: ['videos', 'library'], queryFn: () => listVideos() })
+  const { data: videos } = useQuery({ queryKey: libraryVideosKey(), queryFn: () => listVideos() })
 
   const startMutation = useMutation({ mutationFn: startConversation })
 

@@ -14,6 +14,8 @@ import { ErrorState } from '../components/ErrorState'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatDateTime, formatDuration, formatElapsed } from '../lib/format'
+import { isActive, isTerminal } from '../lib/jobStatus'
+import { activeJobsKey, libraryVideosKey, pendingVideosKey, statsKey } from '../lib/queryKeys'
 import { useJobsPolling } from '../lib/useJobPolling'
 import { useToast } from '../lib/useToast'
 
@@ -90,7 +92,7 @@ export function VideosPage() {
   Object.keys(analysisJobs).forEach((videoId, idx) => {
     jobByVideoId.set(Number(videoId), jobQueries[idx]?.data)
   })
-  const anyAnalysisActive = jobQueries.some((q) => q.data?.status === 'queued' || q.data?.status === 'running')
+  const anyAnalysisActive = jobQueries.some((q) => isActive(q.data?.status))
 
   const {
     data: pending,
@@ -98,7 +100,7 @@ export function VideosPage() {
     isError: pendingError,
     refetch: refetchPending,
   } = useQuery({
-    queryKey: ['videos', 'pending'],
+    queryKey: pendingVideosKey(),
     queryFn: () => listVideos('pending'),
     refetchInterval: anyAnalysisActive ? LIST_POLL_MS : false,
   })
@@ -109,7 +111,7 @@ export function VideosPage() {
   // 清單裡還有 analyzing 的影片，就表示一定有工作在跑，即使我們還沒追蹤到它
   // （剛重新整理過）——這時要用較密的節奏去問，才接得回來。
   const { data: activeJobs } = useQuery({
-    queryKey: ['jobs', 'active', 'analysis'],
+    queryKey: activeJobsKey('analysis'),
     queryFn: () => listActiveJobs('analysis'),
     refetchInterval: analyzingRows.length > 0 && !anyAnalysisActive ? LIST_POLL_MS : ACTIVE_JOBS_DISCOVERY_MS,
   })
@@ -134,9 +136,9 @@ export function VideosPage() {
   }, [activeJobs])
 
   const invalidateAfterChange = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
-    queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
-    queryClient.invalidateQueries({ queryKey: ['stats'] })
+    queryClient.invalidateQueries({ queryKey: pendingVideosKey() })
+    queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
+    queryClient.invalidateQueries({ queryKey: statsKey() })
   }, [queryClient])
 
   // 影片標題快照：job 結束時要跳 toast 說「哪一支好了」，但那一刻清單馬上會
@@ -153,7 +155,7 @@ export function VideosPage() {
     let settledAny = false
     for (const query of jobQueries) {
       const job = query.data
-      if (!job || (job.status !== 'completed' && job.status !== 'failed')) continue
+      if (!job || !isTerminal(job.status)) continue
       if (notifiedJobIds.current.has(job.id)) continue
       notifiedJobIds.current.add(job.id)
       settledAny = true
@@ -245,7 +247,7 @@ export function VideosPage() {
 
   const renderRow = (v: Video) => {
     const job = jobByVideoId.get(v.id)
-    const analyzing = v.status === 'analyzing' || job?.status === 'running' || job?.status === 'queued'
+    const analyzing = v.status === 'analyzing' || isActive(job?.status)
     const status = jobStatusInfo(v, job)
     return (
       <VideoListItem
