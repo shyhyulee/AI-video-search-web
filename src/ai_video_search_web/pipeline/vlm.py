@@ -17,12 +17,10 @@ MODEL_NAME = "gpt-4o-mini"
 PRICE_INPUT_PER_TOKEN_USD = 0.15 / 1_000_000
 PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
 
-# 預設只取片段中點一張畫面。場景偵測器完全沒抓到切點、被 scene_detect.py
-# 的 _split_long_scenes() 機械式均分出來的場景（source_raw_duration 明顯
-# 超過自己的長度），中點單幀常常漏看場景內其實塞了好幾段不同內容（見
-# docs/02-technical-decisions.md「VLM 條件式多幀取樣」的 gs-002 案例）；
-# pipeline/analyzer.py 的 Phase B 會依 source_raw_duration 決定要不要改傳
-# MULTI_FRAME_FRACTIONS 觸發多幀。
+# 沒有指定時取片段中點一張。**正式流程不會走到這個預設**——Phase B 一律傳
+# analyzer.FRAME_FRACTIONS（三幀），見那裡的說明。留著是因為這個模組對外的
+# 介面本來就允許呼叫端只要一張畫面（實驗腳本 scripts/experiment_vlm_prompt.py
+# 的 single 模式就是這樣用的），預設值讓那種呼叫不必自己想要填什麼。
 DEFAULT_FRAME_FRACTIONS = (0.5,)
 
 # 單幀版 prompt。**「描述姿勢與接觸關係、不要猜動作意圖」這個框架是實測選出來的**

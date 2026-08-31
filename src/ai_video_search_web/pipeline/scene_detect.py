@@ -65,12 +65,15 @@ class NormalizedScene:
     <= SPLIT_ABOVE_SEC）；`source_raw_duration` 明顯更長，代表場景偵測器
     在這段長度裡完全沒抓到任何切點，是被機械式均分出來的其中一段。
 
-    見 docs/02-technical-decisions.md「VLM 條件式多幀取樣」：這個欄位是
-    pipeline/analyzer.py 決定要不要對這個場景觸發多幀 VLM 取樣的訊號來源，
-    直接對應根因（偵測器完全沒偵測到切點），比另外用 pixel/HSV 差異當
-    代理訊號（已測試放棄，見 docs/03-excluded-approaches.md）更準，也
-    幾乎零額外成本——這個長度本來就是 `_split_long_scenes()` 算完就丟的
-    中間值，這裡只是保留下來往下傳。
+    **目前沒有任何呼叫端讀它**。它原本是 analyzer 決定要不要對這個場景觸發多幀
+    VLM 取樣的訊號來源（見 docs/02-technical-decisions.md「VLM 條件式多幀取樣」），
+    2026-08-31 的 P4 把取樣統一成一律三幀之後那個判斷就不存在了。
+
+    留著而不刪，是因為它是「這個場景是不是被機械式硬切出來的」這件事唯一的紀錄，
+    而且幾乎零成本（`_split_long_scenes()` 本來就算得出來，只是順手保留）。之後
+    如果要回答「哪些內容值得抽超過三幀」，這是現成而且已經校準過的訊號——當初
+    比較過的替代方案（pixel/HSV 差異）已經實測放棄，見
+    docs/03-excluded-approaches.md。
     """
     start_sec: float
     end_sec: float

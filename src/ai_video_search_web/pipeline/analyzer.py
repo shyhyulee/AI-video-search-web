@@ -40,18 +40,32 @@ from pathlib import Path
 from openai import OpenAI, RateLimitError
 
 from .. import db
-from . import asr, embedding, media, ocr_service, scene_detect, segment_material, vlm
+from . import asr, embedding, media, ocr_service, scene_detect, vlm
 from . import document as document_pipeline
 from . import summary as summary_pipeline
 from .openai_client import get_client
 
 logger = logging.getLogger(__name__)
 
-# 原本 $0.20，VLM 條件式多幀取樣上線後調高到 $0.30：用真實 7 支影片費用
-# 反推，溶接式排行榜內容（觸發率 88~98%）換算後單支費用最高約 $0.2015，
-# 超過原本上限；$0.30 讓這類影片留有餘裕，見
-# docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
-BUDGET_USD = 0.80
+# 預算演進：$0.20 →（VLM 條件式多幀）$0.30 →（長度上限放寬到 1 小時）$0.80 →
+# （**每個片段一律三幀**，見 FRAME_FRACTIONS）**$1.50**，2026-08-31 由使用者拍板。
+#
+# $1.50 的依據，用 v28／v33／v36 實跑反推的每片段費率（幾乎全部是 VLM 的圖片
+# token——embedding 與文件攤到每個片段趨近於零）：
+#
+#   1 幀 $0.00056／段、3 幀 $0.00144／段（實測倍率 2.57，兩支影片一致）
+#   文件另記的最高觀測費率是 $0.0009／段（1 幀），×2.57 = $0.00232／段
+#
+#   情境（密度用結構上限 7.5 段/分）        總計    $1.50 的餘裕
+#   52 分（ASR 的實際上限）· 實測費率        $0.87      42%
+#   52 分 · 最壞費率                        $1.22      19%
+#   60 分（理論上限）· 最壞費率              $1.40       7%
+#   60 分 · 最壞費率 · 無音軌（不花 ASR）    $1.04      31%
+#
+# 60 分鐘那一列的 7% 看起來很緊，但它碰不到——asr._extract_audio() 的 64kbps
+# 換算 Whisper 25MB 上限約 52~55 分鐘，超過就先卡在 ASR（見 MAX_DURATION_SEC）。
+# 實務上限那一列的餘裕是 19%。
+BUDGET_USD = 1.50
 # 原本 20 分鐘，2026-08-26 依使用者要求放寬到 1 小時；BUDGET_USD 同時由 $0.30
 # 調到 $0.80 配合它。$0.80 是依實測 10 支影片（1.0~18.6 分鐘）反推的：
 #
@@ -69,64 +83,37 @@ BUDGET_USD = 0.80
 # 會先卡在 ASR，不會走到預算判斷。完整推導與實測資料見 docs/11 §8.12。
 MAX_DURATION_SEC = 60 * 60
 
-# source_raw_duration（scene_detect.NormalizedScene，這個場景所屬、切分前
-# 的原始長度）超過這個秒數，代表場景偵測器在這段長度裡完全沒抓到任何切點，
-# 觸發多幀 VLM 取樣（見下方 MULTI_FRAME_FRACTIONS）而不是預設中點單幀。
-# 校準過程：全 corpus 537 個既有場景重跑一次原始場景偵測比較 12s／20s 兩個
-# 門檻，20s 對連續動作型內容（NBA／BMW／動物／棒球）有實質過濾效果（觸發率
-# 18.5%→7.7%），對溶接式排行榜內容幾乎沒差（原始場景長度本來就遠超過
-# 20 秒）。只用這批 7 支影片校準過，不是嚴謹調校的結果，見
-# docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
-MULTI_FRAME_TRIGGER_SEC = 20.0
+# **每個片段一律抽三張畫面**，位置在 10%／40%／70%（2026-08-31，P4）。
+#
+# 之前是三層：預設中點單幀、場景切分完全沒抓到切點時兩幀（門檻 20 秒）、字幕整欄
+# 沒用時三幀。統一成三幀之後那兩個觸發條件就不再決定任何事，連同判斷邏輯與常數一起
+# 刪掉——留著不會被讀到的分支，比少一個設定選項更糟。
+#
+# **理由是「單幀片段的瓶頸是那張畫面本身」**：改 prompt 在多幀上拿到 +21.4pt 的具體
+# 動作描述率，在單幀上怎麼改都只有個位數、而且落在雜訊內。一張靜止畫面看不出動作的
+# 方向（彎腰扶著箱子，可能是搬起、放下或只是扶著），那是資訊本身不存在，不是措辭
+# 問題。見 docs/02-technical-decisions.md#單幀-prompt問姿勢不要問動作。
+#
+# 三幀是**目前唯一實測過的最高密度**（v28／v36 各跑過一次完整分析）。再往上是未量測
+# 領域，而且已知元描述率會隨幀數上升（兩幀 4.3% → 三幀 16.8~28%，已判定是表面瑕疵，
+# 見 docs/18-畫面分析精細化計畫.md）。
+#
+# 位置 10%／40%／70% 由使用者指定。間距跟先前的 20%／50%／80% 同樣是 30%，差別只在
+# 整體往前移 10%——**盲區因此落在每個片段的最後 30%**，而不是像對稱取樣那樣分散在
+# 頭尾；跨片段來看兩者的縫隙一樣大（下一段的第一個探測點緊接在後）。
+FRAME_FRACTIONS = (0.1, 0.4, 0.7)
 
-# 觸發後取兩幀，分別在片段 30%／70% 時間點——不是中點單幀，讓兩幀盡量分散
-# 到片段前後段，各自代表性更高。幀數與位置沒有掃過其他選項（例如 3 幀／
-# 25%-50%-75%），已知在最極端案例（一個場景塞了 4 張快速切換的名卡）只能
-# 抓到其中 2 張，不保證完全覆蓋，見 docs/02-technical-decisions.md 已知限制。
-MULTI_FRAME_FRACTIONS = (0.3, 0.7)
-
-# 字幕整欄沒有用時（純畫面影片、或整支都是 Whisper 幻覺）改用的取樣密度。
+# Phase B 批次平行的批次大小。**撞 rate limit 的是同一批送出的圖片張數，不是場景
+# 數**——每個場景現在固定三幀，批次 2 等於每批 6 張，跟條件式多幀上線時驗證過
+# （0 次撞限）的用量同級。實測逼出來的：v28 用批次 3 跑（3×3＝9 張）時 429 撞了
+# 5 次，靠重試救回來、107 個場景全數完成 0 失敗，但那是靠運氣不是靠設計。
 #
-# **理由是「畫面變成唯一的訊號來源」，不是「因為有預算」**：這種影片的搜尋只剩
-# 畫面與畫面文字兩個 channel，文件整理也只剩「畫面：…」一欄，描述品質直接決定
-# 整支影片有沒有用。實測也支持多給幾張畫面是有效的那條路——多幀 prompt 改對讓
-# 具體動作描述率漲 21.4pt，單幀 prompt 怎麼改都只有個位數（見
-# docs/02-technical-decisions.md#單幀-prompt問姿勢不要問動作）。
-#
-# 取 20%／50%／80% 而不是多幀版的 30%／70%：三幀就把中點補回來了，兩端也比
-# 30/70 更靠外，涵蓋範圍更寬。沒有掃過其他組合。
-VISUAL_ONLY_FRAME_FRACTIONS = (0.2, 0.5, 0.8)
-
-# Phase B 批次平行的批次大小。原本 =5 的推導依據（見下方保留的舊註解）
-# 其實用錯了 gpt-4o-mini「low」解析度圖片的 token 成本——假設固定 85
-# tokens（一般 gpt-4o 的公式），但實測單幀呼叫真實 prompt tokens 是 2960
-# （圖片本身就佔了約 2880 tokens，比假設值高了一個數量級），比原本估的
-# 「單次呼叫最差情況約 550 tokens」高出約 5.4 倍。這個落差沒有造成實際問題
-# （Tier 2 上線後的 20 場景測試 0 次撞 rate limit），研判是因為真實 API
-# 呼叫的延遲本身就有節流效果，不是 token 預算公式在把關。條件式多幀上線後
-# 觸發場景的 call 用量再乘上約 1.9 倍（2 幀），同一批次如果剛好混到多個
-# 觸發場景，風險又更高一階；沒有足夠把握重新推導一個精確數字，保守把批次
-# 大小降到 3（原本的約 60%），實際會不會撞 429 要等真的重新分析 video 1
-# 才能驗證，見 docs/02-technical-decisions.md「VLM 條件式多幀取樣」。
-#
-# 舊註解（batch_size=5 時的推導依據，已知有誤，保留供對照）：用帳號實測
-# 撞過的 gpt-4o-mini TPM 上限（200,000/分鐘）回推：單次呼叫最差情況約
-# 550 tokens（含輸出上限），只讓 Phase B 自己的併發用量控制在上限的一半
-# 以內（~100,000 tokens/分鐘）換算出保守起點，見
-# docs/02-technical-decisions.md#分析流程平行化「Tier 2」。
-VLM_BATCH_SIZE = 3
-
-# 純畫面影片（每個場景都三幀）改用的批次大小。
-#
-# **實測逼出來的**：v28 Intel 用 VLM_BATCH_SIZE=3 重新分析時，同一批送出 3×3＝9 張
-# 圖，429 撞了 5 次（靠既有的重試救回來，107 個場景全數完成、0 失敗）。條件式多幀
-# 上線時的驗證是「0 次撞 rate limit」，那時每批最多 3×2＝6 張。批次降到 2 讓每批
-# 回到 2×3＝6 張，跟當時驗證過的用量同級。
-#
-# 這是保守調整不是精確推導——跟 VLM_BATCH_SIZE=3 本身一樣（見上面那段註解，
-# 原本的 token 預算公式已知用錯了 gpt-4o-mini 的圖片成本）。代價是純畫面影片的
-# Phase B 併發度降一階、耗時變長。
-VISUAL_ONLY_VLM_BATCH_SIZE = 2
+# 舊註解（batch_size=5／3 時期的推導依據，已知有誤，保留供對照）：原本用 gpt-4o-mini
+# 的 TPM 上限（200,000/分鐘）回推，但假設「low」解析度圖片固定 85 tokens（那是一般
+# gpt-4o 的公式），實測單幀呼叫真實 prompt tokens 是 2,960（圖片就佔約 2,880），高了
+# 一個數量級。這個落差沒有造成實際問題，研判是真實 API 呼叫的延遲本身就有節流效果，
+# 不是 token 預算公式在把關。
+VLM_BATCH_SIZE = 2
 
 # 批次平行後同一批內同時打多個請求，撞到 429 的機率比循序執行時更高；
 # 帳號已經實測撞過 TPM 上限，這裡的等待秒數／重試次數是合理預設，不是
@@ -475,49 +462,6 @@ def _run_scene_detection_and_transcription(
     return scenes, transcribe_future.result()
 
 
-def _is_visual_only(transcribe_result: asr.TranscribeResult) -> bool:
-    """這支影片的字幕欄位是不是完全沒有用——沒有音軌、Whisper 什麼都沒抓到，
-    或整欄都是同一句幻覺。
-
-    **判斷點刻意放在轉錄之後、Phase B 之前**：轉錄跟場景切分是平行跑的，結果在
-    畫面分析開始前就拿得到，所以「畫面是不是唯一的訊號來源」這件事可以用**實際
-    的轉錄結果**判斷，而不是只看有沒有音軌。這一點很重要——實測整欄幻覺的影片
-    （BMW 97 句裡 95 句是 `Thank you for watching.`、Intel `... ... ...` 佔 65%）
-    音軌都是正常的，只看音軌完全抓不到它們。
-
-    幻覺判斷委派給 `segment_material.is_transcript_column_junk()`，跟組 LLM 素材
-    時用的是同一個門檻與同一份實測校準，不會兩邊各調各的。
-
-    **「完全沒有字幕」必須自己判，不能只靠那支**：它的樣本數下限是 8 句（3 句裡
-    重複 2 句就湊得出 67%，那是雜訊不是訊號），所以空清單會回 False。真無聲的影片
-    轉錄結果正是空的——只委派過去的話，最該加密取樣的那種影片反而拿不到多幀。
-    """
-    texts = [seg.text for seg in transcribe_result.segments]
-    if not any((text or "").strip() for text in texts):
-        return True
-    return segment_material.is_transcript_column_junk(texts)
-
-
-def _frame_fractions_for(
-    scene: scene_detect.NormalizedScene, *, visual_only: bool = False
-) -> tuple[float, ...]:
-    """決定這個場景要抽幾張畫面、抽在哪裡。三種情況，由寬到窄：
-
-    1. `visual_only`（字幕整欄沒用）→ 三幀。畫面是唯一訊號，值得加密取樣，
-       見 VISUAL_ONLY_FRAME_FRACTIONS。**這一條蓋過下面那條**：三幀本來就比
-       兩幀密，兩個條件同時成立時不需要再分岔。
-    2. 場景是從超長原始場景硬切出來的 → 兩幀，見 MULTI_FRAME_TRIGGER_SEC。
-    3. 其餘 → 中點單幀。
-
-    拆成獨立函式方便不用真的跑 VLM／場景偵測就能測判斷本身。
-    """
-    if visual_only:
-        return VISUAL_ONLY_FRAME_FRACTIONS
-    if scene.source_raw_duration > MULTI_FRAME_TRIGGER_SEC:
-        return MULTI_FRAME_FRACTIONS
-    return vlm.DEFAULT_FRAME_FRACTIONS
-
-
 def _run_vlm_phase(
     ctx: _AnalysisContext,
     scenes: list[scene_detect.NormalizedScene],
@@ -529,8 +473,8 @@ def _run_vlm_phase(
     回傳的 list[_SceneAnalysisRow] 順序仍然精確對應 scenes 的順序；budget
     檢查從「每個場景後」放寬成「每個批次後」。
 
-    每個場景先依 `_frame_fractions_for()` 判斷要不要觸發條件式多幀取樣（見
-    docs/02-technical-decisions.md「VLM 條件式多幀取樣」），再送進 VLM。
+    每個場景一律抽 `FRAME_FRACTIONS` 三張畫面，沒有條件判斷——理由與演進見那個常數
+    上方的說明。
 
     單一場景的 VLM 呼叫失敗（內容審查拒絕、API 錯誤等 rate limit 以外的例外）
     只跳過那個場景的畫面描述／OCR，不讓整支分析失敗，比照 Phase E／F 的失敗
@@ -545,14 +489,6 @@ def _run_vlm_phase(
     scene_rows: list[_SceneAnalysisRow] = []
     vlm_failed_count = 0
 
-    # 整支影片算一次，不是每個場景各算一次：這是影片層級的判斷（見
-    # `_is_visual_only()` 與 `segment_material._dominant_share()` 的說明——
-    # 幻覺字幕的特徵只有把整支影片放在一起看才看得出來）。
-    visual_only = _is_visual_only(transcribe_result)
-    if visual_only:
-        logger.info("video %s 的字幕整欄無法使用，畫面取樣改成 %d 幀",
-                    ctx.video_id, len(VISUAL_ONLY_FRAME_FRACTIONS))
-
     completed = 0
 
     def _report_progress() -> None:
@@ -561,18 +497,13 @@ def _run_vlm_phase(
         percent = round(completed / len(scenes) * 100)
         ctx.report_progress("畫面分析", f"{percent}%", persist_as=f"畫面分析 {percent}%")
 
-    # 批次大小跟著幀數走：每批送出的**圖片**張數才是撞 rate limit 的東西，
-    # 場景數不是，見 VISUAL_ONLY_VLM_BATCH_SIZE。
-    batch_size = VISUAL_ONLY_VLM_BATCH_SIZE if visual_only else VLM_BATCH_SIZE
-
-    with ThreadPoolExecutor(max_workers=batch_size) as pool:
-        for batch_start in range(0, len(scenes), batch_size):
-            batch = scenes[batch_start : batch_start + batch_size]
+    with ThreadPoolExecutor(max_workers=VLM_BATCH_SIZE) as pool:
+        for batch_start in range(0, len(scenes), VLM_BATCH_SIZE):
+            batch = scenes[batch_start : batch_start + VLM_BATCH_SIZE]
             futures = [
                 pool.submit(
                     _describe_segment_with_retry,
-                    ctx.client, ctx.video_path, scene.start_sec, scene.end_sec,
-                    _frame_fractions_for(scene, visual_only=visual_only),
+                    ctx.client, ctx.video_path, scene.start_sec, scene.end_sec, FRAME_FRACTIONS,
                 )
                 for scene in batch
             ]

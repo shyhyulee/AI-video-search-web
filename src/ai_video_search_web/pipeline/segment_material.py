@@ -59,9 +59,11 @@ def _dominant_share(texts: list[str]) -> float:
 def is_transcript_column_junk(texts: "list[str | None]") -> bool:
     """整支影片的字幕欄位是不是整欄都是幻覺（最常出現的那一句佔比超過門檻）。
 
-    公開出來是因為**這個判斷有第二個呼叫端**：`analyzer._run_vlm_phase()` 用它決定
-    要不要對這支影片加密畫面取樣——字幕整欄是噪音時，畫面就是唯一的訊號來源，
-    值得多花幾張畫面。判斷邏輯與門檻只有一份，不會兩邊各調各的。
+    公開的（而不是 `_` 開頭）是為了讓它能被直接測到——門檻與樣本下限都是拿全庫
+    23 支影片校準出來的，`build_material()` 的整合測試蓋不到邊界條件。
+
+    曾經有第二個呼叫端：analyzer 用它決定要不要對這支影片加密畫面取樣。2026-08-31
+    的 P4 把取樣統一成一律三幀之後那個判斷就沒有了，現在只剩這個模組自己在用。
     """
     cleaned = [t for t in (_clean(text) for text in texts) if t]
     return _dominant_share(cleaned) > _JUNK_TRANSCRIPT_SHARE
