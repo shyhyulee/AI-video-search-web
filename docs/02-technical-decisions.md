@@ -313,7 +313,9 @@
 
 加上覆蓋率——無畫面描述的片段 1/1,156、無字幕的 150/1,156——得到三條寫進 prompt 的規則：
 
-1. **每個步驟必須對得上時間戳**，素材裡沒有的不准寫；判斷得出「應該還有一步但素材沒交代」的寫進 `uncovered`。這是防幻覺的主要手段，但**它擋得比原本以為的少**：2026-08-30 量過 8 支已整理文件，3 支有超出影片長度的時間戳（最誇張的是 18:33 的影片寫出 22:56 的步驟）。模型講得出時間戳，不代表那一步真的存在——細節與待決的處理方式見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+1. **每個步驟必須對得上時間戳**，素材裡沒有的不准寫；判斷得出「應該還有一步但素材沒交代」的寫進 `uncovered`。這是防幻覺的主要手段。
+
+   曾經以為它「擋得比想像少」——2026-08-30 量過 8 支文件，3 支有超出影片長度的時間戳（18:33 的影片寫出 22:56 的步驟）。**追下去發現不是模型幻覺，是我們自己的素材格式**：素材給 `[MM:SS]`，schema 要的欄位卻叫 `timestamp_sec`（秒），等於逼模型換算，而它常常直接抄 `[03:18]` 的 `18`。素材改成同時給總秒數之後重跑 9 支，超出影片長度的步驟 **4 → 0**。細節見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
 2. **字幕與畫面描述矛盾時以畫面為準**，看不懂的片段直接略過（因為畫面是覆蓋率 99.9% 的骨幹，字幕才是會整段壞掉的那個）。
 3. **不適合就選 `content_log`**，不要硬掰步驟。
 
@@ -392,7 +394,7 @@
 
 **縮圖一併移除**：詳細面板最上方那張是純裝飾（面板裡沒有播放器，點了不會播），卻吃掉 `md:max-h-[42vh]`——而一份 SOP 有二三十個步驟，最缺的就是垂直空間。清單列的小縮圖（`VideoListItem`）保留，辨識影片靠那裡就夠。`VideoPoster` 元件留著，只是 `size="fill"` 這個 variant 之後沒有呼叫端了。
 
-**保留、沒有刪的東西**：`pipeline/summary.py` 與 analyzer 的 Phase F 自動摘要完全不動（新影片分析完仍會自動有摘要）；`POST /videos/{id}/summary` 端點與測試保留，只是前端不再呼叫——照 `POST /videos/upload` 的既有先例。
+**保留、沒有刪的東西**：`pipeline/summary.py` 與 analyzer 的 Phase F 自動摘要完全不動（新影片分析完仍會自動有摘要）；`POST /videos/{id}/summary` 端點與測試保留，只是前端不再呼叫——照 `POST /videos/upload` 的既有先例。（Phase F 後來改成直接整理文件、`summary.py` 退成它的退路，見下面「Phase F 改成整理文件，摘要退成它的退路」。）
 
 **已知取捨**：8 支已有文件的影片，`videos.summary` 仍是分析時產生的舊版本，要等下次按「整理成文件」才會被覆蓋。兩份摘要都是合格的，沒有急迫性。
 
@@ -423,11 +425,27 @@ keep-alive 的，少了網址只影響「可分享」與「上一頁退出」，
 值沒變，effect 就不會重跑，使用者手動把進度拖走之後回不到那一步。不傳的呼叫端（搜尋頁、對話頁）
 行為完全不變。
 
+### Phase F 改成整理文件，摘要退成它的退路
+
+**背景**：上面「摘要與整理文件合併成一個動作」把 UI 收成一段之後，`videos.summary` 有兩個來源——分析時的 Phase F（`summary.py`）與使用者按「整理成文件」（`document.py` 的 `overview` 一稿兩用）。後者會覆蓋前者，等於我們已經認定 `overview` 才是正本，卻還是讓每支影片先花一次錢產一份會被覆蓋的摘要，而文件要使用者自己想到去按。
+
+**決定**：Phase F 直接整理文件（`_run_document_phase()`），摘要當成它的副產品；文件失敗才退回 `summary.generate_summary()`。分析完成的影片一律有文件，「整理成文件」那顆按鈕退化成「重新整理文件」。
+
+**為什麼退路不能省**：`videos.summary` 不是只給人看的欄位——搜尋的影片層級篩選（`pipeline/search/dense.py`）與影片庫的主題分類、庫內搜尋（`frontend/src/lib/videoCategory.ts`）都在讀它。文件整理失敗就整支沒有摘要的話，那支影片會在搜尋端被降權，比「文件沒整理出來」嚴重得多。兩條路都失敗只記 log，維持這個 phase 原本的失敗隔離原則（已經成功的片段不能因為它被判定失敗）。
+
+**成本只能算一次，而且這裡的陷阱跟手動那條路相反**：手動整理文件走 `db.update_video_document()`，那支的 `cost_usd` 是**增量累加**；分析流程走 `db.mark_video_analyzed()`，它的 `cost_usd` 是 analyzer 算好的**絕對總額**（文件的花費已經透過 `ctx.spend()` 進去了）。所以文件三欄跟著 `mark_video_analyzed()` 一起寫、不能改呼叫 `update_video_document()`——兩支都呼叫的話同一次 LLM 呼叫的錢會被算兩次。三個欄位都用 `COALESCE(%s, ...)`：重新分析但這次文件失敗時，舊文件留著比清空好。
+
+**順帶修掉的既有問題**：`db.reset_to_pending()` 原本清 `summary` 卻不清文件三欄，留下一份時間戳指向已刪片段的文件。文件只能手動整理時這是少見情況，Phase F 自動整理之後每支重置的影片都會遇到，所以一併清掉。
+
+**前端唯一要動的地方**：文件那支 query 是 `staleTime: Infinity`（文件只有按按鈕才會變，按鈕自己 `setQueryData`）。重新分析現在也會換掉文件，所以 `VideoDetailPanel` 的 `useJobSettlement` 要多失效一個 `videoDocumentKey`，否則畫面會繼續顯示上一輪的文件。
+
+**已知取捨**：Phase F 的耗時從幾秒變成數十秒（輸出 token 比摘要多一個量級），但它與本地 OCR 平行跑，多出來的時間多半被吸收掉；成本每支多約 US$0.002，相對 `BUDGET_USD = 0.80` 可忽略，沒有調整預算。文件的成本仍然併進 `videos.cost_usd`、沒有獨立欄位（見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)）。
+
 ## 分析流程平行化
 
 **前提（使用者要求）**：不能改變任何片段會不會被處理、預算會不會截斷、截斷在哪個片段的判斷結果。
 
-**依賴關係分析**：Phase A（場景切分）跟音訊轉錄互不依賴（一個看畫面、一個聽聲音）；Phase E（本地 OCR）跟 Phase F（產生摘要）互不依賴（F 只讀 Phase D 寫入的 `segments`，不碰 Phase E 寫的 `ocr_events`）；Phase B、C 內部「處理完一個片段才檢查一次預算」的順序性是刻意設計，不能打亂。
+**依賴關係分析**：Phase A（場景切分）跟音訊轉錄互不依賴（一個看畫面、一個聽聲音）；Phase E（本地 OCR）跟 Phase F（整理文件與摘要）互不依賴（F 只讀 Phase D 寫入的 `segments`，不碰 Phase E 寫的 `ocr_events`）；Phase B、C 內部「處理完一個片段才檢查一次預算」的順序性是刻意設計，不能打亂。
 
 ### Tier 1（零風險，已採用）
 
@@ -435,9 +453,9 @@ keep-alive 的，少了網址只影響「可分享」與「上一頁退出」，
 
 1. Phase A（場景切分）＋ 音訊轉錄同時起跑（`_run_scene_detection_and_transcription()`）。
 2. Phase C 片段內字幕／畫面描述／OCR 文字三個 embedding 呼叫改用 thread pool 同時送出（`_embed_segment_texts()`），budget 檢查時機（一個片段三個都做完才檢查一次）不變。
-3. Phase E（本地 OCR）＋ Phase F（產生摘要）同時起跑（`_run_local_ocr_and_summary()`）。
+3. Phase E（本地 OCR）＋ Phase F（整理文件與摘要）同時起跑（`_run_local_ocr_and_document()`）。
 
-**唯一的小副作用（已跟使用者說明並確認接受）**：F 原本用「E 跑完後」的金額判斷要不要花錢做摘要，改成用「E 開始前」的金額判斷，極端情況下兩者合計可能讓總花費比 `BUDGET_USD` 多出一點點（當時是 US$0.20，目前是 US$0.80）。**UI 小副作用**：狀態列只顯示最新收到的進度訊息，兩個平行 phase 的訊息交錯進佇列，文字可能在階段名稱之間跳動幾次，純顯示層抖動，跟分析結果正確性無關。
+**唯一的小副作用（已跟使用者說明並確認接受）**：F 原本用「E 跑完後」的金額判斷要不要花這筆錢，改成用「E 開始前」的金額判斷，極端情況下兩者合計可能讓總花費比 `BUDGET_USD` 多出一點點（當時是 US$0.20，目前是 US$0.80）。**UI 小副作用**：狀態列只顯示最新收到的進度訊息，兩個平行 phase 的訊息交錯進佇列，文字可能在階段名稱之間跳動幾次，純顯示層抖動，跟分析結果正確性無關。
 
 ### Tier 2（Phase B 批次平行，已採用）
 

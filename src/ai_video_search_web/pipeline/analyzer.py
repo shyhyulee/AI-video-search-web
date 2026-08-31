@@ -17,8 +17,8 @@ _run_*()／_write_segments() phase 函式，對應 Phase A~F 的邏輯區塊
 其中三組互不依賴的 phase 改成同時起跑縮短耗時（Tier 1 平行化，不改變任何
 判斷邏輯／輸出結果，見 docs/02-technical-decisions.md#分析流程平行化）：
 場景切分＋音訊轉錄（_run_scene_detection_and_transcription()）、Phase C
-片段內三個 embedding（_embed_segment_texts()）、本地 OCR＋產生摘要
-（_run_local_ocr_and_summary()）。其餘 phase 仍然照順序一個一個處理。
+片段內三個 embedding（_embed_segment_texts()）、本地 OCR＋整理文件
+（_run_local_ocr_and_document()）。其餘 phase 仍然照順序一個一個處理。
 
 Phase B（VLM 逐場景畫面分析）另外做了 Tier 2 平行化：改成逐批次平行送出
 （見 _run_vlm_phase() 與 docs/02-technical-decisions.md#分析流程平行化「Tier 2」）。
@@ -41,6 +41,7 @@ from openai import OpenAI, RateLimitError
 
 from .. import db
 from . import asr, embedding, ocr_service, scene_detect, vlm
+from . import document as document_pipeline
 from . import summary as summary_pipeline
 from .openai_client import get_client
 
@@ -167,8 +168,8 @@ class _SegmentRow:
 
 
 class _AnalysisContext:
-    """一次分析從頭到尾共用的東西：固定的輸入（video_id／video_path／client），
-    加上兩個橫切關注點——進度回報與累計花費／預算判斷。
+    """一次分析從頭到尾共用的東西：固定的輸入（video_id／video_path／video_title／
+    client），加上兩個橫切關注點——進度回報與累計花費／預算判斷。
 
     抽出來的理由：這兩件事原本靠參數手工穿過每個 phase 函式（`progress_queue`
     一路往下傳、`total_cost` 進出每個簽名），新增或調整一個 phase 就要同時記得
@@ -182,10 +183,15 @@ class _AnalysisContext:
         video_path: Path,
         client: OpenAI,
         progress_queue: "queue.Queue[object]",
+        video_title: str = "",
         initial_cost: float = 0.0,
     ) -> None:
         self.video_id = video_id
         self.video_path = video_path
+        # Phase F 整理文件時要把影片標題放進 prompt（`document.generate_document()`
+        # 的必要輸入）。放進 context 而不是一路傳參數，理由跟 video_path 一樣：
+        # 它是「這次分析的固定輸入」，不是某個 phase 算出來的中間結果。
+        self.video_title = video_title
         self.client = client
         self._progress_queue = progress_queue
         self._initial_cost = initial_cost
@@ -244,7 +250,7 @@ class _AnalysisContext:
     def budget_branch(self) -> "_AnalysisContext":
         """給「互相平行、而且各自都要判斷預算」的 phase 用：回傳一個從目前金額
         起算、獨立累加的 context。兩個分支互相看不到對方的花費——這正是
-        _run_local_ocr_and_summary() 既有的取捨（兩者合計可能比 BUDGET_USD 多出
+        _run_local_ocr_and_document() 既有的取捨（兩者合計可能比 BUDGET_USD 多出
         一點點），用 budget_branch() 把它變成明講的機制而不是靠傳參數傳出來的
         副作用。跑完用 merge_branch() 把增量併回主帳。
         """
@@ -253,6 +259,7 @@ class _AnalysisContext:
             video_path=self.video_path,
             client=self.client,
             progress_queue=self._progress_queue,
+            video_title=self.video_title,
             initial_cost=self.total_cost,
         )
 
@@ -315,7 +322,8 @@ def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
     progress_queue.put(AnalysisProgress(stage="場景切分中"))
 
     ctx = _AnalysisContext(
-        video_id=video_id, video_path=video_path, client=get_client(), progress_queue=progress_queue
+        video_id=video_id, video_path=video_path, client=get_client(), progress_queue=progress_queue,
+        video_title=video.title,
     )
 
     try:
@@ -342,11 +350,11 @@ def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
             stage_notes.append(f"{vlm_failed_count} 個場景畫面分析失敗，已略過（保留字幕，無畫面描述）")
         pipeline_stage = "；".join(stage_notes) or None
 
-        # Phase E（本地 OCR）／Phase F（產生摘要）互不依賴，同時起跑縮短耗時，
-        # 見 docs/02-technical-decisions.md#分析流程平行化。本地 OCR 整段失敗
-        # 只記 log、不能讓已經成功的分析結果被判定為失敗，見
+        # Phase E（本地 OCR）／Phase F（整理文件與摘要）互不依賴，同時起跑縮短
+        # 耗時，見 docs/02-technical-decisions.md#分析流程平行化。本地 OCR 整段
+        # 失敗只記 log、不能讓已經成功的分析結果被判定為失敗，見
         # docs/02-technical-decisions.md#vlm-與-ocr。
-        summary_text = _run_local_ocr_and_summary(ctx, segment_rows, segment_ids)
+        document_output = _run_local_ocr_and_document(ctx, segment_rows, segment_ids)
 
         db.mark_video_analyzed(
             video_id=video_id,
@@ -356,8 +364,14 @@ def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
             vlm_model=vlm.MODEL_NAME,
             embedding_model=embedding.MODEL_NAME,
             pipeline_stage=pipeline_stage,
-            summary=summary_text,
-            summary_model=summary_pipeline.MODEL_NAME if summary_text else None,
+            # 文件的花費已經透過 ctx.spend() 進了上面的 cost_usd，所以文件三欄
+            # 跟著這一句一起寫，不能改呼叫 db.update_video_document()——那支是
+            # 累加語意，會把同一次呼叫的錢算兩次。
+            summary=document_output.summary,
+            summary_model=document_output.summary_model,
+            document_json=document_output.document_json,
+            document_type=document_output.document_type,
+            document_model=document_output.document_model,
         )
         progress_queue.put(
             AnalysisResult(
@@ -701,42 +715,87 @@ def _run_local_ocr(
         )
 
 
-def _run_summary_phase(ctx: _AnalysisContext) -> str | None:
-    """Phase F：產生摘要（GPT-4o-mini，彙整全部片段字幕與畫面描述，約 100~200 字）。
-    budget 已經超支就跳過，不強求一定要有摘要；失敗只記 log，不影響其他分析
-    結果——跟本地 OCR 同樣的失敗隔離原則。這份摘要也是搜尋端影片篩選
-    （search.py 的 _video_relevance_score()）的主要依據，見
-    docs/02-technical-decisions.md#搜尋 的「影片層級篩選」。
+@dataclass
+class _DocumentPhaseOutput:
+    """Phase F 的產出，直接對應 `db.mark_video_analyzed()` 的五個可選欄位。
+
+    全部是 None ＝這個 phase 什麼都沒產出（超支、沒有片段，或兩條路都失敗）；
+    那種情況下 `mark_video_analyzed()` 的 COALESCE 會保留影片上原本的值。
     """
-    ctx.enter_stage("產生摘要中")
+    summary: str | None = None
+    summary_model: str | None = None
+    document_json: str | None = None
+    document_type: str | None = None
+    document_model: str | None = None
 
-    summary_text: str | None = None
+
+def _run_document_phase(ctx: _AnalysisContext) -> _DocumentPhaseOutput:
+    """Phase F：把全部片段整理成一份結構化文件，順便拿到摘要。
+
+    **文件優先、摘要當退路**。原本這個 phase 只產摘要（`summary.generate_summary()`），
+    文件要使用者自己去按「整理成文件」。兩者其實是同一件事的兩種輸出——
+    `VideoDocument.overview` 的 prompt 就是照摘要的規格寫的，手動整理文件時本來
+    就會一併覆蓋 `videos.summary`（見 `services/video_service.generate_document()`）
+    ——所以這裡直接產文件，摘要當成它的副產品，省掉一次 LLM 呼叫。
+
+    退路不能省：`videos.summary` 不只是顯示用的欄位，搜尋的影片層級篩選
+    （pipeline/search/dense.py）與影片庫的主題分類（frontend lib/videoCategory.ts）
+    都在讀它。文件整理失敗就整支沒有摘要的話，那支影片會在搜尋端被降權——那比
+    「文件沒整理出來」嚴重得多，所以文件失敗時退回原本的 `generate_summary()`。
+
+    兩條路都失敗只記 log、不影響其他分析結果，跟本地 OCR 同樣的失敗隔離原則；
+    budget 已經超支就整段跳過，維持原本的行為。
+    """
+    ctx.enter_stage("整理文件與摘要中")
+
+    if ctx.over_budget:
+        return _DocumentPhaseOutput()
+
+    fresh_segments = db.list_segments_for_video(ctx.video_id)
+    if not fresh_segments:
+        return _DocumentPhaseOutput()
+
     try:
-        if not ctx.over_budget:
-            fresh_segments = db.list_segments_for_video(ctx.video_id)
-            if fresh_segments:
-                summary_result = summary_pipeline.generate_summary(ctx.client, fresh_segments)
-                ctx.spend(summary_result.cost_usd)
-                summary_text = summary_result.summary
+        result = document_pipeline.generate_document(ctx.client, ctx.video_title, fresh_segments)
+        ctx.spend(result.cost_usd)
+        return _DocumentPhaseOutput(
+            # summary_model 填文件的模型而不是 summary_pipeline 的：這段文字真的
+            # 是它產的。手動整理文件那條路也是這樣寫的（db.update_video_document()
+            # 把 document_model 同時寫進 summary_model），兩條路要一致。
+            summary=result.document.overview,
+            summary_model=document_pipeline.MODEL_NAME,
+            document_json=result.document.model_dump_json(),
+            document_type=result.document.doc_type,
+            document_model=document_pipeline.MODEL_NAME,
+        )
     except Exception:
-        logger.warning("自動產生摘要失敗，跳過（不影響其他分析結果）", exc_info=True)
+        logger.warning("自動整理文件失敗，退回只產生摘要", exc_info=True)
 
-    return summary_text
+    try:
+        summary_result = summary_pipeline.generate_summary(ctx.client, fresh_segments)
+        ctx.spend(summary_result.cost_usd)
+        return _DocumentPhaseOutput(
+            summary=summary_result.summary, summary_model=summary_pipeline.MODEL_NAME
+        )
+    except Exception:
+        logger.warning("自動產生摘要也失敗，跳過（不影響其他分析結果）", exc_info=True)
+
+    return _DocumentPhaseOutput()
 
 
-def _run_local_ocr_and_summary(
+def _run_local_ocr_and_document(
     ctx: _AnalysisContext, segment_rows: list[_SegmentRow], segment_ids: list[int]
-) -> str | None:
-    """Phase E（本地 OCR）跟 Phase F（產生摘要）互不依賴——F 只讀 Phase D 寫入的
-    segments，不碰 Phase E 寫的 ocr_events 表——改成同時起跑縮短耗時。兩者各拿一個
-    `ctx.budget_branch()`：都以「進入這個函式那一刻」的金額當預算判斷基準，互相
-    看不到對方的花費。`_run_summary_phase()` 判斷要不要花錢做摘要的依據因此是
-    「本地 OCR 開始前」的金額而不是「跑完後」——極端情況下兩者合計可能讓總花費
-    比 BUDGET_USD 多出一點點，是刻意接受的已知取捨，見
+) -> _DocumentPhaseOutput:
+    """Phase E（本地 OCR）跟 Phase F（整理文件與摘要）互不依賴——F 只讀 Phase D
+    寫入的 segments，不碰 Phase E 寫的 ocr_events 表——改成同時起跑縮短耗時。兩者
+    各拿一個 `ctx.budget_branch()`：都以「進入這個函式那一刻」的金額當預算判斷
+    基準，互相看不到對方的花費。`_run_document_phase()` 判斷要不要花這筆錢的依據
+    因此是「本地 OCR 開始前」的金額而不是「跑完後」——極端情況下兩者合計可能讓
+    總花費比 BUDGET_USD 多出一點點，是刻意接受的已知取捨，見
     docs/02-technical-decisions.md#分析流程平行化。
     """
     ocr_ctx = ctx.budget_branch()
-    summary_ctx = ctx.budget_branch()
+    document_ctx = ctx.budget_branch()
 
     def _do_local_ocr() -> bool:
         """回傳有沒有成功跑完。本地 OCR 整段失敗只記 log、不往外拋——已經成功的
@@ -752,12 +811,12 @@ def _run_local_ocr_and_summary(
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         ocr_future = pool.submit(_do_local_ocr)
-        summary_text = _run_summary_phase(summary_ctx)
+        document_output = _run_document_phase(document_ctx)
 
     # 本地 OCR 整段失敗時不併回它的花費：維持重構前的語意（舊版把累加中的
     # 金額放在區域變數裡，例外一拋就整個丟掉，已經花掉的 embedding 錢不會被
     # 算進總額）。這其實是個小小的低估，但屬於行為，不在這次重構的範圍內改。
     if ocr_future.result():
         ctx.merge_branch(ocr_ctx)
-    ctx.merge_branch(summary_ctx)
-    return summary_text
+    ctx.merge_branch(document_ctx)
+    return document_output

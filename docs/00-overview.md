@@ -117,9 +117,9 @@ flowchart TD
         VLM --> EMB[建立向量\n字幕/畫面/OCR 分開 embed]
         EMB --> WRITE[(segments 表)]
         WRITE --> LOCALOCR[本地 OCR 掃描\nEasyOCR，補覆蓋缺口]
-        WRITE --> SUMMARY[產生摘要\nGPT-4o-mini]
+        WRITE --> DOC[整理文件與摘要\nGPT-4o-mini，失敗退回只產摘要]
         LOCALOCR --> EVENTS[(ocr_events 表)]
-        SUMMARY --> ANALYZED[(videos: analyzed)]
+        DOC --> ANALYZED[(videos: analyzed)]
     end
 
     subgraph 搜尋流程
@@ -175,8 +175,9 @@ Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色�
 「在此影片內搜尋」／「在選取影片內搜尋」都透過 `lib/useSearchScope.ts` 設定範圍再導去搜尋頁，
 「搜尋影片」與「對話搜尋」兩頁共用同一份——兩頁各留一份 local state 一定會分岔。
 
-**影片庫的詳細面板**：摘要與「整理成文件」的產出（依內容判斷成流程 SOP／教學步驟／課堂筆記／
-內容紀錄）在同一段可捲內容裡。點文件裡步驟的時間戳會切進**觀看模式**——清單收起來，左邊播放器、
+**影片庫的詳細面板**：摘要與整理出來的文件（依內容判斷成流程 SOP／教學步驟／課堂筆記／
+內容紀錄）在同一段可捲內容裡。文件在**分析時就一起產生**（Phase F，摘要是它的 `overview` 一稿
+兩用），面板上那顆按鈕是拿來重新整理的。點文件裡步驟的時間戳會切進**觀看模式**——清單收起來，左邊播放器、
 右邊摘要與文件，右欄的時間戳仍可點，邊看邊跳。超出影片長度的時間戳會被停用（實測 8 支文件裡 3 支
 有這種對不上的時間戳，見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)）。
 

@@ -15,6 +15,10 @@ import { VideoDocumentView } from './VideoDocumentView'
  * overview 就是摘要），分成兩個頁籤等於要使用者自己去對照兩段講同一件事的文字。
  * 摘要固定在最上面，位置不隨有沒有文件而變。
  *
+ * **分析完成的影片正常都有文件**（後端 Phase F 會自動整理，見
+ * pipeline/analyzer._run_document_phase()），所以下面那兩段 fallback 文字講的是
+ * 例外狀況——文件整理失敗退回只產摘要，或連摘要都沒產出——而不是「還沒按按鈕」。
+ *
  * **自己查文件而不是由呼叫端傳進來**：query key 跟詳細面板共用
  * （`videoDocumentKey`），所以兩邊同時掛著也只有一份快取、一次請求。
  */
@@ -48,7 +52,7 @@ export function VideoSummaryAndDocument({
       <p className="text-sm leading-relaxed text-text-primary">
         {video.summary ??
           (video.status === 'analyzed'
-            ? '尚未產生摘要，按上方「整理成文件」會一併產生。'
+            ? '這支影片還沒有摘要，按上方「整理成文件」會一併產生。'
             : '這支影片分析失敗，沒有片段可以產生摘要。')}
       </p>
 
@@ -64,7 +68,7 @@ export function VideoSummaryAndDocument({
         ) : (
           <p className="text-sm leading-relaxed text-text-secondary">
             {video.status === 'analyzed'
-              ? '尚未整理成文件。按上方「整理成文件」，系統會依影片內容判斷要產生流程 SOP、教學步驟、課堂筆記，還是內容紀錄，並同時更新上方的摘要。'
+              ? '這支影片還沒有文件——可能是在「分析時自動整理文件」上線前分析的，也可能是分析時沒能整理出來。按上方「整理成文件」現在整理，系統會依影片內容判斷要產生流程 SOP、教學步驟、課堂筆記，還是內容紀錄，並同時更新上方的摘要。'
               : '這支影片分析失敗，沒有片段可以整理成文件。'}
           </p>
         )}

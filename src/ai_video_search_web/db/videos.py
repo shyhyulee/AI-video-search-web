@@ -272,6 +272,10 @@ def reset_to_pending(video_id: int) -> None:
     segments 的刪除委派給 `segments.delete_for_video()`，ocr_events 則直接
     DELETE——兩者都傳同一個 conn，跟 videos 表的 UPDATE 落在同一個
     get_connection() 交易裡，video 更新失敗時前面的刪除也會一起回滾，維持原子性。
+
+    文件三欄也要清：文件裡的每個步驟都帶 `timestamp_sec`，而片段在上面兩行已經
+    被刪掉了——留著就是一份指向不存在內容的文件。這在文件只能手動整理的時候
+    是少見情況，Phase F 自動整理文件之後變成每支重置的影片都會遇到。
     """
     with get_connection() as conn:
         segments.delete_for_video(conn, video_id)
@@ -281,7 +285,8 @@ def reset_to_pending(video_id: int) -> None:
             UPDATE videos
             SET status = %s, pipeline_stage = NULL, analyzed_at = NULL, segment_count = NULL,
                 cost_usd = NULL, asr_model = NULL, vlm_model = NULL, embedding_model = NULL,
-                summary = NULL, summary_model = NULL
+                summary = NULL, summary_model = NULL,
+                document_json = NULL, document_type = NULL, document_model = NULL
             WHERE id = %s
             """,
             (STATUS_PENDING, video_id),
@@ -318,10 +323,17 @@ def mark_video_analyzed(
     pipeline_stage: str | None = None,
     summary: str | None = None,
     summary_model: str | None = None,
+    document_json: str | None = None,
+    document_type: str | None = None,
+    document_model: str | None = None,
 ) -> None:
-    """summary／summary_model 是自動摘要（Phase F）寫入用的可選欄位；不傳
-    （None）就用 COALESCE 保留原本的值，不會覆蓋掉既有摘要（例如重新分析
-    但這次自動摘要失敗的情況）。
+    """後面五個欄位是 Phase F 寫入用的可選欄位；不傳（None）就用 COALESCE 保留
+    原本的值，不會覆蓋掉既有內容（例如重新分析但這次 Phase F 失敗的情況）。
+
+    文件三欄跟摘要一起寫在這裡而不是呼叫 `update_video_document()`：那支把花費
+    當「增量」累加（`cost_usd = COALESCE(cost_usd, 0) + %s`），而這支的 cost_usd
+    是 `analyzer` 算好的**絕對總額**（文件的花費已經透過 `ctx.spend()` 進去了）。
+    兩支都呼叫的話同一次 LLM 呼叫的錢會被算兩次。
     """
     analyzed_at = datetime.now().isoformat(timespec="seconds")
     with get_connection() as conn:
@@ -330,7 +342,10 @@ def mark_video_analyzed(
             UPDATE videos
             SET status = %s, pipeline_stage = %s, analyzed_at = %s, segment_count = %s,
                 cost_usd = %s, asr_model = %s, vlm_model = %s, embedding_model = %s,
-                summary = COALESCE(%s, summary), summary_model = COALESCE(%s, summary_model)
+                summary = COALESCE(%s, summary), summary_model = COALESCE(%s, summary_model),
+                document_json = COALESCE(%s, document_json),
+                document_type = COALESCE(%s, document_type),
+                document_model = COALESCE(%s, document_model)
             WHERE id = %s
             """,
             (
@@ -344,6 +359,9 @@ def mark_video_analyzed(
                 embedding_model,
                 summary,
                 summary_model,
+                document_json,
+                document_type,
+                document_model,
                 video_id,
             ),
         )

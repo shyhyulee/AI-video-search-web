@@ -180,6 +180,45 @@ def test_mark_video_analyzed_preserves_summary_when_not_provided(temp_db):
     assert video.cost_usd == pytest.approx(0.02)
 
 
+def test_mark_video_analyzed_stores_the_document_without_recharging_it(temp_db):
+    """Phase F 的文件跟摘要一起寫在這一句裡。cost_usd 是 analyzer 算好的**絕對
+    總額**（文件花費已經在裡面），不是 update_video_document() 那種增量累加——
+    兩支都呼叫的話同一次 LLM 呼叫會被計費兩次。"""
+    video_id = _make_video()
+    db.mark_video_analyzed(
+        video_id=video_id, segment_count=1, cost_usd=0.05,
+        asr_model="a", vlm_model="v", embedding_model="e",
+        summary="文件的 overview", summary_model="gpt-4o-mini",
+        document_json='{"doc_type":"sop"}', document_type="sop", document_model="gpt-4o-mini",
+    )
+    video = db.get_video(video_id)
+    assert video.document_json == '{"doc_type":"sop"}'
+    assert video.document_type == "sop"
+    assert video.document_model == "gpt-4o-mini"
+    assert video.summary == "文件的 overview"
+    assert video.cost_usd == pytest.approx(0.05)
+
+
+def test_mark_video_analyzed_preserves_document_when_not_provided(temp_db):
+    """重新分析但這次文件整理失敗（退回摘要）時，舊文件要留著而不是被清空。"""
+    video_id = _make_video()
+    db.mark_video_analyzed(
+        video_id=video_id, segment_count=1, cost_usd=0.01,
+        asr_model="a", vlm_model="v", embedding_model="e",
+        document_json='{"doc_type":"tutorial"}', document_type="tutorial", document_model="model-1",
+    )
+    db.mark_video_analyzed(
+        video_id=video_id, segment_count=2, cost_usd=0.02,
+        asr_model="a", vlm_model="v", embedding_model="e",
+        summary="退路摘要", summary_model="gpt-4o-mini",
+    )
+    video = db.get_video(video_id)
+    assert video.document_json == '{"doc_type":"tutorial"}'
+    assert video.document_type == "tutorial"
+    assert video.document_model == "model-1"
+    assert video.summary == "退路摘要"
+
+
 def test_update_video_summary_accumulates_cost(temp_db):
     video_id = _make_video()
     db.mark_video_analyzed(
@@ -213,6 +252,7 @@ def test_reset_to_pending_clears_segments_and_ocr_events(temp_db):
     db.mark_video_analyzed(
         video_id=video_id, segment_count=1, cost_usd=0.05,
         asr_model="a", vlm_model="v", embedding_model="e", summary="摘要", summary_model="m",
+        document_json='{"doc_type":"sop"}', document_type="sop", document_model="m",
     )
 
     db.reset_to_pending(video_id)
@@ -222,6 +262,11 @@ def test_reset_to_pending_clears_segments_and_ocr_events(temp_db):
     video = db.get_video(video_id)
     assert video.status == db.STATUS_PENDING
     assert video.summary is None
+    # 文件的每個步驟都帶 timestamp_sec，片段刪掉之後留著它就是一份指向不存在
+    # 內容的文件（Phase F 自動整理文件之後每支重置的影片都會遇到）
+    assert video.document_json is None
+    assert video.document_type is None
+    assert video.document_model is None
     assert video.cost_usd is None
 
 

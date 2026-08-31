@@ -45,13 +45,34 @@ def test_format_timestamp_keeps_counting_minutes_past_an_hour():
 # ----------------------------------------------------------------------
 # build_material()：共用格式
 # ----------------------------------------------------------------------
+def test_timestamp_prefix_carries_both_mmss_and_raw_seconds():
+    """兩種格式都給不是裝飾：`VideoDocument.timestamp_sec` 要的是秒，只給
+    MM:SS 等於逼模型自己換算——實測它常常把 `[03:18]` 的 18 直接抄過去，
+    整份文件的時間戳就塌在一分鐘內。見 segment_material 的 docstring。"""
+    content = segment_material.build_material([_segment(start_sec=198.0, transcript="第一步")])
+
+    assert content == "[03:18｜198 秒] 字幕：第一步"
+
+
+def test_field_newlines_are_flattened_so_one_segment_is_one_line():
+    """prompt 開頭宣告「每行是一個片段」。VLM 抓到的畫面文字常常自己帶換行，
+    不壓掉的話那些行沒有時間戳前綴，模型無從得知它們屬於哪個片段。"""
+    content = segment_material.build_material(
+        [_segment(visual_description="第一行\n第二行", ocr_text="AAA\nBBB")],
+        include_ocr=True,
+    )
+
+    assert len(content.splitlines()) == 1
+    assert content == "[00:00｜0 秒] 畫面：第一行 第二行；畫面文字：AAA BBB"
+
+
 def test_uses_timestamp_prefix_and_skips_empty_segments():
     content = segment_material.build_material([
         _segment(start_sec=77.0, transcript="第一步"),
         _segment(start_sec=90.0),  # 欄位全空的片段不該產生空行
     ])
 
-    assert content == "[01:17] 字幕：第一步"
+    assert content == "[01:17｜77 秒] 字幕：第一步"
 
 
 def test_joins_fields_in_a_fixed_order_with_a_full_width_semicolon():
@@ -61,7 +82,7 @@ def test_joins_fields_in_a_fixed_order_with_a_full_width_semicolon():
         include_ocr=True,
     )
 
-    assert content == "[00:00] 畫面：產線畫面；字幕：這是第一步；畫面文字：STAGE 3"
+    assert content == "[00:00｜0 秒] 畫面：產線畫面；字幕：這是第一步；畫面文字：STAGE 3"
 
 
 def test_one_line_per_segment():
@@ -129,4 +150,86 @@ def test_placeholder_filtering_is_case_insensitive_and_covers_every_field():
 def test_strips_surrounding_whitespace():
     content = segment_material.build_material([_segment(transcript="  第一步  ")])
 
-    assert content == "[00:00] 字幕：第一步"
+    assert content == "[00:00｜0 秒] 字幕：第一步"
+
+
+# ----------------------------------------------------------------------
+# 幻覺字幕與浮水印：影片層級的重複偵測
+# ----------------------------------------------------------------------
+def _segments_with_transcripts(texts: list[str]):
+    return [
+        _segment(start_sec=float(i * 10), transcript=t, visual_description=f"畫面{i}")
+        for i, t in enumerate(texts)
+    ]
+
+
+def test_drops_the_whole_transcript_column_when_one_line_dominates():
+    """純環境音影片的 Whisper 幻覺：整支一直重複同一句罐頭台詞。實測 BMW 那支
+    97 句字幕裡 70 句是 `Thank you for watching.`（72%），而字幕欄是噪音時還會
+    稀釋掉真正有訊號的 ocr_text——那支有 67 句各自不同的製程旁白，文件卻只
+    寫出 7 個步驟。"""
+    segments = _segments_with_transcripts(["Thank you for watching."] * 8 + ["真的內容"] * 2)
+
+    content = segment_material.build_material(segments)
+
+    assert "字幕" not in content
+    assert "Thank you for watching." not in content
+    # 剩下的兩句雖然不一樣，也一起丟——實測那 28% 是同一類垃圾（BMW 的 9 個
+    # unique 全是 thanks-for-watching 的變體），逐句挑不出訊號。
+    assert "真的內容" not in content
+    assert len(content.splitlines()) == 10  # 畫面描述還在，行數不變
+
+
+def test_keeps_transcripts_when_repetition_looks_like_real_speech():
+    """真實語音也會重複（口頭禪、賽事播報的固定句型），門檻不能訂太低。實測
+    全庫有語音的影片重複率最高 26%（video 1，39 句），跟幻覺的 65%～79% 中間
+    有一大段空隙。"""
+    segments = _segments_with_transcripts(["好的"] * 3 + [f"第{i}句" for i in range(9)])
+
+    content = segment_material.build_material(segments)
+
+    assert "字幕：好的" in content
+    assert "字幕：第8句" in content
+
+
+def test_does_not_judge_junk_on_too_few_samples():
+    """整支只有 3 句字幕、其中 2 句剛好一樣就會湊出 67%，那是樣本雜訊不是幻覺
+    訊號。壽司那支（5 個片段）就是這種情況——它的字幕確實是 Whisper 幻覺，但
+    這裡選擇不判定，寧可漏掉也不要在小樣本上誤殺。"""
+    segments = _segments_with_transcripts(["同一句", "同一句", "另一句"])
+
+    content = segment_material.build_material(segments)
+
+    assert "字幕：同一句" in content
+
+
+def test_drops_only_the_repeated_watermark_from_ocr_not_the_whole_column():
+    """OCR 的處理**刻意跟字幕不同**：重複的通常是頻道浮水印（實測 BMW／Intel
+    是 `FRAME`、龍隊是 `CPBL TV`、Messi 是 `SPORTS HD`），但同一欄的其他內容
+    正是流程類影片的主要訊號，不能整欄丟。"""
+    segments = [
+        _segment(start_sec=float(i * 10), visual_description=f"畫面{i}", ocr_text=ocr)
+        for i, ocr in enumerate(["FRAME"] * 4 + [f"STAGE {i}" for i in range(6)])
+    ]
+
+    content = segment_material.build_material(segments, include_ocr=True)
+
+    assert "FRAME" not in content
+    assert "畫面文字：STAGE 3" in content
+
+
+def test_watermark_filtering_is_off_when_ocr_is_off():
+    """摘要那一側不帶畫面文字，就不用（也不該）花力氣算浮水印。"""
+    segments = [
+        _segment(start_sec=float(i * 10), visual_description=f"畫面{i}", ocr_text="FRAME")
+        for i in range(10)
+    ]
+
+    assert "畫面文字" not in segment_material.build_material(segments)
+
+
+def test_a_segment_left_with_nothing_after_filtering_disappears():
+    """只有幻覺字幕、沒有其他欄位的片段，濾掉之後整行消失而不是留下空前綴。"""
+    segments = [_segment(start_sec=float(i * 10), transcript="Thank you.") for i in range(10)]
+
+    assert segment_material.build_material(segments) == ""

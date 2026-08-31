@@ -2,7 +2,8 @@
 docs/02-technical-decisions.md#分析流程平行化）測試：本地 OCR 只應該掃描
 VLM-OCR 沒抓到文字的場景；Phase C 片段內三個 embedding 平行送出後 budget
 截斷時機要跟循序版本一致；Phase E／F 同時起跑時彼此失敗互不影響、
-total_cost 不會重複計算或漏算；Phase B 批次平行後場景順序不能被打亂、
+total_cost 不會重複計算或漏算；Phase F 的「文件優先、摘要當退路」四條分支
+（成功／文件失敗／兩條都失敗／超支）；Phase B 批次平行後場景順序不能被打亂、
 budget 改成逐批次檢查、rate limit 重試邏輯正確。用假的
 ocr_service.scan_scenes／embedding.embed_text／vlm 攔截實際呼叫參數，
 不跑真實 EasyOCR／OpenAI。"""
@@ -11,10 +12,12 @@ from __future__ import annotations
 import queue
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import httpx2
 import openai
+import pytest
 
 from ai_video_search_web.pipeline import analyzer
 from ai_video_search_web.pipeline.embedding import EmbedResult
@@ -32,7 +35,7 @@ def _context(initial_cost: float = 0.0) -> analyzer._AnalysisContext:
     """
     return analyzer._AnalysisContext(
         video_id=1, video_path=_DUMMY_VIDEO_PATH, client=MagicMock(),
-        progress_queue=queue.Queue(), initial_cost=initial_cost,
+        progress_queue=queue.Queue(), video_title="測試影片", initial_cost=initial_cost,
     )
 
 
@@ -305,7 +308,7 @@ def test_run_embedding_phase_skips_transcript_embedding_for_repetitive_run(monke
     assert segment_rows[3].transcript_embedding is not None
 
 
-def test_run_local_ocr_and_summary_combines_costs_without_double_counting(monkeypatch):
+def test_run_local_ocr_and_document_combines_costs_without_double_counting(monkeypatch):
     """Phase E／F 都要用「進入這個函式那一刻」的 total_cost 當基準，不是
     「E 跑完後」的金額——最終合計不能重複計算或漏算任一邊的花費。"""
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
@@ -314,42 +317,154 @@ def test_run_local_ocr_and_summary_combines_costs_without_double_counting(monkey
         assert ctx.total_cost == 0.05  # 收到的是基準值，不是「循序版本」會有的其他數字
         ctx.spend(0.02)
 
-    def fake_run_summary_phase(ctx):
+    def fake_run_document_phase(ctx):
         assert ctx.total_cost == 0.05  # 用「本地 OCR 開始前」的金額判斷，不是 OCR 跑完後
         ctx.spend(0.03)
-        return "摘要文字"
+        return analyzer._DocumentPhaseOutput(summary="摘要文字")
 
     monkeypatch.setattr(analyzer, "_run_local_ocr", fake_run_local_ocr)
-    monkeypatch.setattr(analyzer, "_run_summary_phase", fake_run_summary_phase)
+    monkeypatch.setattr(analyzer, "_run_document_phase", fake_run_document_phase)
 
     ctx = _context(initial_cost=0.05)
-    summary_text = analyzer._run_local_ocr_and_summary(ctx, [], [])
+    output = analyzer._run_local_ocr_and_document(ctx, [], [])
 
-    assert summary_text == "摘要文字"
-    assert round(ctx.total_cost, 10) == 0.10  # 0.05（基準）+ 0.02（OCR）+ 0.03（摘要）
+    assert output.summary == "摘要文字"
+    assert round(ctx.total_cost, 10) == 0.10  # 0.05（基準）+ 0.02（OCR）+ 0.03（文件）
 
 
-def test_run_local_ocr_and_summary_isolates_local_ocr_failure(monkeypatch):
-    """本地 OCR 那個子執行緒丟例外時，只記 log、不能影響摘要照常執行，
+def test_run_local_ocr_and_document_isolates_local_ocr_failure(monkeypatch):
+    """本地 OCR 那個子執行緒丟例外時，只記 log、不能影響文件整理照常執行，
     也不能讓例外冒出這個函式（延續既有的失敗隔離原則）。"""
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
 
     def fake_run_local_ocr(ctx, segment_rows, segment_ids):
         raise RuntimeError("本地 OCR 掛了")
 
-    def fake_run_summary_phase(ctx):
+    def fake_run_document_phase(ctx):
         ctx.spend(0.03)
-        return "摘要照常產生"
+        return analyzer._DocumentPhaseOutput(summary="摘要照常產生")
 
     monkeypatch.setattr(analyzer, "_run_local_ocr", fake_run_local_ocr)
-    monkeypatch.setattr(analyzer, "_run_summary_phase", fake_run_summary_phase)
+    monkeypatch.setattr(analyzer, "_run_document_phase", fake_run_document_phase)
 
     ctx = _context(initial_cost=0.05)
-    summary_text = analyzer._run_local_ocr_and_summary(ctx, [], [])
+    output = analyzer._run_local_ocr_and_document(ctx, [], [])
 
-    assert summary_text == "摘要照常產生"
-    # 本地 OCR 失敗沒有貢獻花費，總花費只有基準值 + 摘要花費
+    assert output.summary == "摘要照常產生"
+    # 本地 OCR 失敗沒有貢獻花費，總花費只有基準值 + 文件花費
     assert round(ctx.total_cost, 10) == 0.08
+
+
+def _stub_document_phase_deps(monkeypatch, segments=("片段",)):
+    """Phase F 測試的共同前置：enter_stage 寫 DB 換成 mock，片段清單給假的。"""
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+    monkeypatch.setattr(analyzer.db, "list_segments_for_video", lambda video_id: list(segments))
+
+
+def test_document_phase_reuses_the_document_overview_as_the_summary(monkeypatch):
+    """Phase F 主線：文件成功時五個欄位一次備齊，摘要就是文件的 overview
+    （一稿兩用，跟手動整理文件那條路一致），花費記進 ctx。"""
+    _stub_document_phase_deps(monkeypatch)
+    fake_document = SimpleNamespace(
+        doc_type="sop",
+        overview="這支影片在講主板產線。",
+        model_dump_json=lambda: '{"doc_type":"sop"}',
+    )
+    monkeypatch.setattr(
+        analyzer.document_pipeline, "generate_document",
+        lambda client, title, segments: SimpleNamespace(document=fake_document, cost_usd=0.002),
+    )
+
+    ctx = _context()
+    output = analyzer._run_document_phase(ctx)
+
+    assert output.summary == "這支影片在講主板產線。"
+    assert output.summary_model == analyzer.document_pipeline.MODEL_NAME
+    assert output.document_json == '{"doc_type":"sop"}'
+    assert output.document_type == "sop"
+    assert output.document_model == analyzer.document_pipeline.MODEL_NAME
+    assert ctx.total_cost == pytest.approx(0.002)
+
+
+def test_document_phase_passes_the_video_title_from_the_context(monkeypatch):
+    """文件的 prompt 需要影片標題，它從 ctx 來（不是某個 phase 算出來的）。"""
+    _stub_document_phase_deps(monkeypatch)
+    seen: dict[str, object] = {}
+
+    def fake_generate_document(client, title, segments):
+        seen["title"] = title
+        return SimpleNamespace(
+            document=SimpleNamespace(doc_type="sop", overview="o", model_dump_json=lambda: "{}"),
+            cost_usd=0.0,
+        )
+
+    monkeypatch.setattr(analyzer.document_pipeline, "generate_document", fake_generate_document)
+
+    analyzer._run_document_phase(_context())
+
+    assert seen["title"] == "測試影片"
+
+
+def test_document_phase_falls_back_to_summary_when_the_document_fails(monkeypatch):
+    """文件失敗不能讓影片整支沒有摘要——`videos.summary` 是搜尋的影片層級篩選
+    與影片庫分類的依據，沒有它那支影片會被降權。"""
+    _stub_document_phase_deps(monkeypatch)
+    monkeypatch.setattr(
+        analyzer.document_pipeline, "generate_document",
+        MagicMock(side_effect=ValueError("模型沒有回傳可用的文件內容")),
+    )
+    monkeypatch.setattr(
+        analyzer.summary_pipeline, "generate_summary",
+        lambda client, segments: SimpleNamespace(summary="退路摘要", cost_usd=0.0004),
+    )
+
+    ctx = _context()
+    output = analyzer._run_document_phase(ctx)
+
+    assert output.summary == "退路摘要"
+    assert output.summary_model == analyzer.summary_pipeline.MODEL_NAME
+    # 文件那三欄留空，mark_video_analyzed() 的 COALESCE 才會保留影片上原本的文件
+    assert (output.document_json, output.document_type, output.document_model) == (None, None, None)
+    assert ctx.total_cost == pytest.approx(0.0004)
+
+
+def test_document_phase_returns_empty_when_both_paths_fail(monkeypatch):
+    """兩條路都失敗只記 log，不能讓例外冒出去把已經成功的分析結果判成失敗。"""
+    _stub_document_phase_deps(monkeypatch)
+    monkeypatch.setattr(
+        analyzer.document_pipeline, "generate_document", MagicMock(side_effect=RuntimeError("文件掛了")),
+    )
+    monkeypatch.setattr(
+        analyzer.summary_pipeline, "generate_summary", MagicMock(side_effect=RuntimeError("摘要也掛了")),
+    )
+
+    output = analyzer._run_document_phase(_context())
+
+    assert output == analyzer._DocumentPhaseOutput()
+
+
+def test_document_phase_skips_everything_when_over_budget(monkeypatch):
+    """超支就整段跳過，兩條路都不能花錢（維持這個 phase 原本的行為）。"""
+    _stub_document_phase_deps(monkeypatch)
+    generate_document = MagicMock()
+    generate_summary = MagicMock()
+    monkeypatch.setattr(analyzer.document_pipeline, "generate_document", generate_document)
+    monkeypatch.setattr(analyzer.summary_pipeline, "generate_summary", generate_summary)
+
+    output = analyzer._run_document_phase(_context(initial_cost=analyzer.BUDGET_USD + 0.01))
+
+    assert output == analyzer._DocumentPhaseOutput()
+    generate_document.assert_not_called()
+    generate_summary.assert_not_called()
+
+
+def test_document_phase_skips_when_there_are_no_segments(monkeypatch):
+    _stub_document_phase_deps(monkeypatch, segments=())
+    generate_document = MagicMock()
+    monkeypatch.setattr(analyzer.document_pipeline, "generate_document", generate_document)
+
+    assert analyzer._run_document_phase(_context()) == analyzer._DocumentPhaseOutput()
+    generate_document.assert_not_called()
 
 
 def test_run_scene_detection_and_transcription_returns_both_results(monkeypatch):
@@ -468,6 +583,7 @@ def test_run_vlm_phase_passes_multi_frame_fractions_to_triggered_scenes(monkeypa
         NormalizedScene(0.0, 10.0, source_raw_duration=10.0),  # 沒被硬切，單幀
         NormalizedScene(10.0, 20.0, source_raw_duration=40.0),  # 硬切出來的，觸發多幀
     ]
+
 
     scene_rows, _ = analyzer._run_vlm_phase(_context(), scenes, MagicMock(segments=[]))
 

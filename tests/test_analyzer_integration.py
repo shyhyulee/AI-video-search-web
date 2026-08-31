@@ -2,8 +2,8 @@
 Phase 順序與完成後的資料庫狀態，做為之後拆分 _analyze_worker()（重構
 Step 8）的安全網。
 
-需要真實 OpenAI API 呼叫（ASR／VLM／embedding／摘要；本地 OCR 是純本機
-運算不花錢），單次執行成本約 US$0.002，執行時間約數十秒。預設 `pytest`
+需要真實 OpenAI API 呼叫（ASR／VLM／embedding／整理文件；本地 OCR 是純本機
+運算不花錢），單次執行成本約 US$0.003，執行時間約數十秒。預設 `pytest`
 不會執行這個測試（見 pyproject.toml 的 addopts），要手動執行：
 
     uv run pytest -m integration tests/test_analyzer_integration.py -v
@@ -68,8 +68,8 @@ def test_analyze_worker_full_pipeline(temp_db, synthetic_video):
     sequential = ["場景切分中", "音訊轉錄中", "音訊轉錄完成", "畫面分析", "建立向量中", "寫入索引"]
     assert seen[: len(sequential)] == sequential
 
-    # Phase E（本地 OCR）與 Phase F（產生摘要）互不依賴、是**刻意平行**跑的
-    # （見 analyzer._run_local_ocr_and_summary()：一個丟進 thread pool、一個在
+    # Phase E（本地 OCR）與 Phase F（整理文件與摘要）互不依賴、是**刻意平行**跑
+    # 的（見 analyzer._run_local_ocr_and_document()：一個丟進 thread pool、一個在
     # 本執行緒跑），誰先送出 enter_stage 事件由執行緒排程決定。
     #
     # 這裡原本跟上面六個階段一起用一條全序斷言鎖住，等於在斷言一件程式碼從來
@@ -79,7 +79,7 @@ def test_analyze_worker_full_pipeline(temp_db, synthetic_video):
     #
     # 改成斷言真正的保證：兩個階段都出現、都排在「寫入索引」之後，彼此順序不管。
     # 用 set 相等而不是 issubset——少一個階段或多一個沒預期的階段一樣要轉紅。
-    assert set(seen[len(sequential) :]) == {"本地 OCR 掃描中", "產生摘要中"}
+    assert set(seen[len(sequential) :]) == {"本地 OCR 掃描中", "整理文件與摘要中"}
 
     assert isinstance(final, analyzer.AnalysisResult), f"分析失敗：{final}"
     assert final.video_id == video_id
@@ -91,6 +91,13 @@ def test_analyze_worker_full_pipeline(temp_db, synthetic_video):
     assert video.segment_count == final.segment_count
     assert video.summary, "Phase F 應該自動產生摘要"
     assert video.summary_model == "gpt-4o-mini"
+
+    # Phase F 的主線是整理文件、摘要是它的 overview 一稿兩用。這三欄空的代表
+    # 走了退路（文件失敗、退回 summary.generate_summary()）——那條路仍然算分析
+    # 成功，但不是這裡要驗的行為，所以讓它轉紅而不是默默通過。
+    assert video.document_json, "Phase F 應該自動整理成文件（空的代表退回了摘要那條路）"
+    assert video.document_type in {"sop", "tutorial", "lecture_notes", "content_log"}
+    assert video.document_model == "gpt-4o-mini"
 
     segments = db.list_segments_for_video(video_id)
     assert len(segments) == final.segment_count

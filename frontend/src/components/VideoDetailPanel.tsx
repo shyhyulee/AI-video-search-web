@@ -81,6 +81,11 @@ export function VideoDetailPanel({
   useJobSettlement([job], () => {
     queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
     queryClient.invalidateQueries({ queryKey: statsKey() })
+    // 文件也要重取。分析流程本身就會整理出一份新文件（後端 Phase F），而文件
+    // 那支 query 是 staleTime: Infinity——不失效的話畫面會繼續顯示上一輪的文件，
+    // 裡面的時間戳指向的是已經被換掉的舊片段。文件只能手動整理的時候這裡不需要
+    // 這一行（按鈕自己會 setQueryData），Phase F 自動整理文件之後才需要。
+    queryClient.invalidateQueries({ queryKey: videoDocumentKey(video.id) })
   })
 
   // 影片自己的 status 也算 busy：重新整理後 job 還沒接回來的那幾秒，按鈕
