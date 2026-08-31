@@ -41,6 +41,7 @@
 | [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md) | Tkinter → React + FastAPI 遷移（Phase 0–4 全完成） | [`08`](08-web-ui-migration-design.md) |
 | [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) | UI 暖色改版（Phase 1–4 全完成；**§8 後續調整記錄仍在追加**） | [`10`](10-web-ui-ux-warm-responsive-design.md) |
 | [`14-postgresql-migration-plan.md`](14-postgresql-migration-plan.md) | SQLite → PostgreSQL 遷移（已完成） | — |
+| [`18-畫面分析精細化計畫.md`](18-畫面分析精細化計畫.md) | 讓畫面描述更精細（P0–P3 完成，**P4／P5 未開始，仍在追加**） | — |
 
 > `08→09`、`10→11` 是成對的：前者是還沒盤點程式碼前寫的規格草稿，後者才是依真實現況推導、
 > 實際執行的計畫。**兩者有出入時一律以執行紀錄為準**。

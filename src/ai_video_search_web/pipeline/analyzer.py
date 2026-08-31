@@ -40,7 +40,7 @@ from pathlib import Path
 from openai import OpenAI, RateLimitError
 
 from .. import db
-from . import asr, embedding, ocr_service, scene_detect, vlm
+from . import asr, embedding, media, ocr_service, scene_detect, segment_material, vlm
 from . import document as document_pipeline
 from . import summary as summary_pipeline
 from .openai_client import get_client
@@ -85,6 +85,18 @@ MULTI_FRAME_TRIGGER_SEC = 20.0
 # 抓到其中 2 張，不保證完全覆蓋，見 docs/02-technical-decisions.md 已知限制。
 MULTI_FRAME_FRACTIONS = (0.3, 0.7)
 
+# 字幕整欄沒有用時（純畫面影片、或整支都是 Whisper 幻覺）改用的取樣密度。
+#
+# **理由是「畫面變成唯一的訊號來源」，不是「因為有預算」**：這種影片的搜尋只剩
+# 畫面與畫面文字兩個 channel，文件整理也只剩「畫面：…」一欄，描述品質直接決定
+# 整支影片有沒有用。實測也支持多給幾張畫面是有效的那條路——多幀 prompt 改對讓
+# 具體動作描述率漲 21.4pt，單幀 prompt 怎麼改都只有個位數（見
+# docs/02-technical-decisions.md#單幀-prompt問姿勢不要問動作）。
+#
+# 取 20%／50%／80% 而不是多幀版的 30%／70%：三幀就把中點補回來了，兩端也比
+# 30/70 更靠外，涵蓋範圍更寬。沒有掃過其他組合。
+VISUAL_ONLY_FRAME_FRACTIONS = (0.2, 0.5, 0.8)
+
 # Phase B 批次平行的批次大小。原本 =5 的推導依據（見下方保留的舊註解）
 # 其實用錯了 gpt-4o-mini「low」解析度圖片的 token 成本——假設固定 85
 # tokens（一般 gpt-4o 的公式），但實測單幀呼叫真實 prompt tokens 是 2960
@@ -103,6 +115,18 @@ MULTI_FRAME_FRACTIONS = (0.3, 0.7)
 # 以內（~100,000 tokens/分鐘）換算出保守起點，見
 # docs/02-technical-decisions.md#分析流程平行化「Tier 2」。
 VLM_BATCH_SIZE = 3
+
+# 純畫面影片（每個場景都三幀）改用的批次大小。
+#
+# **實測逼出來的**：v28 Intel 用 VLM_BATCH_SIZE=3 重新分析時，同一批送出 3×3＝9 張
+# 圖，429 撞了 5 次（靠既有的重試救回來，107 個場景全數完成、0 失敗）。條件式多幀
+# 上線時的驗證是「0 次撞 rate limit」，那時每批最多 3×2＝6 張。批次降到 2 讓每批
+# 回到 2×3＝6 張，跟當時驗證過的用量同級。
+#
+# 這是保守調整不是精確推導——跟 VLM_BATCH_SIZE=3 本身一樣（見上面那段註解，
+# 原本的 token 預算公式已知用錯了 gpt-4o-mini 的圖片成本）。代價是純畫面影片的
+# Phase B 併發度降一階、耗時變長。
+VISUAL_ONLY_VLM_BATCH_SIZE = 2
 
 # 批次平行後同一批內同時打多個請求，撞到 429 的機率比循序執行時更高；
 # 帳號已經實測撞過 TPM 上限，這裡的等待秒數／重試次數是合理預設，不是
@@ -401,7 +425,20 @@ def _run_scene_detection(ctx: _AnalysisContext, duration_sec: float) -> list[sce
 
 def _run_transcription(ctx: _AnalysisContext, duration_sec: float) -> asr.TranscribeResult:
     """整支影片的音訊轉錄（原本無獨立 Phase 字母，緊接在 Phase A 場景切分之後、
-    Phase B 逐片段畫面分析之前）。花費直接記進 ctx。"""
+    Phase B 逐片段畫面分析之前）。花費直接記進 ctx。
+
+    **沒有音軌就整段跳過**，回一個空的結果。兩個理由：
+    - Whisper 按分鐘計價、跟畫面複雜度無關，實測佔一支影片總成本的 **62～66%**
+      （18.6 分鐘的 Intel 那支：總計 US$0.1711，其中 ASR US$0.1116）。對一支沒有
+      聲音的影片，這筆錢買到的只有幻覺。
+    - `asr._extract_audio()` 對沒有音軌的檔案會讓 ffmpeg 失敗，而 ASR 例外會讓
+      **整支分析失敗**（不是略過字幕）。所以這道檢查同時修掉「純畫面影片根本分析
+      不完」這個既有的洞。
+    """
+    if not media.has_audio_stream(ctx.video_path):
+        ctx.enter_stage("沒有音軌，略過音訊轉錄")
+        return asr.TranscribeResult(segments=[], cost_usd=0.0)
+
     ctx.enter_stage("音訊轉錄中")
 
     def _on_transcribe_progress(percent: int) -> None:
@@ -438,11 +475,44 @@ def _run_scene_detection_and_transcription(
     return scenes, transcribe_future.result()
 
 
-def _frame_fractions_for(scene: scene_detect.NormalizedScene) -> tuple[float, ...]:
-    """依 NormalizedScene.source_raw_duration 決定這個場景要用單幀還是條件式
-    多幀取樣，見 MULTI_FRAME_TRIGGER_SEC／MULTI_FRAME_FRACTIONS 旁的說明。
-    拆成獨立函式方便不用真的跑 VLM／場景偵測就能測門檻判斷本身。
+def _is_visual_only(transcribe_result: asr.TranscribeResult) -> bool:
+    """這支影片的字幕欄位是不是完全沒有用——沒有音軌、Whisper 什麼都沒抓到，
+    或整欄都是同一句幻覺。
+
+    **判斷點刻意放在轉錄之後、Phase B 之前**：轉錄跟場景切分是平行跑的，結果在
+    畫面分析開始前就拿得到，所以「畫面是不是唯一的訊號來源」這件事可以用**實際
+    的轉錄結果**判斷，而不是只看有沒有音軌。這一點很重要——實測整欄幻覺的影片
+    （BMW 97 句裡 95 句是 `Thank you for watching.`、Intel `... ... ...` 佔 65%）
+    音軌都是正常的，只看音軌完全抓不到它們。
+
+    幻覺判斷委派給 `segment_material.is_transcript_column_junk()`，跟組 LLM 素材
+    時用的是同一個門檻與同一份實測校準，不會兩邊各調各的。
+
+    **「完全沒有字幕」必須自己判，不能只靠那支**：它的樣本數下限是 8 句（3 句裡
+    重複 2 句就湊得出 67%，那是雜訊不是訊號），所以空清單會回 False。真無聲的影片
+    轉錄結果正是空的——只委派過去的話，最該加密取樣的那種影片反而拿不到多幀。
     """
+    texts = [seg.text for seg in transcribe_result.segments]
+    if not any((text or "").strip() for text in texts):
+        return True
+    return segment_material.is_transcript_column_junk(texts)
+
+
+def _frame_fractions_for(
+    scene: scene_detect.NormalizedScene, *, visual_only: bool = False
+) -> tuple[float, ...]:
+    """決定這個場景要抽幾張畫面、抽在哪裡。三種情況，由寬到窄：
+
+    1. `visual_only`（字幕整欄沒用）→ 三幀。畫面是唯一訊號，值得加密取樣，
+       見 VISUAL_ONLY_FRAME_FRACTIONS。**這一條蓋過下面那條**：三幀本來就比
+       兩幀密，兩個條件同時成立時不需要再分岔。
+    2. 場景是從超長原始場景硬切出來的 → 兩幀，見 MULTI_FRAME_TRIGGER_SEC。
+    3. 其餘 → 中點單幀。
+
+    拆成獨立函式方便不用真的跑 VLM／場景偵測就能測判斷本身。
+    """
+    if visual_only:
+        return VISUAL_ONLY_FRAME_FRACTIONS
     if scene.source_raw_duration > MULTI_FRAME_TRIGGER_SEC:
         return MULTI_FRAME_FRACTIONS
     return vlm.DEFAULT_FRAME_FRACTIONS
@@ -475,6 +545,14 @@ def _run_vlm_phase(
     scene_rows: list[_SceneAnalysisRow] = []
     vlm_failed_count = 0
 
+    # 整支影片算一次，不是每個場景各算一次：這是影片層級的判斷（見
+    # `_is_visual_only()` 與 `segment_material._dominant_share()` 的說明——
+    # 幻覺字幕的特徵只有把整支影片放在一起看才看得出來）。
+    visual_only = _is_visual_only(transcribe_result)
+    if visual_only:
+        logger.info("video %s 的字幕整欄無法使用，畫面取樣改成 %d 幀",
+                    ctx.video_id, len(VISUAL_ONLY_FRAME_FRACTIONS))
+
     completed = 0
 
     def _report_progress() -> None:
@@ -483,13 +561,18 @@ def _run_vlm_phase(
         percent = round(completed / len(scenes) * 100)
         ctx.report_progress("畫面分析", f"{percent}%", persist_as=f"畫面分析 {percent}%")
 
-    with ThreadPoolExecutor(max_workers=VLM_BATCH_SIZE) as pool:
-        for batch_start in range(0, len(scenes), VLM_BATCH_SIZE):
-            batch = scenes[batch_start : batch_start + VLM_BATCH_SIZE]
+    # 批次大小跟著幀數走：每批送出的**圖片**張數才是撞 rate limit 的東西，
+    # 場景數不是，見 VISUAL_ONLY_VLM_BATCH_SIZE。
+    batch_size = VISUAL_ONLY_VLM_BATCH_SIZE if visual_only else VLM_BATCH_SIZE
+
+    with ThreadPoolExecutor(max_workers=batch_size) as pool:
+        for batch_start in range(0, len(scenes), batch_size):
+            batch = scenes[batch_start : batch_start + batch_size]
             futures = [
                 pool.submit(
                     _describe_segment_with_retry,
-                    ctx.client, ctx.video_path, scene.start_sec, scene.end_sec, _frame_fractions_for(scene),
+                    ctx.client, ctx.video_path, scene.start_sec, scene.end_sec,
+                    _frame_fractions_for(scene, visual_only=visual_only),
                 )
                 for scene in batch
             ]

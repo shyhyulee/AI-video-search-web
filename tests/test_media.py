@@ -316,3 +316,38 @@ def test_new_temp_path_creates_an_empty_file_the_caller_owns():
         assert path.read_bytes() == b""
     finally:
         path.unlink(missing_ok=True)
+
+
+# ----------------------------------------------------------------------
+# has_audio_stream()：決定要不要跳過 ASR，見 analyzer._run_transcription()
+# ----------------------------------------------------------------------
+
+
+def test_has_audio_stream_command_line(spy):
+    s = spy(stdout="audio\n")
+
+    assert media.has_audio_stream(Path("/videos/x.mp4")) is True
+    assert s.argv == [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries", "stream=codec_type",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        "/videos/x.mp4",
+    ]
+    assert s.kwargs["timeout"] == 10
+
+
+def test_has_audio_stream_false_when_output_is_empty(spy):
+    # 沒有音軌時 ffprobe 選不到 a:0，標準輸出是空的
+    spy(stdout="")
+    assert media.has_audio_stream(Path("/videos/x.mp4")) is False
+
+
+def test_has_audio_stream_true_when_ffprobe_is_unavailable(monkeypatch):
+    def boom(args, **kwargs):
+        raise FileNotFoundError("ffprobe not installed")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    # 猜錯的代價不對稱：當成沒有音軌會讓有旁白的影片整支失去字幕，
+    # 當成有音軌最多白花一次 ASR 的錢，所以讀不到一律回 True
+    assert media.has_audio_stream(Path("/videos/x.mp4")) is True

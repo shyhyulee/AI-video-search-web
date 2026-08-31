@@ -584,8 +584,10 @@ def test_run_vlm_phase_passes_multi_frame_fractions_to_triggered_scenes(monkeypa
         NormalizedScene(10.0, 20.0, source_raw_duration=40.0),  # 硬切出來的，觸發多幀
     ]
 
-
-    scene_rows, _ = analyzer._run_vlm_phase(_context(), scenes, MagicMock(segments=[]))
+    # 字幕要給真的內容：空的轉錄結果現在代表「純畫面影片」，會讓每個場景都走
+    # 三幀那條路（見 _is_visual_only()），測不到這裡要測的兩幀觸發。
+    transcribe_result = MagicMock(segments=[MagicMock(text=f"第 {i} 句") for i in range(10)])
+    scene_rows, _ = analyzer._run_vlm_phase(_context(), scenes, transcribe_result)
 
     assert received_fractions == [analyzer.vlm.DEFAULT_FRAME_FRACTIONS, analyzer.MULTI_FRAME_FRACTIONS]
     assert [row.frame_count for row in scene_rows] == [1, 2]
@@ -809,3 +811,122 @@ def test_describe_segment_with_retry_does_not_retry_other_exceptions(monkeypatch
         pass
 
     assert attempts["n"] == 1
+
+
+# ----------------------------------------------------------------------
+# 純畫面影片：沒有音軌就跳過 ASR，字幕整欄沒用就加密畫面取樣
+# 見 docs/02-technical-decisions.md「純畫面影片：跳過 ASR，把預算換成畫面」
+# ----------------------------------------------------------------------
+
+
+def _transcribe_result(*texts: str) -> MagicMock:
+    return MagicMock(segments=[MagicMock(text=t) for t in texts])
+
+
+def test_is_visual_only_when_there_is_no_transcript_at_all():
+    """真無聲的影片轉錄結果是空的。這一條不能只委派給
+    segment_material.is_transcript_column_junk()——它的樣本數下限是 8 句，
+    空清單會回 False，最該加密取樣的影片反而拿不到多幀。"""
+    assert analyzer._is_visual_only(_transcribe_result()) is True
+
+
+def test_is_visual_only_when_transcript_is_only_whitespace():
+    assert analyzer._is_visual_only(_transcribe_result("", "   ", "")) is True
+
+
+def test_is_visual_only_when_the_whole_column_is_hallucinated():
+    # BMW 那支的形狀：97 句裡 95 句一字不差
+    result = _transcribe_result(*(["Thank you for watching."] * 9 + ["真的內容"]))
+    assert analyzer._is_visual_only(result) is True
+
+
+def test_not_visual_only_for_real_speech():
+    assert analyzer._is_visual_only(_transcribe_result(*[f"第 {i} 句" for i in range(10)])) is False
+
+
+def test_frame_fractions_for_visual_only_overrides_single_frame():
+    scene = NormalizedScene(0.0, 10.0, source_raw_duration=10.0)
+    assert analyzer._frame_fractions_for(scene, visual_only=True) == analyzer.VISUAL_ONLY_FRAME_FRACTIONS
+
+
+def test_frame_fractions_for_visual_only_also_overrides_the_two_frame_trigger():
+    """兩個條件同時成立時走三幀那條——三幀本來就比兩幀密，不需要再分岔。"""
+    scene = NormalizedScene(20.0, 30.0, source_raw_duration=analyzer.MULTI_FRAME_TRIGGER_SEC + 0.1)
+    assert analyzer._frame_fractions_for(scene, visual_only=True) == analyzer.VISUAL_ONLY_FRAME_FRACTIONS
+
+
+def test_run_transcription_skips_whisper_when_there_is_no_audio_stream(monkeypatch):
+    """沒有音軌就不呼叫 Whisper：省下實測佔總成本 62～66% 的那筆錢，也避免
+    ffmpeg 抽音訊失敗讓整支分析失敗。"""
+    monkeypatch.setattr(analyzer.media, "has_audio_stream", lambda path: False)
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+
+    called = MagicMock()
+    monkeypatch.setattr(analyzer.asr, "transcribe_with_progress", called)
+
+    ctx = _context()
+    result = analyzer._run_transcription(ctx, duration_sec=600.0)
+
+    called.assert_not_called()
+    assert result.segments == []
+    assert result.cost_usd == 0.0
+    assert ctx.total_cost == 0.0
+
+
+def test_run_vlm_phase_uses_three_frames_when_the_transcript_is_unusable(monkeypatch):
+    """字幕整欄沒用時，每個場景都要收到 VISUAL_ONLY_FRAME_FRACTIONS——包括
+    原本只會拿單幀的場景。驗證判斷結果真的往下傳給 VLM 呼叫。"""
+    monkeypatch.setattr(analyzer, "VLM_BATCH_SIZE", 2)
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+    monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: "")
+    monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
+
+    received_fractions: list[tuple[float, ...]] = []
+
+    def fake_describe(client, video_path, start_sec, end_sec, frame_fractions):
+        received_fractions.append(frame_fractions)
+        return DescribeResult(
+            description="d", ocr_text=None, cost_usd=0.0, frame_count=len(frame_fractions),
+        )
+
+    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+
+    scenes = [
+        NormalizedScene(0.0, 10.0, source_raw_duration=10.0),   # 原本單幀
+        NormalizedScene(10.0, 20.0, source_raw_duration=40.0),  # 原本兩幀
+    ]
+    scene_rows, _ = analyzer._run_vlm_phase(_context(), scenes, _transcribe_result())
+
+    assert received_fractions == [analyzer.VISUAL_ONLY_FRAME_FRACTIONS] * 2
+    assert [row.frame_count for row in scene_rows] == [3, 3]
+
+
+def test_run_vlm_phase_shrinks_the_batch_for_visual_only_videos(monkeypatch):
+    """純畫面影片每個場景要抽三幀，批次不縮的話同一批會送出 3×3＝9 張圖——
+    實測 v28 就是這樣撞了 5 次 429。撞 rate limit 的是圖片張數不是場景數，
+    所以批次要跟著幀數走。"""
+    monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
+    monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: "")
+    monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
+
+    max_workers_seen: list[int] = []
+    real_pool = analyzer.ThreadPoolExecutor
+
+    def spy_pool(max_workers):
+        max_workers_seen.append(max_workers)
+        return real_pool(max_workers=max_workers)
+
+    monkeypatch.setattr(analyzer, "ThreadPoolExecutor", spy_pool)
+    monkeypatch.setattr(
+        analyzer, "_describe_segment_with_retry",
+        lambda c, p, s, e, f: DescribeResult("d", None, 0.0, len(f)),
+    )
+
+    scenes = [NormalizedScene(i * 10.0, i * 10.0 + 10.0, source_raw_duration=10.0) for i in range(4)]
+
+    analyzer._run_vlm_phase(_context(), scenes, _transcribe_result())
+    assert max_workers_seen == [analyzer.VISUAL_ONLY_VLM_BATCH_SIZE]
+
+    max_workers_seen.clear()
+    analyzer._run_vlm_phase(_context(), scenes, _transcribe_result(*[f"第 {i} 句" for i in range(10)]))
+    assert max_workers_seen == [analyzer.VLM_BATCH_SIZE]

@@ -233,3 +233,38 @@ def test_a_segment_left_with_nothing_after_filtering_disappears():
     segments = [_segment(start_sec=float(i * 10), transcript="Thank you.") for i in range(10)]
 
     assert segment_material.build_material(segments) == ""
+
+
+# ----------------------------------------------------------------------
+# is_transcript_column_junk()：build_material() 與 analyzer._is_visual_only()
+# 共用的「這支影片的字幕整欄有沒有用」判斷
+# ----------------------------------------------------------------------
+
+
+def test_transcript_column_junk_when_one_line_dominates():
+    texts = ["Thank you for watching."] * 7 + ["真正的內容"] * 3
+    assert segment_material.is_transcript_column_junk(texts) is True
+
+
+def test_transcript_column_not_junk_when_varied():
+    assert segment_material.is_transcript_column_junk([f"第 {i} 句話" for i in range(10)]) is False
+
+
+def test_transcript_column_not_junk_below_sample_floor():
+    # 樣本太少不判定：3 句裡重複 2 句就湊得出 67%，那是樣本雜訊不是幻覺訊號
+    assert segment_material.is_transcript_column_junk(["一樣", "一樣", "不一樣"]) is False
+
+
+def test_transcript_column_junk_ignores_empty_and_placeholder_lines():
+    """空字串與 VLM 的字面佔位字串不算樣本——否則一支只有兩句真實字幕、
+    其餘全空的影片會因為「空字串佔多數」被誤判成整欄幻覺。"""
+    texts = ["", None, "null", "無"] * 5 + ["第一句", "第二句"]
+    assert segment_material.is_transcript_column_junk(texts) is False
+
+
+def test_transcript_column_junk_when_no_transcript_at_all():
+    """完全沒有字幕（純畫面影片）**不算**整欄幻覺——樣本數是 0，低於下限。
+
+    這是刻意的：analyzer 那邊「沒有音軌」已經另外走 has_audio_stream() 判斷，
+    這支只負責「有字幕但整欄是垃圾」那一種。"""
+    assert segment_material.is_transcript_column_junk([]) is False

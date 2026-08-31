@@ -55,6 +55,32 @@ def run_ffmpeg(args: list[str], *, timeout: float) -> None:
     subprocess.run(["ffmpeg", "-y", *args], check=True, capture_output=True, timeout=timeout)
 
 
+def has_audio_stream(video_path: Path) -> bool:
+    """這支影片有沒有音軌。
+
+    兩個用途，都在 analyzer：**跳過沒有意義的 ASR 呼叫**（Whisper 按分鐘計價、
+    實測佔一支影片總成本的 62～66%），以及**避免整支分析失敗**——`asr._extract_audio()`
+    對沒有音軌的檔案會讓 ffmpeg 以「Output file does not contain any stream」
+    失敗，而 ASR 例外會讓整支分析失敗（不是略過字幕），所以在沒有這道檢查之前，
+    一支純畫面的影片根本分析不完。
+
+    讀不到就回 True（當作有音軌）：猜錯的代價不對稱——當成沒有音軌會讓一支
+    真的有旁白的影片整支失去字幕，當成有音軌最多只是白花一次 ASR 的錢。
+    """
+    try:
+        codec = run_ffprobe(
+            [
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_type",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(video_path),
+            ]
+        )
+    except (subprocess.SubprocessError, OSError):
+        return True
+    return codec == "audio"
+
+
 def run_ffprobe(args: list[str], *, timeout: float = FFPROBE_TIMEOUT_SEC) -> str:
     """跑一次 ffprobe，回傳標準輸出（已 strip）。`args` 不含 `ffprobe -v error`
     前綴。失敗一律拋例外，兩個呼叫端各自決定怎麼退回。

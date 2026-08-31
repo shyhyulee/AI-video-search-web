@@ -1,0 +1,252 @@
+{
+  "measured_at": "2026-08-31T13:07:30",
+  "video_filter": null,
+  "overall": {
+    "n": 1354,
+    "avg_length": 52.4,
+    "vague_rate": 0.7356,
+    "concrete_rate": 0.0598,
+    "meta_rate": 0.1344
+  },
+  "by_frame_count": {
+    "2": {
+      "n": 292,
+      "avg_length": 60.1,
+      "vague_rate": 0.6918,
+      "concrete_rate": 0.0993,
+      "meta_rate": 0.6096
+    },
+    "1": {
+      "n": 656,
+      "avg_length": 50.6,
+      "vague_rate": 0.8079,
+      "concrete_rate": 0.0564,
+      "meta_rate": 0.0061
+    },
+    "None": {
+      "n": 406,
+      "avg_length": 49.8,
+      "vague_rate": 0.6502,
+      "concrete_rate": 0.0369,
+      "meta_rate": 0.0
+    }
+  },
+  "by_video": {
+    "1": {
+      "title": "The 100 Most Beautiful Faces of 2019",
+      "n": 58,
+      "avg_length": 69.7,
+      "vague_rate": 0.3276,
+      "concrete_rate": 0.0517,
+      "meta_rate": 0.4828
+    },
+    "2": {
+      "title": "100 Animals in Chinese | 一百種動物的中文名稱 | Educational Video For Kids to Learn Chinese",
+      "n": 101,
+      "avg_length": 38.9,
+      "vague_rate": 0.4653,
+      "concrete_rate": 0.0198,
+      "meta_rate": 0.0
+    },
+    "3": {
+      "title": "1998 NBA 總決賽 芝加哥公牛 vs 猶他爵士 第六戰 最後的三分鐘",
+      "n": 74,
+      "avg_length": 52.2,
+      "vague_rate": 0.8919,
+      "concrete_rate": 0.0405,
+      "meta_rate": 0.0
+    },
+    "4": {
+      "title": "Inside BMW's Super Advanced US Factory Where Robots Build Cars",
+      "n": 104,
+      "avg_length": 52.3,
+      "vague_rate": 0.9231,
+      "concrete_rate": 0.0865,
+      "meta_rate": 0.0
+    },
+    "5": {
+      "title": "The 100 Most Beautiful Faces of 2020 (全球票選百大美女榜）",
+      "n": 42,
+      "avg_length": 54.0,
+      "vague_rate": 0.4524,
+      "concrete_rate": 0.0238,
+      "meta_rate": 0.0
+    },
+    "6": {
+      "title": "The 100 Most Beautiful Faces of 2021",
+      "n": 85,
+      "avg_length": 55.3,
+      "vague_rate": 0.4235,
+      "concrete_rate": 0.0,
+      "meta_rate": 0.0
+    },
+    "7": {
+      "title": "【2026球賽】08/12 龍隊勝場精華",
+      "n": 73,
+      "avg_length": 49.9,
+      "vague_rate": 0.7671,
+      "concrete_rate": 0.0822,
+      "meta_rate": 0.0137
+    },
+    "8": {
+      "title": "Inside Intel’s $20 Billion Chip Factory in the US",
+      "n": 112,
+      "avg_length": 49.4,
+      "vague_rate": 0.8839,
+      "concrete_rate": 0.0625,
+      "meta_rate": 0.0089
+    },
+    "11": {
+      "title": "日本各地玩什麼？15分鐘一次了解日本觀光地理 ！關東｜近畿｜東北｜四國｜中國｜九州｜中部｜北海道",
+      "n": 92,
+      "avg_length": 46.1,
+      "vague_rate": 0.6087,
+      "concrete_rate": 0.0435,
+      "meta_rate": 0.0217
+    },
+    "13": {
+      "title": "不用竹簾捲壽司 How To Make Sushi Without A Bamboo Mat",
+      "n": 5,
+      "avg_length": 41.4,
+      "vague_rate": 0.4,
+      "concrete_rate": 0.0,
+      "meta_rate": 0.0
+    },
+    "14": {
+      "title": "Python 零基礎新手入門 #01 基本簡介與安裝",
+      "n": 16,
+      "avg_length": 61.1,
+      "vague_rate": 1.0,
+      "concrete_rate": 0.0625,
+      "meta_rate": 0.125
+    },
+    "15": {
+      "title": "50 Messi Skills That Stopped the Internet",
+      "n": 22,
+      "avg_length": 56.3,
+      "vague_rate": 0.6818,
+      "concrete_rate": 0.0455,
+      "meta_rate": 0.0
+    },
+    "16": {
+      "title": "Lionel Messi - 100 Magical Dribbling Skills",
+      "n": 37,
+      "avg_length": 50.9,
+      "vague_rate": 0.8649,
+      "concrete_rate": 0.1351,
+      "meta_rate": 0.0
+    },
+    "17": {
+      "title": "Rodrigo De Paul Sets Up PERFECTLY and Messi Does The Rest!",
+      "n": 7,
+      "avg_length": 56,
+      "vague_rate": 1.0,
+      "concrete_rate": 0.0,
+      "meta_rate": 0.1429
+    },
+    "19": {
+      "title": "【全場精華】西班牙 VS 阿根廷 冠軍戰｜2026 FIFA世界盃™｜鎖定ELTA tv愛爾達",
+      "n": 22,
+      "avg_length": 52.2,
+      "vague_rate": 0.8636,
+      "concrete_rate": 0.0,
+      "meta_rate": 0.0455
+    },
+    "20": {
+      "title": "【全場精華】阿根廷 VS 埃及 16強｜2026 FIFA世界盃™｜鎖定ELTA tv愛爾達",
+      "n": 19,
+      "avg_length": 52.5,
+      "vague_rate": 0.5789,
+      "concrete_rate": 0.0526,
+      "meta_rate": 0.0
+    },
+    "21": {
+      "title": "【全場精華】阿根廷 vs 阿爾及利亞 J組第一輪｜2026 FIFA世界盃™｜鎖定ELTA tv愛爾達",
+      "n": 19,
+      "avg_length": 50.1,
+      "vague_rate": 0.5789,
+      "concrete_rate": 0.0526,
+      "meta_rate": 0.0
+    },
+    "22": {
+      "title": "【全場精華】阿根廷 VS 維德角 32強｜2026 FIFA世界盃™｜鎖定ELTA tv愛爾達",
+      "n": 22,
+      "avg_length": 52.1,
+      "vague_rate": 0.6818,
+      "concrete_rate": 0.0,
+      "meta_rate": 0.1364
+    },
+    "23": {
+      "title": "【全場精華】約旦 VS 阿根廷 J組第三輪｜2026 FIFA世界盃™｜鎖定ELTA tv愛爾達",
+      "n": 20,
+      "avg_length": 53.4,
+      "vague_rate": 0.9,
+      "concrete_rate": 0.1,
+      "meta_rate": 0.1
+    },
+    "28": {
+      "title": "How Intel Builds Its Most Advanced Chip Inside $20 Billion Factory",
+      "n": 107,
+      "avg_length": 53.5,
+      "vague_rate": 0.9346,
+      "concrete_rate": 0.0561,
+      "meta_rate": 0.0467
+    },
+    "29": {
+      "title": "[線性代數] 向量 (Vector)",
+      "n": 65,
+      "avg_length": 53.3,
+      "vague_rate": 0.4308,
+      "concrete_rate": 0.0615,
+      "meta_rate": 0.6615
+    },
+    "30": {
+      "title": "【全場精華】英格蘭 VS 阿根廷 4強｜2026 FIFA世界盃™｜鎖定ELTA tv愛爾達",
+      "n": 20,
+      "avg_length": 51.6,
+      "vague_rate": 0.8,
+      "concrete_rate": 0.05,
+      "meta_rate": 0.05
+    },
+    "31": {
+      "title": "【翼王】记录一次完整的主板生成过程，技嘉板卡工厂游记",
+      "n": 33,
+      "avg_length": 54.4,
+      "vague_rate": 0.9394,
+      "concrete_rate": 0.0909,
+      "meta_rate": 0.1818
+    },
+    "32": {
+      "title": "嵩陽SYK - 螺桿滑台單軸組裝SOP",
+      "n": 10,
+      "avg_length": 54.1,
+      "vague_rate": 0.9,
+      "concrete_rate": 0.1,
+      "meta_rate": 1.0
+    },
+    "33": {
+      "title": "走进工厂：PCB线路板是如何制造出来的",
+      "n": 75,
+      "avg_length": 51.9,
+      "vague_rate": 0.9467,
+      "concrete_rate": 0.0533,
+      "meta_rate": 0.0267
+    },
+    "34": {
+      "title": "48 Form Tai Chi Demonstration Master Amin Wu 吳阿敏48式太極拳",
+      "n": 74,
+      "avg_length": 60.8,
+      "vague_rate": 0.8514,
+      "concrete_rate": 0.1892,
+      "meta_rate": 0.6081
+    },
+    "35": {
+      "title": "6分鐘學會太極八式 抗失智 改善氣血循環【挖健康精華】",
+      "n": 40,
+      "avg_length": 58.2,
+      "vague_rate": 0.95,
+      "concrete_rate": 0.05,
+      "meta_rate": 0.725
+    }
+  }
+}
