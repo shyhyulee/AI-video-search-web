@@ -1,0 +1,980 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>影片如何整理成文件</title>
+<style>
+  :root{
+    --ground:#F8F3ED;
+    --panel:#FFFDF9;
+    --panel-2:#F1E4D5;
+    --tint:#F7E4DC;
+    --line:#E4D6C7;
+    --line-soft:#EFE3D6;
+
+    --ink:#2A1A13;
+    --body:#4A382E;
+    --muted:#6E5A4E;
+    --dim:#7D675A;
+
+    --terracotta:#A8492F;
+    --terracotta-fill:#C4674B;
+    --amber:#8A5A12;
+    --amber-fill:#DC9A3C;
+    --sage:#52634A;
+    --sage-fill:#8FA383;
+
+    --code-bg:#2F2019;
+    --code-ink:#F2E6DA;
+    --code-dim:#B39B8A;
+    --code-key:#E0A46E;
+    --code-str:#A9BD97;
+
+    --shadow:0 1px 2px rgba(52,36,29,.05), 0 6px 18px rgba(52,36,29,.06);
+
+    --f-display:"Noto Serif TC","Songti TC","PMingLiU",serif;
+    --f-body:"Noto Sans TC","Microsoft JhengHei","PingFang TC","Segoe UI",sans-serif;
+    --f-mono:"JetBrains Mono","Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#1A1310;
+      --panel:#231A15;
+      --panel-2:#2E231C;
+      --tint:#3A281F;
+      --line:#3B2C23;
+      --line-soft:#31251E;
+
+      --ink:#F5EAE0;
+      --body:#DDCCBE;
+      --muted:#B29C8C;
+      --dim:#9B8474;
+
+      --terracotta:#E29070;
+      --terracotta-fill:#C4674B;
+      --amber:#DDA95F;
+      --sage:#9FB392;
+
+      --code-bg:#140E0B;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
+    }
+  }
+
+  *,*::before,*::after{box-sizing:border-box;}
+  html{scroll-behavior:smooth;scroll-padding-top:1.5rem;}
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--body);
+    font-family:var(--f-body);
+    line-height:1.75;
+    font-size:15px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── 版面骨架 ───────────────────────────────── */
+  .masthead{
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,var(--tint),var(--ground));
+  }
+  .masthead-in{max-width:1240px;margin:0 auto;padding:2.6rem 1.5rem 2rem;}
+  .eyebrow{
+    font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--terracotta);font-weight:700;margin:0 0 .6rem;
+  }
+  .masthead h1{
+    font-family:var(--f-display);font-weight:900;color:var(--ink);
+    font-size:clamp(1.7rem,3.4vw,2.5rem);line-height:1.25;margin:0 0 .7rem;
+  }
+  .masthead p{margin:0;max-width:62ch;color:var(--muted);}
+  .meta{
+    display:flex;flex-wrap:wrap;gap:.5rem 1.4rem;margin-top:1.1rem;
+    font-size:.8rem;color:var(--dim);
+  }
+  .meta b{color:var(--body);font-weight:700;}
+
+  .wrap{max-width:1240px;margin:0 auto;padding:0 1.5rem 5rem;display:flex;gap:2.6rem;align-items:flex-start;}
+
+  .toc{
+    position:sticky;top:0;flex:0 0 232px;max-height:100vh;overflow-y:auto;
+    padding:2rem 0;font-size:.83rem;scrollbar-width:thin;
+  }
+  .toc h2{
+    font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);margin:0 0 .7rem;font-weight:700;
+  }
+  .toc ol{list-style:none;margin:0 0 1.6rem;padding:0;}
+  .toc li{margin:0;}
+  .toc a{
+    display:block;padding:.24rem .55rem;border-left:2px solid transparent;
+    color:var(--muted);text-decoration:none;border-radius:0 4px 4px 0;
+  }
+  .toc a:hover{color:var(--ink);background:var(--panel-2);}
+  .toc a.on{color:var(--terracotta);border-left-color:var(--terracotta);font-weight:700;}
+  .toc a.sub{padding-left:1.3rem;font-size:.79rem;}
+
+  main{flex:1 1 auto;min-width:0;padding:2rem 0;max-width:900px;}
+
+  /* ── 區塊標題 ───────────────────────────────── */
+  .part{margin:3.4rem 0 1.6rem;padding-top:1.6rem;border-top:2px solid var(--line);}
+  .part:first-child{margin-top:0;padding-top:0;border-top:0;}
+  .part-tag{
+    display:inline-block;font-size:.7rem;letter-spacing:.12em;font-weight:700;
+    color:#fff;background:var(--terracotta-fill);padding:.16rem .55rem;border-radius:4px;
+    margin-bottom:.7rem;
+  }
+  .part h2{
+    font-family:var(--f-display);font-weight:900;color:var(--ink);
+    font-size:clamp(1.35rem,2.4vw,1.85rem);line-height:1.3;margin:0 0 .6rem;
+  }
+  .part p{margin:0 0 .5rem;color:var(--muted);max-width:66ch;}
+
+  h3.step{
+    font-family:var(--f-display);font-weight:900;color:var(--ink);
+    font-size:1.15rem;margin:2.6rem 0 .5rem;
+    display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;
+  }
+  h3.step .num{
+    font-family:var(--f-mono);font-size:.78rem;color:var(--terracotta);
+    border:1px solid var(--line);border-radius:4px;padding:.1rem .4rem;
+    background:var(--panel);flex:0 0 auto;
+  }
+  h4.sub{
+    font-weight:700;color:var(--ink);font-size:.97rem;
+    margin:1.7rem 0 .4rem;
+  }
+  p{margin:0 0 .85rem;max-width:70ch;}
+  .lede{font-size:1.02rem;color:var(--body);}
+  strong{color:var(--ink);font-weight:700;}
+  a{color:var(--terracotta);}
+
+  /* ── 卡片與框 ───────────────────────────────── */
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:1.1rem 1.25rem;margin:1.1rem 0;box-shadow:var(--shadow);
+  }
+  .card > :last-child{margin-bottom:0;}
+  .card h4{margin-top:0;}
+
+  .callout{
+    border-left:3px solid var(--amber-fill);background:var(--panel-2);
+    border-radius:0 10px 10px 0;padding:.85rem 1.1rem;margin:1.1rem 0;
+    font-size:.92rem;
+  }
+  .callout > :last-child{margin-bottom:0;}
+  .callout.why{border-left-color:var(--terracotta-fill);}
+  .callout.why b:first-child{color:var(--terracotta);}
+  .callout.warn{border-left-color:var(--terracotta);background:var(--tint);}
+
+  /* ── 端到端流程條 ───────────────────────────── */
+  .strip{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin:1.4rem 0 .6rem;
+  }
+  .strip .cell{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:.75rem .8rem;position:relative;box-shadow:var(--shadow);
+  }
+  .strip .cell .k{
+    font-family:var(--f-mono);font-size:.68rem;color:var(--dim);
+    letter-spacing:.06em;display:block;margin-bottom:.25rem;
+  }
+  .strip .cell .t{font-weight:700;color:var(--ink);font-size:.9rem;display:block;line-height:1.4;}
+  .strip .cell .d{font-size:.76rem;color:var(--muted);display:block;margin-top:.3rem;line-height:1.5;}
+  .strip .cell.hot{border-color:var(--terracotta-fill);background:var(--tint);}
+  .strip .cell.hot .t{color:var(--terracotta);}
+  .strip-legend{font-size:.78rem;color:var(--dim);margin:0 0 1.6rem;}
+  @media (max-width:760px){ .strip{grid-template-columns:1fr;} }
+
+  /* ── 垂直資料流 ─────────────────────────────── */
+  .flow{margin:1.3rem 0;}
+  .flow .node{
+    display:grid;grid-template-columns:118px 1fr;gap:1rem;align-items:start;
+    padding:.7rem 0;
+  }
+  .flow .node + .node{border-top:1px dashed var(--line-soft);}
+  .flow .who{
+    font-family:var(--f-mono);font-size:.72rem;color:var(--dim);
+    padding-top:.2rem;word-break:break-all;line-height:1.5;
+  }
+  .flow .what b{color:var(--ink);}
+  .flow .what{font-size:.9rem;}
+  .flow .arrow{
+    color:var(--terracotta);font-size:.8rem;margin-left:118px;
+    padding-left:1rem;font-family:var(--f-mono);
+  }
+  @media (max-width:700px){
+    .flow .node{grid-template-columns:1fr;gap:.2rem;}
+    .flow .arrow{margin-left:0;padding-left:0;}
+  }
+
+  /* ── 表格 ───────────────────────────────────── */
+  .tw{overflow-x:auto;margin:1.1rem 0;}
+  table{border-collapse:collapse;width:100%;font-size:.86rem;min-width:480px;}
+  th,td{border:1px solid var(--line);padding:.5rem .7rem;text-align:left;vertical-align:top;}
+  th{background:var(--panel-2);color:var(--ink);font-weight:700;white-space:nowrap;}
+  td{background:var(--panel);}
+  td code,th code{font-size:.86em;}
+  .num-col{font-family:var(--f-mono);white-space:nowrap;}
+
+  /* ── 程式碼 ─────────────────────────────────── */
+  code{
+    font-family:var(--f-mono);font-size:.88em;
+    background:var(--panel-2);color:var(--ink);
+    padding:.08rem .3rem;border-radius:4px;
+  }
+  pre{
+    background:var(--code-bg);color:var(--code-ink);
+    border-radius:10px;padding:.9rem 1.05rem;overflow-x:auto;
+    font-family:var(--f-mono);font-size:.8rem;line-height:1.65;margin:.9rem 0;
+  }
+  pre code{background:none;color:inherit;padding:0;font-size:1em;}
+  pre .c{color:var(--code-dim);}
+  pre .k{color:var(--code-key);}
+  pre .s{color:var(--code-str);}
+
+  /* ── 可展開的技術細節 ───────────────────────── */
+  details.tech{
+    border:1px solid var(--line);border-radius:10px;background:var(--panel);
+    margin:1rem 0;overflow:hidden;
+  }
+  details.tech > summary{
+    cursor:pointer;list-style:none;padding:.6rem 1rem;
+    font-size:.83rem;font-weight:700;color:var(--muted);
+    background:var(--panel-2);display:flex;align-items:center;gap:.5rem;
+  }
+  details.tech > summary::-webkit-details-marker{display:none;}
+  details.tech > summary::before{
+    content:"▸";color:var(--terracotta);font-size:.8rem;transition:transform .15s;
+  }
+  details.tech[open] > summary::before{transform:rotate(90deg);}
+  details.tech > summary:hover{color:var(--ink);}
+  details.tech .inner{padding:.9rem 1.1rem 1.1rem;font-size:.88rem;}
+  details.tech .inner > :first-child{margin-top:0;}
+  details.tech .inner > :last-child{margin-bottom:0;}
+
+  /* ── 其他小元件 ─────────────────────────────── */
+  ul,ol{margin:0 0 .95rem;padding-left:1.35rem;max-width:70ch;}
+  li{margin:.28rem 0;}
+  .pill{
+    display:inline-block;font-size:.7rem;font-weight:700;border-radius:999px;
+    padding:.08rem .55rem;border:1px solid var(--line);color:var(--muted);
+    background:var(--panel);white-space:nowrap;
+  }
+  .pill.ok{color:var(--sage);border-color:var(--sage-fill);}
+  .pill.warn{color:var(--amber);border-color:var(--amber-fill);}
+  .pill.bad{color:var(--terracotta);border-color:var(--terracotta-fill);}
+  .kv{font-family:var(--f-mono);font-size:.8rem;color:var(--dim);}
+  hr{border:0;border-top:1px solid var(--line-soft);margin:2.2rem 0;}
+  .footnote{font-size:.82rem;color:var(--dim);max-width:70ch;}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <p class="eyebrow">技術詳解</p>
+    <h1>一部影片，怎麼變成一份文件</h1>
+    <p class="lede">從影片檔進來，到畫面上出現一份有章節、有步驟、點得動時間戳的文件，中間發生了什麼事。先看四個階段的大架構，再逐一拆開每個環節用了什麼方法、為什麼這樣做。</p>
+    <div class="meta">
+      <span><b>類型</b>：現況參考</span>
+      <span><b>狀態</b>：與程式碼同步（2026-08-31）</span>
+      <span><b>對應程式碼</b>：<code>pipeline/document.py</code>、<code>pipeline/segment_material.py</code>、<code>pipeline/analyzer.py</code></span>
+      <span><b>閱讀方式</b>：主線不需要會寫程式；灰底的「技術細節」可自行展開</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <h2>目錄</h2>
+  <ol>
+    <li><a href="#overview">0　一頁看完</a></li>
+    <li><a href="#arch" class="sub">1　四個階段</a></li>
+    <li><a href="#entry" class="sub">2　兩個入口</a></li>
+    <li><a href="#detail">3　逐環節拆解</a></li>
+    <li><a href="#s31" class="sub">3.1　片段哪裡來</a></li>
+    <li><a href="#s32" class="sub">3.2　攤成素材</a></li>
+    <li><a href="#s33" class="sub">3.3　交給模型</a></li>
+    <li><a href="#s34" class="sub">3.4　存回資料庫</a></li>
+    <li><a href="#s35" class="sub">3.5　畫到畫面上</a></li>
+    <li><a href="#methods">4　用到的方法</a></li>
+    <li><a href="#failure" class="sub">5　失敗與退路</a></li>
+    <li><a href="#cost" class="sub">6　成本與限制</a></li>
+    <li><a href="#appendix">附錄</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════════════════════════ -->
+<section class="part" id="overview">
+  <span class="part-tag">Part 0</span>
+  <h2>一頁看完</h2>
+  <p class="lede">一句話：<strong>把整支影片先拆成一段一段的「片段」，每段記下畫面、聲音、螢幕上的字，再把這些片段依時間順序攤成一長串文字餵給語言模型，要求它回傳一份有固定格式的文件。</strong></p>
+</section>
+
+<div class="strip">
+  <div class="cell">
+    <span class="k">STAGE 1</span>
+    <span class="t">產生片段</span>
+    <span class="d">影片 → 片段。切場景、聽字幕、看畫面、認螢幕文字。<br><code>analyzer.py</code> Phase A–E</span>
+  </div>
+  <div class="cell hot">
+    <span class="k">STAGE 2</span>
+    <span class="t">攤成素材</span>
+    <span class="d">片段 → 一長串逐行文字，順便把雜訊丟掉。<br><code>segment_material.py</code></span>
+  </div>
+  <div class="cell hot">
+    <span class="k">STAGE 3</span>
+    <span class="t">整理成文件</span>
+    <span class="d">素材 → 結構化文件。單次 LLM 呼叫，回傳固定形狀的資料。<br><code>document.py</code></span>
+  </div>
+  <div class="cell">
+    <span class="k">STAGE 4</span>
+    <span class="t">落地與呈現</span>
+    <span class="d">存回資料庫 → 前端畫成可點的章節與步驟。<br><code>db</code> → <code>api</code> → React</span>
+  </div>
+</div>
+<p class="strip-legend">深色兩格是「文件線」真正專屬的部分，也是這份文件的重點；第 1 階段是整個分析 pipeline 共用的，第 4 階段是一般的資料落地與前端渲染。</p>
+
+<div class="card">
+  <h4 class="sub" style="margin-top:0">資料在管線裡的形狀變化</h4>
+  <div class="flow">
+    <div class="node">
+      <div class="who">影片檔</div>
+      <div class="what"><b>一支 MP4</b>，長度上限 1 小時（<code>MAX_DURATION_SEC</code>）。</div>
+    </div>
+    <div class="arrow">↓　場景切分 ＋ 語音轉錄 ＋ 畫面分析</div>
+    <div class="node">
+      <div class="who">segments 表</div>
+      <div class="what"><b>數十到數百筆片段</b>，每筆帶起訖秒數與三個文字欄位：<code>visual_description</code>（畫面描述）、<code>transcript</code>（字幕）、<code>ocr_text</code>（畫面上的文字）。</div>
+    </div>
+    <div class="arrow">↓　<code>build_material()</code>　攤平 ＋ 過濾雜訊</div>
+    <div class="node">
+      <div class="who">一個字串</div>
+      <div class="what"><b>逐行素材</b>，一行一個片段：<br><code>[03:18｜198 秒] 畫面：…；字幕：…；畫面文字：…</code></div>
+    </div>
+    <div class="arrow">↓　<code>generate_document()</code>　單次 LLM 呼叫（structured output）</div>
+    <div class="node">
+      <div class="who">VideoDocument</div>
+      <div class="what"><b>一份結構化文件</b>：文件類型、標題、概述、章節[]（各含步驟[]，每步帶秒數）、影片未涵蓋事項[]。</div>
+    </div>
+    <div class="arrow">↓　存進 <code>videos</code> 表（整包 JSON ＋ 兩個索引欄位）</div>
+    <div class="node">
+      <div class="who">畫面</div>
+      <div class="what"><b>可讀的文件</b>：章節標題、編號步驟、每步左側一個可點的時間戳，點下去影片就跳到那一秒。</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout why">
+  <p><b>為什麼要有這一層？</b>分析完的影片，系統手上其實握著整支的畫面描述、字幕與畫面文字，但使用者拿得到的只有兩種東西：一段 100～200 字的摘要（太粗），或是搜尋命中的單一片段（太細）。中間那層——「這支工廠影片的生產流程到底是哪幾步」——沒有人做。這份文件功能補的就是這一層。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<section class="part" id="arch">
+  <span class="part-tag">Part 1</span>
+  <h2>大架構：四個階段</h2>
+  <p>每個階段的輸入、輸出與負責的檔案如下。第 2、3 階段是文件線專屬，第 1、4 階段與其他功能共用。</p>
+</section>
+
+<div class="tw">
+<table>
+  <thead>
+    <tr><th>階段</th><th>輸入 → 輸出</th><th>做的事</th><th>負責檔案</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>① 產生片段</b></td>
+      <td>影片檔 → <code>segments</code> 表</td>
+      <td>切場景、語音轉文字、逐場景看圖說話、認畫面文字、建向量</td>
+      <td><code>pipeline/analyzer.py</code>（Phase A–E）</td>
+    </tr>
+    <tr>
+      <td><b>② 攤成素材</b></td>
+      <td>片段清單 → 一個長字串</td>
+      <td>依時間排成逐行文字；順手丟掉整欄幻覺字幕與頻道浮水印</td>
+      <td><code>pipeline/segment_material.py</code></td>
+    </tr>
+    <tr>
+      <td><b>③ 整理成文件</b></td>
+      <td>素材字串 → <code>VideoDocument</code></td>
+      <td>一次 LLM 呼叫，用 structured output 逼出固定形狀；模型自行判斷文件類型</td>
+      <td><code>pipeline/document.py</code></td>
+    </tr>
+    <tr>
+      <td><b>④ 落地與呈現</b></td>
+      <td><code>VideoDocument</code> → 畫面</td>
+      <td>整包 JSON 存進 <code>videos</code> 表；API 讀回；React 畫成可點的章節步驟</td>
+      <td><code>db/videos.py</code>、<code>services/video_service.py</code>、<code>api/videos.py</code>、<code>VideoDocumentView.tsx</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3 class="step" id="entry"><span class="num">§2</span>兩個入口，同一條管線</h3>
+
+<p>使用者有兩種方式讓一支影片產出文件，但它們走的是同一段程式碼（階段 ②③），差別只在誰觸發、以及錢怎麼記。</p>
+
+<div class="tw">
+<table>
+  <thead>
+    <tr><th></th><th>自動（分析時）</th><th>手動（按按鈕）</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><b>觸發時機</b></td><td>影片分析跑到 Phase F 時自動整理</td><td>使用者在影片面板按「重新整理文件」</td></tr>
+    <tr><td><b>進入點</b></td><td><code>analyzer._run_document_phase()</code></td><td><code>POST /videos/{id}/document</code></td></tr>
+    <tr><td><b>執行方式</b></td><td>背景執行緒，與本地 OCR 平行跑</td><td><b>同步</b> REST，不進 jobs 表</td></tr>
+    <tr><td><b>失敗時</b></td><td>退回只產摘要；再失敗就只記 log</td><td>回傳錯誤給前端顯示</td></tr>
+    <tr><td><b>成本怎麼記</b></td><td>已透過 <code>ctx.spend()</code> 併進分析總額</td><td>用增量累加到 <code>videos.cost_usd</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4 class="sub">自動那條路的核心設計：文件優先，摘要當退路</h4>
+
+<p>Phase F 原本只產摘要。改成先整理文件、<strong>摘要當成文件的副產品</strong>之後，省掉一次 LLM 呼叫——因為文件裡的「概述」欄位本來就是照摘要的規格寫的，使用者按「整理成文件」時本來也會覆蓋掉摘要欄位。既然我們早就認定文件的概述才是正本，就沒有理由先花錢產一份注定被覆蓋的摘要。</p>
+
+<div class="callout warn">
+  <p><b>但退路不能省。</b><code>videos.summary</code> 不只是給人看的欄位——<strong>搜尋的影片層級篩選</strong>與<strong>影片庫的主題分類</strong>都在讀它。文件整理失敗就整支影片沒有摘要的話，那支影片會在搜尋端被降權，比「文件沒整理出來」嚴重得多。所以文件失敗時會退回原本的摘要產生器；兩條都失敗才放棄，而且只記 log，不讓已經成功的分析結果被判定為失敗。</p>
+</div>
+
+<div class="flow" style="margin-top:1.2rem">
+  <div class="node">
+    <div class="who">第一順位</div>
+    <div class="what"><b>整理文件</b> → 同時得到文件與摘要 <span class="pill ok">理想</span></div>
+  </div>
+  <div class="arrow">↓　失敗（refusal／輸出被截斷／API 錯誤）</div>
+  <div class="node">
+    <div class="who">退路</div>
+    <div class="what"><b>只產摘要</b> → 沒有文件，但搜尋不受影響 <span class="pill warn">可接受</span></div>
+  </div>
+  <div class="arrow">↓　再失敗</div>
+  <div class="node">
+    <div class="who">放棄</div>
+    <div class="what"><b>只記 log</b> → 影片仍然標記為分析完成，片段與搜尋都正常 <span class="pill bad">降級</span></div>
+  </div>
+</div>
+
+<details class="tech">
+  <summary>技術細節：預算隔離與平行化</summary>
+  <div class="inner">
+    <p>Phase E（本地 OCR）與 Phase F（整理文件）互不依賴——F 只讀 Phase D 寫入的 <code>segments</code>，不碰 Phase E 寫的 <code>ocr_events</code>——所以同時起跑縮短耗時。兩者各拿一個 <code>ctx.budget_branch()</code>，都以「進入這個函式那一刻」的金額當預算判斷基準，互相看不到對方的花費。</p>
+    <p>代價是極端情況下兩者合計可能讓總花費比 <code>BUDGET_USD = 0.80</code> 多出一點點，這是刻意接受的取捨，用 <code>budget_branch()</code> 把它變成明講的機制而不是靠傳參數傳出來的副作用。</p>
+    <p>已知取捨：Phase F 的耗時從幾秒變成數十秒（輸出 token 比摘要多一個量級），但因為與本地 OCR 平行跑，多出來的時間多半被吸收掉。每支影片多花約 US$0.002，相對 US$0.80 的預算可忽略，沒有調整預算上限。</p>
+  </div>
+</details>
+
+<!-- ══════════════════════════════════════════════ -->
+<section class="part" id="detail">
+  <span class="part-tag">Part 2</span>
+  <h2>逐環節拆解</h2>
+  <p>以下每個環節固定分成四段：<b>輸入</b>是什麼、<b>做了什麼</b>、<b>為什麼這樣做</b>、以及支撐這個決定的<b>實測數字</b>。專案裡幾乎每一條規則都是被真實資料逼出來的，不是先驗設計。</p>
+</section>
+
+<h3 class="step" id="s31"><span class="num">3.1</span>片段哪裡來（背景）</h3>
+
+<p><b>輸入</b>：一支影片檔。<b>輸出</b>：<code>segments</code> 表裡數十到數百筆片段。</p>
+
+<p>文件功能其實不參與這個階段——它只是<strong>讀者</strong>。但要理解後面的每一個決定，得先知道片段長什麼樣子：每一筆片段有起訖秒數，加上三個各自可能為空的文字欄位。</p>
+
+<div class="tw">
+<table>
+  <thead>
+    <tr><th>欄位</th><th>怎麼來的</th><th>全庫覆蓋率</th><th>可靠度</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>visual_description</code><br>畫面描述</td>
+      <td>VLM 逐場景抽幀「看圖說話」（gpt-4o-mini）</td>
+      <td class="num-col">1,155 / 1,156</td>
+      <td>最穩定，<b>覆蓋率 99.9% 的骨幹</b></td>
+    </tr>
+    <tr>
+      <td><code>transcript</code><br>字幕</td>
+      <td>整支影片音訊轉文字（whisper-1）</td>
+      <td class="num-col">1,006 / 1,156</td>
+      <td><b>會整段壞掉</b>：純音樂或無人聲時會生出幻覺文字</td>
+    </tr>
+    <tr>
+      <td><code>ocr_text</code><br>畫面文字</td>
+      <td>VLM 同一次呼叫順便讀；本地 EasyOCR 補漏</td>
+      <td class="num-col">1,076 / 1,156</td>
+      <td>對流程類影片<b>價值極高</b>，但混著頻道浮水印</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="footnote">數字來自全庫 23 支影片、1,156 個片段的實測分布。片段長度被正規化到 8～12 秒（太短的合併、太長的均分），所以片段密度的結構上限是每分鐘 7.5 個，不會因為影片剪得很快就失控。</p>
+
+<div class="callout">
+  <p>這一階段（場景切分演算法、Whisper 的兩種幻覺過濾模式、VLM 條件式多幀取樣、EasyOCR 雙引擎、向量建立）的完整拆解在另一份文件：<a href="16-技術詳解-五個技術層與分析流程.html">16-技術詳解：五個技術層與分析流程</a>。這裡不重複。</p>
+</div>
+
+<hr>
+
+<h3 class="step" id="s32"><span class="num">3.2</span>攤成素材 <span class="pill">重點</span></h3>
+
+<p><b>輸入</b>：片段清單。<b>輸出</b>：一個長字串，一行一個片段。<b>負責</b>：<code>segment_material.build_material()</code>。</p>
+
+<p>語言模型吃的是純文字，所以要把資料庫裡的片段攤平。這聽起來像是無聊的格式轉換，<strong>實際上這裡的每一個決定都直接影響最後文件的品質</strong>——而且是被踩過坑之後才修對的。</p>
+
+<pre><code><span class="c"># 素材長這樣，一行一個片段</span>
+[00:16｜16 秒] 畫面：機械手臂正在將車身骨架移入焊接站；畫面文字：BODY IN WHITE
+[00:24｜24 秒] 畫面：焊接火花四濺，多支機械臂同時作業；畫面文字：SPOT WELDING · STAGE 3
+[00:36｜36 秒] 畫面：輸送帶將車身送往下一站
+</code></pre>
+
+<h4 class="sub">決定一：時間戳同時給「分:秒」與「總秒數」</h4>
+
+<p><b>做了什麼</b>：每行開頭寫成 <code>[03:18｜198 秒]</code>，兩種格式都給。</p>
+
+<p><b>為什麼</b>：文件的資料結構裡，每個步驟的時間欄位叫 <code>timestamp_sec</code>——要的是<strong>秒數</strong>。但素材原本只給 <code>[MM:SS]</code>，等於逼模型自己心算換算，而它經常不換算，<strong>直接把 <code>[03:18]</code> 的 <code>18</code> 抄進去</strong>。</p>
+
+<p>結果就是兩種看起來完全不同、實際同源的症狀：步驟時間戳<strong>全部塌在影片前 60 秒內</strong>，或是<strong>寫出超過影片長度的時間點</strong>（一支 18:33 的影片寫出 22:56 的步驟）。</p>
+
+<div class="callout warn">
+  <p><b>這件事一度被誤判成「模型幻覺」。</b>當時的結論是「模型講得出時間戳也可能是編造的」，還為此在前端加了防護。追下去才發現根因是<strong>我們自己的素材格式與資料結構不一致</strong>。前端防護留著當安全網，但它從主要對策降級成保險。</p>
+</div>
+
+<details class="tech">
+  <summary>實測數字：只改時間戳格式，重跑 9 支文件</summary>
+  <div class="inner">
+    <p>驗證方式是三次單變數實驗（每次約 US$0.002，唯讀不寫庫）：實驗一先濾掉幻覺字幕 → 步驟數變多，<b>但時間戳仍全塌在 00:56 內</b>（證明兩個成因獨立）；實驗二只改時間戳格式 → 時間戳散到 08:42；實驗三在另外兩支影片重複 → 一致。</p>
+    <div class="tw">
+    <table>
+      <thead><tr><th>指標</th><th>修正前 → 後</th></tr></thead>
+      <tbody>
+        <tr><td>超出影片長度的步驟</td><td><b>4 → 0</b>（9 支全清）</td></tr>
+        <tr><td>時間戳涵蓋率（最差兩支）</td><td>BMW 5%→80%、Python 18%→93%</td></tr>
+        <tr><td>涵蓋率略降的</td><td>龍隊 31%→25%、線性代數 74%→57%</td></tr>
+        <tr><td>步驟數</td><td>有增有減（技嘉 19→12、Python 7→14）</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><b>沒有全面改善，也不假裝有</b>：步驟數與涵蓋率有增有減，單次重跑分不出訊號與雜訊。唯一乾淨清掉的是「超出影片長度」。</p>
+  </div>
+</details>
+
+<h4 class="sub">決定二：整欄都是幻覺的字幕，整欄丟掉</h4>
+
+<p><b>做了什麼</b>：先統計「最常出現的那一句佔全部字幕的比例」，超過 <b>40%</b> 就<strong>整支影片的字幕欄全部不用</strong>。</p>
+
+<p><b>為什麼</b>：純環境音或純配樂的影片，語音辨識會整支輸出同一句罐頭台詞。某支 BMW 工廠影片 97 句字幕裡，70 句一字不差是 <code>Thank you for watching.</code>（72%），算上變體共 95 句（98%）。字幕欄一旦變成噪音，它還會<strong>把真正有訊號的欄位稀釋掉</strong>——那支影片的畫面文字欄其實有 67 句各自不同的製程旁白，但模型被字幕干擾，只寫出 7 個步驟。</p>
+
+<div class="callout why">
+  <p><b>走過的冤枉路：</b>專案早就有一個逐片段的幻覺偵測（判斷「這一段像不像人聲」），一度以為文件端接上它就好。拿全庫量過才發現工具選錯了——它在 BMW 抓到 76/97，但同樣整欄是幻覺的另一支只抓到 <b>2/108</b>；反過來真實講課的那支卻有 16 段被誤標。<strong>逐片段的信心分數看的是「像不像人聲」，而幻覺字幕的特徵是「整支影片一直重複同一句」——後者只有把整支影片放在一起看才看得出來。</strong></p>
+</div>
+
+<details class="tech">
+  <summary>實測數字：門檻 0.4 是怎麼定的</summary>
+  <div class="inner">
+    <p>全庫 23 支影片的「單一句佔比」分布乾淨可分：</p>
+    <div class="tw">
+    <table>
+      <thead><tr><th>類別</th><th>單一句佔比</th></tr></thead>
+      <tbody>
+        <tr><td>未觸發（真實語音／混合）</td><td class="num-col">1% ～ <b>26%</b></td></tr>
+        <tr><td>觸發（整欄幻覺）</td><td class="num-col"><b>65%</b> ～ 79%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><b>中間 26%～65% 是空的，門檻放哪裡都一樣。</b>另外設了樣本下限 <code>_MIN_SAMPLES_FOR_JUNK_CHECK = 8</code>：整支只有 3 句字幕的影片，其中 2 句剛好一樣就湊出 67%，那是樣本雜訊不是幻覺訊號，寧可漏也不要誤殺。</p>
+    <p>驗收先做不花錢的那半：23 支全部跑一次判定，比對事前從資料分布標好的預期，22/23 相符，唯一不符的正是那支只有 3 句字幕的（刻意不判定）。之後才花 US$0.0019 重產 BMW 的文件：步驟數 <b>7 → 12</b>、時間戳範圍 16s～1041s（片長 1063s）、涵蓋率 <b>81% → 98%</b>、素材長度 -26%。</p>
+  </div>
+</details>
+
+<h4 class="sub">決定三：浮水印 OCR 只丟那個字串，不丟整欄</h4>
+
+<p><b>做了什麼</b>：畫面文字欄裡，出現比例超過 <b>15%</b> 的<strong>字串本身</strong>被移除，同欄其他內容照留。</p>
+
+<p><b>為什麼</b>：處理方式刻意與字幕相反。重複的畫面文字通常是頻道浮水印（<code>FRAME</code>、<code>CPBL TV</code>、<code>SPORTS HD</code>），但<strong>同一欄的其他內容正是主要訊號</strong>——BMW 那支的製程旁白全在這一欄，整欄丟掉等於把僅有的內容也丟了。字幕則不同：一句佔到 72% 時，剩下的 28% 實測也是同一類垃圾，留著沒有意義。</p>
+
+<p><b>實測</b>：門檻 0.15 抓到的全是浮水印（佔比 21%～47%），真實內容的最高佔比只有 12%，<strong>零誤殺</strong>。</p>
+
+<h4 class="sub">決定四：把欄位內的換行壓成空白</h4>
+
+<p><b>做了什麼</b>：每個欄位的內部換行壓成單一空白。</p>
+
+<p><b>為什麼</b>：prompt 開頭就宣告「每行是一個片段」，但畫面文字與字幕本身可能帶換行——那些被撐出來的行<strong>沒有時間戳前綴，模型無從得知它們屬於哪個片段</strong>。實測<strong>每一支影片都有這個問題</strong>，比例 28%～88%（某支線性代數影片是 461/526 行沒有時間戳）。壓成空白之後，那句宣告才是真的。</p>
+
+<h4 class="sub">決定五：文件帶畫面文字，摘要不帶</h4>
+
+<p>這是這個模組唯一的開關 <code>include_ocr</code>。畫面文字覆蓋率 93%，對流程類影片特別有價值，但摘要用不到、文件用得到。</p>
+
+<div class="callout why">
+  <p><b>壽司那支證明它是決定性的：</b>文件裡的「上方保留 3 公分」「靜置 10 分鐘讓壽司釋放」逐字來自畫面上的字卡。那支影片字幕全壞（純音樂觸發的外語幻覺），畫面描述只講得出「捲起來」——不帶畫面文字的話，會產出一份沒有任何份量與時間的空洞食譜。</p>
+</div>
+
+<details class="tech">
+  <summary>技術細節：為什麼摘要與文件共用同一個模組，但截斷各留各的</summary>
+  <div class="inner">
+    <p>摘要與文件本來各有一份幾乎相同的素材組裝實作，連時間格式化函式都是逐字重複的。兩者的 prompt 目的不同，但「素材長什麼樣子」是<b>同一個決定</b>——時間戳格式、欄位標籤、分隔符號、空片段要不要略過——改其中一邊而忘了另一邊，兩個功能餵給模型的素材就會悄悄長得不一樣。所以抽成共用模組（動手前拿全庫 1,156 個片段比對過新舊輸出逐字元相同）。</p>
+    <p><b>但截斷刻意留在各自的呼叫端</b>：摘要只取前 200 段（控制 prompt 長度），文件完全不截斷。理由見 3.3 的「不做硬截斷」。這是兩邊各自的決定，留在呼叫端才看得見。</p>
+    <p>另外，畫面文字欄裡有 21 個片段的值是<b>字面字串 <code>"null"</code></b>（VLM 回傳的字串沒被正規化成 NULL）。組素材時會濾掉，但<b>資料庫裡的髒資料沒有回填修正</b>，其他讀這個欄位的地方仍會吃到。</p>
+  </div>
+</details>
+
+<hr>
+
+<h3 class="step" id="s33"><span class="num">3.3</span>交給模型 <span class="pill">重點</span></h3>
+
+<p><b>輸入</b>：素材字串 ＋ 影片標題。<b>輸出</b>：一份 <code>VideoDocument</code>。<b>負責</b>：<code>document.generate_document()</code>。</p>
+
+<p>整條管線只有<strong>一次</strong> LLM 呼叫（gpt-4o-mini）。關鍵在於它不是「請幫我寫一份文件」這種開放式請求，而是<strong>用 structured output 事先把答案的形狀釘死</strong>。</p>
+
+<h4 class="sub">為什麼是 structured output，不是讓模型吐 Markdown</h4>
+
+<div class="tw">
+<table>
+  <thead><tr><th></th><th>讓模型吐 Markdown</th><th>structured output <span class="pill ok">採用</span></th></tr></thead>
+  <tbody>
+    <tr><td>前端渲染</td><td>要引進 Markdown 函式庫（新依賴），或用純文字硬撐出沒有階層的一坨字</td><td>直接用既有元件排版，<b>零新依賴</b></td></tr>
+    <tr><td>時間戳</td><td>藏在文字裡，要回頭用正則解析</td><td><b>獨立的數字欄位</b>，直接交給播放器</td></tr>
+    <tr><td>形狀保證</td><td>沒有；模型高興怎麼寫就怎麼寫</td><td>由資料結構定義強制，缺欄位就是錯誤</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4 class="sub">回傳的資料形狀</h4>
+
+<pre><code><span class="k">VideoDocument</span>
+├─ doc_type    <span class="c"># 四選一：sop / tutorial / lecture_notes / content_log</span>
+├─ title       <span class="c"># 文件標題（不必照抄影片標題）</span>
+├─ overview    <span class="c"># 3~5 句概述 —— 一稿兩用，同時當成影片摘要</span>
+├─ sections[]  <span class="c"># 章節</span>
+│   ├─ heading
+│   └─ steps[]
+│       ├─ timestamp_sec   <span class="c"># 秒數，必填 ← 防幻覺的主要手段</span>
+│       ├─ heading
+│       └─ detail
+└─ uncovered[] <span class="c"># 素材裡沒交代、讀者要自己補的事</span>
+</code></pre>
+
+<h4 class="sub">模型自己判斷文件類型</h4>
+
+<p>不是使用者選，也不是規則判斷，而是模型看完素材自己歸類：</p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>類型</th><th>什麼時候選</th><th>產出長相</th></tr></thead>
+  <tbody>
+    <tr><td><code>sop</code>　流程 SOP</td><td>包含可依序重現的作業流程（產線、製程、操作程序）</td><td>生產流程 SOP</td></tr>
+    <tr><td><code>tutorial</code>　教學步驟</td><td>教別人做出某個成品（烹飪、手作、DIY）</td><td>教學步驟</td></tr>
+    <tr><td><code>lecture_notes</code>　課堂筆記</td><td>講解知識或概念</td><td>課堂筆記</td></tr>
+    <tr><td><code>content_log</code>　內容紀錄</td><td><b>最後的退路</b>：前三類都不成立時（球賽、排行榜、風景）</td><td>依時間軸的內容紀錄</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout why">
+  <p><b>第一版會被敘事形式騙走。</b>一支主機板工廠影片被判成 <code>content_log</code> 而不是 <code>sop</code>——內容其實完全正確（章節就叫「主板生產線」，步驟是塗矽膏 → 貼片機 → 測試 → 包裝），只有型別錯了。原因是那支用第一人稱參觀敘事開場（「我是翼王，這次來帶大家參觀」），模型看<b>形式</b>而不是看<b>內容</b>。</p>
+  <p style="margin-bottom:0">修法是在 prompt 明講：<strong>判斷時看內容，不要看敘事形式</strong>；第一人稱參觀／vlog／開箱只要交代了可重現的步驟就選 <code>sop</code>／<code>tutorial</code>。修完四種類型全部判對，而且球賽那支沒有被過度矯正（仍是 <code>content_log</code>，沒有硬掰出打擊 SOP）。</p>
+</div>
+
+<h4 class="sub">三條寫進 prompt 的硬規則</h4>
+
+<p>這三條都來自實測資料，不是想像出來的。規劃時查了真實資料庫，發現使用者舉的兩個範例<strong>素材結構正好相反</strong>：</p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>影片</th><th>流程知識在哪一欄</th><th>另一個模態的狀況</th></tr></thead>
+  <tbody>
+    <tr><td>主機板工廠</td><td><b>字幕</b>（「第一步首先就是往已經生產好的 PCB 塗矽膏…」）</td><td>畫面描述是雜訊（「畫面顯示一面金屬光滑的牆面」）</td></tr>
+    <tr><td>不用竹簾捲壽司</td><td><b>畫面描述 ＋ 畫面文字</b></td><td>字幕是純音樂上的外語幻覺</td></tr>
+  </tbody>
+</table>
+</div>
+
+<ol>
+  <li><b>每個步驟必須對得上素材裡的某個時間點</b>，直接填方括號裡的秒數。素材裡沒有的一律不准寫——寧可少寫，不要補完。判斷得出「這裡應該還有一步但素材沒交代」的，寫進 <code>uncovered</code>。<br><span class="footnote">這是防幻覺的主要手段：講不出「這是影片第幾秒的內容」的步驟，通常就是模型自己補出來的。</span></li>
+  <li><b>字幕與畫面描述矛盾時以畫面描述為準</b>，看不懂的片段直接略過。<br><span class="footnote">因為畫面是覆蓋率 99.9% 的骨幹，字幕才是會整段壞掉的那個。</span></li>
+  <li><b>不適合就不要硬掰。</b>判斷成 <code>content_log</code> 時就老實做時間軸紀錄，不要為了湊出流程而發明步驟。</li>
+</ol>
+
+<h4 class="sub">不做硬截斷</h4>
+
+<p>摘要那邊只取前 200 段來控制 prompt 長度，<strong>文件這邊刻意不抄</strong>：摘要截掉尾段只是摘要不完整，<strong>SOP 截掉尾段會默默少掉最後幾個製程步驟</strong>——使用者拿到一份看起來完整、實際缺了結尾的流程文件，比直接失敗更糟。</p>
+
+<p>取而代之的是一個防呆上限：超過 600 段就<strong>明確丟錯</strong>。那不是截斷，是「這批資料明顯不對勁」的判斷——實測片段密度 5.5～6.2 個/分鐘、分析長度上限 1 小時，正常資料最多約 360 段，永遠碰不到 600。</p>
+
+<details class="tech">
+  <summary>技術細節：呼叫參數與失敗處理</summary>
+  <div class="inner">
+    <pre><code>response = client.chat.completions.parse(
+    model=<span class="s">"gpt-4o-mini"</span>,
+    messages=[{<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: prompt}],
+    response_format=VideoDocument,
+    max_completion_tokens=<span class="k">8000</span>,
+)</code></pre>
+    <p><code>max_completion_tokens=8000</code>：一份 SOP 可能有 20～30 個步驟，比摘要（600）大一個量級；中文字元常拆成 1~2 個 token，留寬一點，因為被截斷會讓解析結果直接變成 <code>None</code>。</p>
+    <p>解析失敗（refusal 或輸出被截斷）時<b>直接丟錯</b>，不存空殼進資料庫。專案裡其他 LLM 呼叫遇到這種情況可以退回空字串，但這裡沒有合理的「空文件」可退。</p>
+    <p><b>為什麼是同步 REST 而不是開一種新的背景工作類型</b>：單次 LLM 呼叫符合既有的判準（工作佇列只服務分析與下載）。實測 33 個片段的影片端到端 <b>7.5 秒</b>，遠低於規劃時估的 20～40 秒。另外加工作類型有兩個已知地雷：重試邏輯會讓新類型靜靜掉進下載分支，前端也只用影片 ID 比對進行中的工作，同一支影片有兩種工作時會抓錯。</p>
+  </div>
+</details>
+
+<hr>
+
+<h3 class="step" id="s34"><span class="num">3.4</span>存回資料庫</h3>
+
+<p><b>輸入</b>：<code>VideoDocument</code>。<b>輸出</b>：<code>videos</code> 表上的四個欄位。</p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>欄位</th><th>存什麼</th><th>為什麼這樣拆</th></tr></thead>
+  <tbody>
+    <tr><td><code>document_json</code></td><td>整包 JSON</td><td>文件的形狀由 pipeline 的資料結構決定，之後 schema 演進只要動那一個地方，資料庫不用跟著改</td></tr>
+    <tr><td><code>document_type</code></td><td>文件類型</td><td>另外抽一欄，讓清單頁不用解析整包 JSON 就知道類型</td></tr>
+    <tr><td><code>document_model</code></td><td>用哪個模型產的</td><td>可追溯</td></tr>
+    <tr><td><code>summary</code></td><td><b>概述欄位的內容</b></td><td>一稿兩用，見下</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4 class="sub">概述一稿兩用，而且下游比想像中多</h4>
+
+<p>文件的 <code>overview</code> 會<strong>同時寫進影片的摘要欄位</strong>。所以 prompt 特別要求它寫成「這支影片在講什麼」而不是「這份文件涵蓋什麼」，也不准用「本文件」開頭——因為這段文字接下來會流進：</p>
+
+<div class="flow">
+  <div class="node">
+    <div class="who">overview</div>
+    <div class="what">→ <b><code>videos.summary</code></b></div>
+  </div>
+  <div class="arrow">↓　被三個地方讀走</div>
+  <div class="node">
+    <div class="who">搜尋</div>
+    <div class="what">影片層級篩選：先判斷「哪幾支影片可能有答案」再進片段比對</div>
+  </div>
+  <div class="node">
+    <div class="who">影片庫</div>
+    <div class="what">主題分類與庫內搜尋</div>
+  </div>
+  <div class="node">
+    <div class="who">面板</div>
+    <div class="what">影片詳細資訊上方那段摘要文字</div>
+  </div>
+</div>
+
+<p class="footnote">前端的文件檢視刻意<strong>不再顯示 overview</strong>——它就是面板上方那段摘要，印兩次等於同一段文字出現兩遍。</p>
+
+<details class="tech">
+  <summary>技術細節：兩條路的成本語意相反，寫錯會把錢算兩次</summary>
+  <div class="inner">
+    <p>這是這個功能最容易踩的坑：</p>
+    <div class="tw">
+    <table>
+      <thead><tr><th></th><th>手動整理</th><th>分析時自動整理</th></tr></thead>
+      <tbody>
+        <tr><td>寫入函式</td><td><code>db.update_video_document()</code></td><td><code>db.mark_video_analyzed()</code></td></tr>
+        <tr><td><code>cost_usd</code> 語意</td><td><b>增量累加</b><br><code>cost_usd = COALESCE(cost_usd,0) + %s</code></td><td><b>絕對總額</b><br>（文件的花費已經透過 <code>ctx.spend()</code> 進去了）</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>所以自動那條路的文件三欄必須<b>跟著 <code>mark_video_analyzed()</code> 一起寫</b>，不能順手改呼叫 <code>update_video_document()</code>——兩支都呼叫的話，同一次 LLM 呼叫的錢會被算兩次。</p>
+    <p>三個欄位都用 <code>COALESCE(%s, ...)</code>：重新分析但這次文件整理失敗時，舊文件留著比清空好。</p>
+    <p><b>順帶修掉的既有問題</b>：把影片重置回待分析狀態時，原本清了摘要卻沒清文件三欄，留下一份時間戳指向已刪片段的文件。文件只能手動整理時這是少見情況，改成自動整理之後<b>每支重置的影片都會遇到</b>，所以一併清掉。</p>
+  </div>
+</details>
+
+<hr>
+
+<h3 class="step" id="s35"><span class="num">3.5</span>畫到畫面上</h3>
+
+<p><b>輸入</b>：API 回傳的 <code>VideoDocument</code>。<b>輸出</b>：使用者看到的文件。<b>負責</b>：<code>VideoDocumentView.tsx</code>。</p>
+
+<ul>
+  <li><b>還沒整理過就是 404</b>——這是正常狀態不是錯誤，前端用它決定要顯示「還沒整理」還是文件內容。</li>
+  <li><b>章節 → 編號步驟</b>，每步左側一個固定寬度、靠右對齊的時間戳，多個步驟的數字才會排成一直排。</li>
+  <li><b>時間戳可點就跳播</b>。點下去切進觀看模式（左播放器、右摘要與文件），右欄的時間戳仍可點，邊看邊跳不用退回清單。</li>
+  <li><b><code>content_log</code> 用不同顏色的標籤</b>與真正的流程文件區分，使用者才不會以為系統整理失敗了。</li>
+  <li><b>「影片未涵蓋的部分」獨立一區</b>。明講哪些是影片有的、哪些要自己補——這份文件會被當成參考資料看，必須分得出來。</li>
+</ul>
+
+<h4 class="sub">超出影片長度的時間戳，不給點</h4>
+
+<p>模型仍有可能寫出對不上影片的時間點。前端的做法是：<strong>停用那些連結</strong>（刪除線＋灰字＋滑鼠提示），並在文件開頭<strong>用一句話講出來</strong>——</p>
+
+<div class="callout warn" style="font-size:.88rem">
+  <p style="margin:0">有 <b>N</b> 個步驟的時間點超出影片長度（<b>06:11</b>），已停用它們的播放連結。這通常代表模型在那幾步上寫出了影片裡沒有的內容，內容本身也請斟酌。</p>
+</div>
+
+<p>只靠滑鼠提示的話，等於只有已經起疑的人才會發現。而且提示裡明講「內容本身也請斟酌」，因為<strong>這是呈現層的緩解，不是修好資料</strong>：時間點都編得出來的步驟，內容多半也可疑。</p>
+
+<details class="tech">
+  <summary>技術細節：2 秒容差與無障礙處理</summary>
+  <div class="inner">
+    <p><code>OUT_OF_RANGE_TOLERANCE_SEC = 2</code>：影片長度欄位是整數（來源 metadata 四捨五入過），真實長度可能多零點幾秒，嚴格比較會把剛好落在片尾的合法步驟誤判成超出。2 秒足夠吸收誤差又不會放過真正的問題——實測 8 支文件裡有問題的 3 支，超出幅度分別是 <b>4 分 23 秒、2 分 52 秒、5 分 38 秒</b>，全是分鐘級的。</p>
+    <p>可點的時間戳用真正的 <code>&lt;button&gt;</code> 而不是加 onClick 的 <code>&lt;span&gt;</code>：鍵盤 Tab 得到、Enter 觸發、螢幕閱讀器讀得出這是按鈕。無障礙標籤帶上步驟標題，因為實測真實文件會有兩個步驟共用同一個時間戳，只講秒數的話螢幕閱讀器會聽到兩個一模一樣的按鈕名稱。</p>
+    <p>停用的時間戳也用 <code>disabled</code> 的 <code>&lt;button&gt;</code> 而不是純文字：跟旁邊可點的維持同一種外觀語言，使用者看得出「這裡本來應該可以點」，而不是以為這一步比較不重要。</p>
+    <p><b>倒退的時間戳沒有處理</b>——它們是影片裡真實存在的位置，點了會正常播放，只是順序讀起來怪。</p>
+  </div>
+</details>
+
+<!-- ══════════════════════════════════════════════ -->
+<section class="part" id="methods">
+  <span class="part-tag">Part 3</span>
+  <h2>用到的方法一覽</h2>
+  <p>把散在各環節的技術手段收在一起看。真正屬於「文件功能」的其實只有後三類——訊號取得是整個分析 pipeline 共用的。</p>
+</section>
+
+<div class="tw">
+<table>
+  <thead><tr><th>類別</th><th>方法</th><th>用在哪</th><th>關鍵設定</th></tr></thead>
+  <tbody>
+    <tr>
+      <td rowspan="5"><b>訊號取得</b><br><span class="footnote">共用</span></td>
+      <td>場景切分 ＋ 長度正規化</td><td>把影片切成片段</td><td class="num-col">目標 8～12 秒</td>
+    </tr>
+    <tr><td>語音轉文字</td><td><code>transcript</code></td><td class="num-col">whisper-1</td></tr>
+    <tr><td>VLM 看圖說話</td><td><code>visual_description</code></td><td class="num-col">gpt-4o-mini</td></tr>
+    <tr><td>VLM-OCR ＋ 本地 OCR 補漏</td><td><code>ocr_text</code></td><td class="num-col">EasyOCR</td></tr>
+    <tr><td>向量嵌入（三欄分開）</td><td>搜尋用，文件不讀</td><td class="num-col">text-embedding-3-small</td></tr>
+
+    <tr>
+      <td rowspan="4"><b>品質治理</b><br><span class="footnote">文件線</span></td>
+      <td>影片層級的重複率統計</td><td>偵測整欄幻覺字幕</td><td class="num-col">佔比 &gt; 0.4 整欄丟</td>
+    </tr>
+    <tr><td>同上，但只移除該字串</td><td>移除頻道浮水印</td><td class="num-col">佔比 &gt; 0.15</td></tr>
+    <tr><td>樣本數下限</td><td>避免小樣本誤殺</td><td class="num-col">≥ 8 句才判定</td></tr>
+    <tr><td>佔位字串過濾 ＋ 換行壓平</td><td>清掉 <code>"null"</code>、讓「一行一片段」成真</td><td>—</td></tr>
+
+    <tr>
+      <td rowspan="4"><b>生成控制</b><br><span class="footnote">文件線</span></td>
+      <td>Structured output（型別強制）</td><td>逼出固定形狀，時間戳是獨立欄位</td><td class="num-col">response_format</td>
+    </tr>
+    <tr><td>雙格式時間戳</td><td>消除模型的心算需求</td><td class="num-col">[MM:SS｜N 秒]</td></tr>
+    <tr><td>四類分類 ＋ 明示退路</td><td>不適合的內容不硬掰流程</td><td class="num-col">content_log</td></tr>
+    <tr><td>必填時間戳 ＋ uncovered 出口</td><td>防幻覺步驟</td><td>—</td></tr>
+
+    <tr>
+      <td rowspan="4"><b>工程可靠性</b></td>
+      <td>Phase E／F 平行 ＋ 預算分支</td><td>縮短耗時，兩者預算互不可見</td><td class="num-col">budget_branch()</td>
+    </tr>
+    <tr><td>失敗隔離 ＋ 退路鏈</td><td>文件失敗不拖垮分析結果</td><td>文件 → 摘要 → log</td></tr>
+    <tr><td>防呆上限而非截斷</td><td>資料異常時明確失敗</td><td class="num-col">600 段</td></tr>
+    <tr><td>共用素材模組</td><td>摘要與文件的素材不會悄悄分岔</td><td>單一開關 <code>include_ocr</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 class="step" id="failure"><span class="num">§5</span>失敗與退路</h3>
+
+<div class="tw">
+<table>
+  <thead><tr><th>哪一步失敗</th><th>系統怎麼做</th><th>使用者看到什麼</th></tr></thead>
+  <tbody>
+    <tr><td>預算已超支</td><td>整個 Phase F 跳過</td><td>影片分析完成，但沒有文件也沒有摘要</td></tr>
+    <tr><td>沒有任何片段</td><td>跳過（自動）／回 422（手動）</td><td>手動路徑會看到「還沒有分析片段」</td></tr>
+    <tr><td>片段數 &gt; 600</td><td>丟錯，不呼叫 LLM</td><td>「這批資料不像正常的分析結果」</td></tr>
+    <tr><td>模型 refusal 或輸出被截斷</td><td>丟錯，<b>不存空殼</b>；自動路徑退回產摘要</td><td>有摘要、沒有文件</td></tr>
+    <tr><td>摘要也失敗</td><td>只記 log</td><td>分析仍標記完成，片段與搜尋正常</td></tr>
+    <tr><td>時間戳超出影片長度</td><td>資料照存，<b>前端停用該連結</b>並顯示警告</td><td>刪除線的時間戳 ＋ 一句話提示</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <p><b>已知缺口：失敗只有 log 看得出來。</b>一支影片分析完成卻沒有文件時，介面只說得出「沒能整理出文件」，說不出是模型拒絕、輸出被截斷還是超出預算——要看伺服器 log 才知道，工作紀錄表也沒有記這件事。</p>
+</div>
+
+<h3 class="step" id="cost"><span class="num">§6</span>成本與已知限制</h3>
+
+<h4 class="sub">成本：可以視為可忽略</h4>
+
+<div class="tw">
+<table>
+  <thead><tr><th>影片</th><th>片段數</th><th>整理一份文件的成本</th></tr></thead>
+  <tbody>
+    <tr><td>壽司</td><td class="num-col">5</td><td class="num-col">US$0.00042</td></tr>
+    <tr><td>主機板工廠</td><td class="num-col">33</td><td class="num-col">US$0.00141</td></tr>
+    <tr><td>線性代數</td><td class="num-col">65</td><td class="num-col">US$0.00263</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>規劃時估 US$0.005/份，<strong>實際便宜 2～12 倍</strong>。對照整支影片分析的 US$0.10～0.19，文件整理的成本可以視為可忽略。</p>
+
+<h4 class="sub">已知限制</h4>
+
+<ul>
+  <li><b>文件品質沒有任何量化方式。</b>搜尋有固定查詢集可以算指標，文件整理沒有——只能人工看。這代表<strong>之後改 prompt 沒有回歸測試可擋</strong>，改壞了不會有人發現。</li>
+  <li><b>幻覺步驟的風險只被緩解、沒有被消除。</b>緩解手段是「每步必須附時間戳」＋「講不出來的寫進 uncovered」，實測 4 支都沒發現編造的步驟，但那是 4 支的樣本，不是保證。<strong>一份看起來很專業但編造的製程文件比沒有更糟。</strong></li>
+  <li><b>幻覺字幕的過濾擋不住外語幻覺。</b>純音樂影片產生的外語人名清單（單句各不相同、不會觸發重複率判定）仍會進入向量與關鍵字索引，是搜尋端的既有問題。文件端靠 prompt 規則繞過去了。</li>
+  <li><b>文件重新整理直接覆蓋，沒有版本歷史。</b>想比較兩次結果只能自己先複製走。</li>
+  <li><b>看不出一支影片的成本裡有多少是文件整理。</b>文件成本併進影片總成本、沒有獨立欄位；改成自動產生之後更難拆。</li>
+  <li><b>存量影片不會自動補上文件。</b>自動整理只影響「之後才分析的影片」，先前已分析過的仍要有人去按按鈕。</li>
+  <li><b>倒退的時間戳沒有處理。</b>章節依主題分時，時間軸本來就可能互相重疊，真正的亂序只剩章節內的個位數。</li>
+</ul>
+
+<p class="footnote">完整清單與最新狀態見 <a href="05-known-limitations-and-open-items.md"><code>05-known-limitations-and-open-items.md</code></a>。</p>
+
+<!-- ══════════════════════════════════════════════ -->
+<section class="part" id="appendix">
+  <span class="part-tag">附錄</span>
+  <h2>檔案地圖</h2>
+  <p>照資料流的順序排，想跟著讀程式碼的話從上往下。</p>
+</section>
+
+<div class="tw">
+<table>
+  <thead><tr><th>檔案</th><th>在這條線裡負責什麼</th></tr></thead>
+  <tbody>
+    <tr><td><code>pipeline/analyzer.py</code></td><td>Phase A–F 的總指揮；<code>_run_document_phase()</code> 是自動整理的進入點，<code>_run_local_ocr_and_document()</code> 負責與本地 OCR 平行跑</td></tr>
+    <tr><td><code>pipeline/segment_material.py</code></td><td>把片段攤成逐行素材；<b>雜訊過濾都在這裡</b>（<code>build_material()</code>、<code>_dominant_share()</code>、<code>_clean()</code>）</td></tr>
+    <tr><td><code>pipeline/document.py</code></td><td>資料結構定義（<code>VideoDocument</code>）、prompt、單次 LLM 呼叫</td></tr>
+    <tr><td><code>pipeline/summary.py</code></td><td>退路用的摘要產生器；與文件共用素材模組，但只取前 200 段、不帶畫面文字</td></tr>
+    <tr><td><code>services/video_service.py</code></td><td>手動整理的商業邏輯：呼叫 pipeline、把結果與摘要一起存回</td></tr>
+    <tr><td><code>db/videos.py</code></td><td>四個欄位的讀寫；<b>兩種相反的成本語意</b>就在這裡</td></tr>
+    <tr><td><code>api/videos.py</code></td><td><code>POST /videos/{id}/document</code>（整理）與 <code>GET</code>（讀回，沒有就 404）</td></tr>
+    <tr><td><code>components/VideoDocumentView.tsx</code></td><td>渲染章節／步驟／可點時間戳／超長警告／未涵蓋事項</td></tr>
+    <tr><td><code>tests/test_segment_material.py</code>　<code>tests/test_document.py</code></td><td>素材過濾與文件生成的測試</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4 class="sub">相關文件</h4>
+<ul>
+  <li><a href="16-技術詳解-五個技術層與分析流程.html">16-技術詳解：五個技術層與分析流程</a>——第 1 階段（片段怎麼來的）的完整拆解</li>
+  <li><a href="02-technical-decisions.md"><code>02-technical-decisions.md</code></a>——每個決策的背景、比較過的選項與實測數據</li>
+  <li><a href="01-development-timeline.md"><code>01-development-timeline.md</code></a>——這條線的開發過程，包含兩次「歸因錯誤後被實測推翻」的完整經過</li>
+  <li><a href="05-known-limitations-and-open-items.md"><code>05-known-limitations-and-open-items.md</code></a>——已知限制、待辦與待確認</li>
+</ul>
+
+<hr>
+
+<p class="footnote">這份文件描述的是 <code>feature/video-document</code> 分支的現況（2026-08-31）。文件內容與程式碼不符時以程式碼為準，並請回頭修這份文件。</p>
+
+</main>
+</div>
+
+<script>
+  // 目錄跟著捲動高亮：只標記目前最靠近視窗頂端的那一節。
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var targets = links
+      .map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); })
+      .filter(Boolean);
+    if (!targets.length || !('IntersectionObserver' in window)) return;
+
+    var visible = new Set();
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) visible.add(e.target.id); else visible.delete(e.target.id);
+      });
+      var first = targets.filter(function (t) { return visible.has(t.id); })[0];
+      if (!first) return;
+      links.forEach(function (a) {
+        a.classList.toggle('on', a.getAttribute('href') === '#' + first.id);
+      });
+    }, { rootMargin: '0px 0px -70% 0px' });
+
+    targets.forEach(function (t) { io.observe(t); });
+  })();
+</script>
+
+</body>
+</html>
