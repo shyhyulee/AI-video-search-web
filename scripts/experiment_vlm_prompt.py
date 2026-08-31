@@ -29,16 +29,23 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
 import measure_description_quality as mdq  # 同一個 scripts/ 目錄，共用詞表與指標
+
+from openai import RateLimitError
 
 from ai_video_search_web import db
 from ai_video_search_web.pipeline import analyzer, frames, vlm
 from ai_video_search_web.pipeline.openai_client import chat_completion_cost, get_client
 
 EVAL_RUNS_DIR = db.PROJECT_ROOT / "docs" / "eval-runs"
+
+# 比照 analyzer.VLM_RATE_LIMIT_*，見 _describe() 的說明。
+_RATE_LIMIT_MAX_RETRIES = 3
+_RATE_LIMIT_WAIT_SEC = 10.0
 
 # 候選 A：只移除「點出變化」，不給替代任務。長度要求仍是「一到兩句話」。
 #
@@ -144,6 +151,67 @@ CANDIDATE_S2_PROMPT = (
     "維持原本語言，不要翻譯；如果畫面上沒有任何文字，這欄位填 null，不要自己編造。"
 )
 
+
+# ── 三幀的元描述回歸（`--mode triple`）────────────────────────────────────
+#
+# **問題**：「不要描述畫面之間的差異」這條指令隨幀數增加而變弱。兩幀驗證時 v34
+# 只剩 4.3%，三幀實測是 v28 16.8%、v36 28.0%（改 prompt 之前的兩幀是 61.0%）。
+# P4 要把多幀擴大到有聲影片，得先解決這個，否則幀數加上去元描述就跟著回來。
+#
+# 兩個獨立假設，各測一個 arm，不合併。
+#
+# **兩個都失敗了**（2026-08-31，v28＋v36＋v32 共 50 段）。元描述率 現行 20.0% →
+# T1 16.0%／T2 22.0%，都在 ±11.3pt 雜訊內；換成只抓「真的指涉圖片」的詞表重算也
+# 一樣（22.0% → 14.0%／22.0%），而且 v32 在 T1 下反而變差。**維持現行 prompt。**
+#
+# 但這一輪問對了另一個問題：**三幀殘留的元描述不是缺陷**。它跟 v32 當初那種「只
+# 講畫面在變、完全沒有內容」不同——現在是內容豐富的描述順帶提一句畫面切換，而
+# 48% 的描述含「接著／然後／最後」這類**正當的時序敘述**，那正是多幀該有的產出。
+# 所以這條從「P4 的前置條件」降級成「已知的表面瑕疵」，不擋 P4。
+
+# 候選 T1：**開場不要提幀數**。現行版第一句是「以下 {n} 張畫面…依時間順序排列」，
+# 「N 張」「排列」本身就在誘導逐幀敘述。改成講「幾個瞬間」而不點數量，其餘逐字不動。
+CANDIDATE_T1_PROMPT = (
+    "以下是同一個約 {duration:.1f} 秒片段裡、依時間先後取到的幾個瞬間。"
+    "把它們合起來看成一段連續的過程，回答兩件事："
+    "1. description：一到三句話講出這段時間裡發生了什麼（不要加開頭語）。"
+    "**只寫畫面上真的看得到的東西**：畫面裡沒有人就不要寫人；看到的是 3D 模型、"
+    "示意圖或動畫，就照實說那是模型或示意圖，不要腦補出操作它的人；看不出來的動作"
+    "就不要寫，寧可少寫也不要補完。"
+    "畫面上真的有人在動作時，動詞要具體到讀者能照著重現：要寫「作業員雙手抱起紙箱"
+    "放上輸送帶」，不要寫「人在產線工作」「進行作業」「操作設備」這種看不出實際在"
+    "做什麼的句子。看得到的物件要指名（紙箱、螺絲、扳手、料架、電路板），不要只說"
+    "「零件」「設備」「物件」。"
+    "**不要描述畫面之間的差異**：不要寫「第一張」「第二張」「畫面逐漸變化」「略有不同」"
+    "這類句子，讀者看不到這些畫面。"
+    "2. on_screen_text：畫面上實際出現的文字逐字列出（涵蓋所有畫面出現過的文字，"
+    "不要重複列同一段文字），維持原本語言，不要翻譯；如果所有畫面都沒有任何文字，"
+    "這欄位填 null，不要自己編造。"
+)
+
+# 候選 T2：**禁令改成輸出層級的硬規則、並移到 description 那一條的最後**。開場
+# 逐字照現行版，只動禁令的措辭與位置——現行版把它夾在中間，後面還有 on_screen_text
+# 一整段，可能被稀釋掉。
+CANDIDATE_T2_PROMPT = (
+    "以下 {n} 張畫面是同一個約 {duration:.1f} 秒片段的連續取樣，依時間順序排列。"
+    "這幾張是同一段過程的前後時刻，不是要你比較的幾張圖——請把它們合起來看，回答兩件事："
+    "1. description：一到三句話講出這段時間裡發生了什麼（不要加開頭語）。"
+    "**只寫畫面上真的看得到的東西**：畫面裡沒有人就不要寫人；看到的是 3D 模型、"
+    "示意圖或動畫，就照實說那是模型或示意圖，不要腦補出操作它的人；看不出來的動作"
+    "就不要寫，寧可少寫也不要補完。"
+    "畫面上真的有人在動作時，動詞要具體到讀者能照著重現：要寫「作業員雙手抱起紙箱"
+    "放上輸送帶」，不要寫「人在產線工作」「進行作業」「操作設備」這種看不出實際在"
+    "做什麼的句子。看得到的物件要指名（紙箱、螺絲、扳手、料架、電路板），不要只說"
+    "「零件」「設備」「物件」。"
+    "最後這一條是硬規則：**description 裡不可以出現任何指涉單張畫面的字眼**——"
+    "「第一張」「第二張」「第三張」「第一幅」「接著顯示」「畫面逐漸」「略有不同」"
+    "「前後對照」都不准寫。你要交出的是「這段時間發生了一件什麼事」，不是幾張圖的"
+    "比較；讀者看不到這些畫面，寫差異對他毫無意義。"
+    "2. on_screen_text：畫面上實際出現的文字逐字列出（涵蓋所有畫面出現過的文字，"
+    "不要重複列同一段文字），維持原本語言，不要翻譯；如果所有畫面都沒有任何文字，"
+    "這欄位填 null，不要自己編造。"
+)
+
 # 「提到人物」偵測詞：不是品質指標，是**幻覺診斷欄**。對已知畫面裡沒有真人的影片
 # （例如 v32 這支 3D 動畫 SOP），這一欄的正確值是 0%，任何非零都是編造。
 PERSON_WORDS = (
@@ -175,10 +243,18 @@ ARMS_BY_MODE = {
     "single": {
         "current": lambda: vlm._PROMPT,
     },
+    # triple 用三幀抽樣（VISUAL_ONLY_FRAME_FRACTIONS）跑多幀 prompt，測元描述
+    # 隨幀數回歸的問題。prompt 家族跟 multi 相同，差別只在餵幾張圖。
+    "triple": {
+        "current": lambda: vlm._MULTI_FRAME_PROMPT_TEMPLATE,
+        "candidate_t1": lambda: CANDIDATE_T1_PROMPT,
+        "candidate_t2": lambda: CANDIDATE_T2_PROMPT,
+    },
 }
 ARM_LABELS = {
     "current": "現行", "candidate_a": "候選A", "candidate_b": "候選B", "candidate_c": "候選C",
     "candidate_s1": "候選S1", "candidate_s2": "候選S2",
+    "candidate_t1": "候選T1", "candidate_t2": "候選T2",
 }
 
 
@@ -198,7 +274,26 @@ def _image_blocks(video_path: Path, start_sec: float, end_sec: float, fractions:
 
 
 def _describe(client, image_blocks: list[dict], prompt: str) -> tuple[str, float]:
-    """照 vlm.describe_segment() 的呼叫方式送出，只是 prompt 由外面指定。"""
+    """照 vlm.describe_segment() 的呼叫方式送出，只是 prompt 由外面指定。
+
+    **要重試**：這支腳本比正式流程更容易撞 TPM 上限——正式流程一個片段只呼叫一次
+    且有批次節流，這裡是同一組畫面連著跑 N 個 arm，等於把 token 用量乘上 arm 數。
+    三幀實驗實測撞過（單次呼叫約 2,700 tokens，上限 200,000/分鐘），沒有重試就是
+    整支腳本掛掉、已經花掉的錢作廢。重試邏輯比照 analyzer._describe_segment_with_retry()。
+    """
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return _call(client, image_blocks, prompt)
+        except RateLimitError:
+            if attempt == _RATE_LIMIT_MAX_RETRIES:
+                raise
+            print(f"    · 撞到 rate limit，{_RATE_LIMIT_WAIT_SEC} 秒後重試"
+                  f"（第 {attempt + 1}/{_RATE_LIMIT_MAX_RETRIES} 次）", flush=True)
+            time.sleep(_RATE_LIMIT_WAIT_SEC)
+    raise AssertionError("unreachable")
+
+
+def _call(client, image_blocks: list[dict], prompt: str) -> tuple[str, float]:
     response = client.chat.completions.parse(
         model=vlm.MODEL_NAME,
         messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, *image_blocks]}],
@@ -218,7 +313,7 @@ def _load_segments(video_ids: list[int], mode: str) -> list[dict]:
     實驗這邊決定（一律取中點一張），所以任何片段都可以當素材。這讓 v32 那支
     3D 動畫也能進來當幻覺對照組——它在正式流程裡全都是多幀片段。
     """
-    where = "s.video_id = ANY(%s)" + (" AND s.vlm_frame_count >= 2" if mode == "multi" else "")
+    where = "s.video_id = ANY(%s)" + ("" if mode == "single" else " AND s.vlm_frame_count >= 2")
     with db.get_connection() as conn:
         return [
             dict(r)
@@ -248,7 +343,8 @@ def _summarise(label: str, descriptions: list[str]) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("single", "multi"), default="multi", help="要比單幀還是多幀 prompt")
+    parser.add_argument("--mode", choices=("single", "multi", "triple"), default="multi",
+                        help="single=中點單幀｜multi=兩幀｜triple=三幀（純畫面影片用的密度）")
     parser.add_argument("--videos", type=str, default="32,34", help="逗號分隔的 video_id")
     parser.add_argument("--limit", type=int, default=0, help="每支影片最多跑幾段（0＝全部）")
     parser.add_argument("--dry-run", action="store_true", help="不呼叫 API，只列出會跑幾段與估價")
@@ -256,7 +352,11 @@ def main() -> None:
     args = parser.parse_args()
 
     arms = {name: build() for name, build in ARMS_BY_MODE[args.mode].items()}
-    fractions = vlm.DEFAULT_FRAME_FRACTIONS if args.mode == "single" else analyzer.MULTI_FRAME_FRACTIONS
+    fractions = {
+        "single": vlm.DEFAULT_FRAME_FRACTIONS,
+        "multi": analyzer.MULTI_FRAME_FRACTIONS,
+        "triple": analyzer.VISUAL_ONLY_FRAME_FRACTIONS,
+    }[args.mode]
 
     video_ids = [int(x) for x in args.videos.split(",")]
     segments = _load_segments(video_ids, args.mode)
@@ -275,7 +375,7 @@ def main() -> None:
 
     calls = len(segments) * len(arms)
     # 依既有實測：單幀呼叫的 prompt tokens 約 2,960，多幀約 1.9 倍。
-    unit = 0.0005 if args.mode == "single" else 0.0009
+    unit = {"single": 0.0005, "multi": 0.0009, "triple": 0.0013}[args.mode]
     print(f"{args.mode} 模式：{len(segments)} 段 × {len(arms)} 個 arm"
           f"（{'／'.join(ARM_LABELS[a] for a in arms)}）＝ {calls} 次 VLM 呼叫")
     print(f"預估花費：約 US${calls * unit:.3f}（粗估，實際以回報為準）")
