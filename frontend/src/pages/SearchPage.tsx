@@ -128,7 +128,7 @@ export function SearchPage() {
         <Card className="flex w-full min-w-0 flex-col md:min-h-0 md:w-1/2">
           <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
-              <EmptyState title="輸入描述以搜尋影片內容" hints={['例如：找出工廠中有人出現的片段', '例如：找出全壘打畫面']} />
+              <EmptyState title="輸入描述以搜尋影片內容" hints={['例如：找出工廠中有人出現的片段', '例如：找出工廠中有機器人出現的片段']} />
             ) : (
               results.map((r, index) => (
                 <SearchResultCard

@@ -16,7 +16,7 @@ import { useSearchScope } from '../lib/useSearchScope'
 const GREETING =
   '你好，跟我說說想找的影片內容，例如「找出有人進入生產線的畫面」。'
 
-const SUGGESTED_PROMPTS = ['找出工廠中有人出現的片段', '找出全壘打畫面', '找出動物出現的片段']
+const SUGGESTED_PROMPTS = ['找出工廠中有人出現的片段', '找出工廠中有機器人出現的畫面', '找出工廠中有機器手臂出現的畫面']
 
 const MODALITY_ORDER = ['字幕', '畫面', 'OCR'] as const
 
