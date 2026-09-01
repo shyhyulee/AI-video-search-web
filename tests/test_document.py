@@ -72,10 +72,14 @@ def _segments_reaching(*seconds: float):
     return [_segment(start_sec=s, visual_description=f"第 {s:.0f} 秒的畫面") for s in seconds]
 
 
-# 文件唯一的步驟在 77 秒（見 _document()），素材卻一路到 600 秒——中間 300、580
-# 兩行沒有任何步驟指到，就是補寫要救的那個洞。素材從 60 秒開始而不是 0，是為了讓
-# 開頭那段不構成第二個洞（77 - 60 沒有超過門檻），測試才只看得到一個洞。
-_HAS_A_HOLE = (60.0, 77.0, 300.0, 580.0, 600.0)
+# 文件唯一的步驟在 77 秒（見 _document()），素材卻一路到 300 秒——中間那一行沒有
+# 任何步驟指到，就是補寫要救的那個洞。
+#
+# 兩個刻意的設計：素材從 60 秒開始而不是 0，開頭那段才不會構成第二個洞（77 - 60
+# 沒超過門檻）；補回來的步驟（`_filled()`）剛好落在 300 秒，把洞裡唯一沒寫過的那
+# 行寫掉，迴圈重算時就沒得補了——**補洞是重算式的迴圈**，素材如果還留著沒寫過的
+# 行，它會繼續補下去，測試的呼叫次數就不只兩次。
+_HAS_A_HOLE = (60.0, 77.0, 300.0)
 
 
 def test_generate_document_returns_parsed_and_computes_cost():
@@ -263,7 +267,7 @@ def test_filled_steps_join_the_section_the_hole_belongs_to():
         _fake_response(_filled(at=300.0), 100, 10),
     ]
 
-    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
+    result = document.generate_document(client, "影片", _segments_reaching(60.0, 77.0, 300.0, 580.0))
 
     assert [s.heading for s in result.document.sections] == ["開頭", "結尾"]
     assert [s.timestamp_sec for s in result.document.sections[0].steps] == [77.0, 300.0]
@@ -282,7 +286,7 @@ def test_a_hole_before_the_first_step_becomes_its_own_section():
         _fake_response(_filled(at=300.0), 100, 10),
     ]
 
-    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
+    result = document.generate_document(client, "影片", _segments_reaching(60.0, 300.0, 600.0))
 
     assert [s.heading for s in result.document.sections] == ["中段製程", "收尾"]
 
@@ -302,12 +306,10 @@ def test_the_fill_only_sees_material_inside_the_hole():
     document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
 
     prompt = client.chat.completions.parse.call_args_list[1].kwargs["messages"][0]["content"]
-    assert "第 300 秒的畫面" in prompt
-    assert "第 580 秒的畫面" in prompt
-    assert "第 600 秒的畫面" in prompt  # 素材最後一行也是洞的一部分
+    assert "第 300 秒的畫面" in prompt  # 素材最後一行也是洞的一部分
     assert "第 60 秒的畫面" not in prompt  # 洞的範圍之外
     assert "第 77 秒的畫面" not in prompt  # 已經有步驟指到
-    assert "第 77 秒到第 600 秒這一段沒有被寫進去" in prompt
+    assert "第 77 秒到第 300 秒這一段沒有被寫進去" in prompt
     assert "不要為了填滿而發明步驟" in prompt
 
 
@@ -321,7 +323,7 @@ def test_the_token_budget_grows_with_the_size_of_the_hole():
     big = _segments_reaching(60.0, *[float(70 + i * 10) for i in range(90)])
     client.chat.completions.parse.side_effect = [
         _fake_response(_document(), 100, 10),
-        _fake_response(_filled(at=300.0), 100, 10),
+        *[_fake_response(_filled(at=float(300 + i * 10)), 100, 10) for i in range(document._MAX_FILL_CALLS)],
     ]
 
     document.generate_document(client, "影片", big)
@@ -358,9 +360,12 @@ def test_a_document_without_holes_makes_no_extra_calls():
     assert client.chat.completions.parse.call_count == 1
 
 
-def test_at_most_three_holes_are_filled():
-    """補寫次數有上限，補最大的幾個。不設限的話，一份步驟稀疏的長片會變成
-    每個空隙一次呼叫。"""
+def test_the_number_of_fills_is_capped():
+    """補寫次數有上限，每次補當下最大的那個洞。
+
+    上限一度是 3，實測不夠：v33 重跑時主稿的洞比預算多，一個 232 秒的洞排第四、
+    根本沒被嘗試，28% 的素材仍然落在空白裡。改成 5 次，而且**每一輪重算**——補一個
+    大洞如果只補回兩三步，那個區間裡剩下的空白仍然要算數。"""
     client = MagicMock()
     sparse = _document().model_copy(update={"sections": [
         document.DocumentSection(heading="零星", steps=[
@@ -369,7 +374,8 @@ def test_at_most_three_holes_are_filled():
     ]})
     client.chat.completions.parse.side_effect = [
         _fake_response(sparse, 100, 10),
-        *[_fake_response(_filled(at=t), 100, 10) for t in (100.0, 300.0, 500.0)],
+        *[_fake_response(_filled(at=t), 100, 10)
+          for t in (100.0, 300.0, 500.0, 700.0, 850.0)],
     ]
 
     document.generate_document(

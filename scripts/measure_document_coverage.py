@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -272,7 +273,9 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
-    print(f"已寫入 {path.relative_to(db.PROJECT_ROOT)}")
+    # 相對路徑：`--output` 可以指到專案外面，`Path.relative_to()` 對那種情況會丟錯，
+    # 而這只是一行提示訊息，不值得讓整支腳本在寫完檔之後才失敗。
+    print(f"已寫入 {os.path.relpath(path.resolve(), db.PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

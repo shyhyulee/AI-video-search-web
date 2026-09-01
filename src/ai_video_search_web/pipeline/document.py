@@ -122,10 +122,12 @@ _TAIL_FRACTION = 0.9
 # 8～12 秒，所以 60 秒大約是 5～7 行。
 _MAX_STEP_GAP_SEC = 60
 
-# 一份文件最多補幾個洞。三次是成本與完整度的取捨：v37 每次約有 2～3 個洞，補一個
-# 洞的成本約 US$0.001（只餵那一段素材）。洞多到超過三個的影片，補完最大的三個之後
-# 剩下的仍會留白——這是刻意的上限，不是「補完為止」。
-_MAX_FILL_CALLS = 3
+# 一份文件最多補幾次。這是成本上限，不是「補完為止」——補一次約 US$0.001（只餵那
+# 一段素材），所以最壞情況每份文件多 US$0.005。
+#
+# 一度是 3，實測不夠：v33 重跑時主稿的洞比預算多，一個 232 秒的洞排第四、根本沒被
+# 嘗試，結果 28% 的素材仍然落在空白裡。洞很多的影片補完仍可能留白，這是刻意的上限。
+_MAX_FILL_CALLS = 5
 
 
 def _coverage_bounds(material: str) -> dict[str, int]:
@@ -271,10 +273,7 @@ def _holes(doc: VideoDocument, lines: dict[int, str]) -> list[tuple[int, int]]:
     # 洞裡沒有沒寫過的素材就沒得補。用閉區間比對而不是開區間：頭尾那兩個洞的邊界
     # 就是素材的第一行與最後一行本身，開區間會把它們排除掉——「只寫到一半就停」
     # 那種情況會因此漏掉素材的最後一行。
-    holes = [(a, b) for a, b in holes if any(a <= sec <= b for sec in unwritten)]
-    # 大的先補：呼叫次數有上限，優先補漏掉最多內容的那幾個，再照時間排回去
-    holes.sort(key=lambda h: h[1] - h[0], reverse=True)
-    return sorted(holes[:_MAX_FILL_CALLS])
+    return [(a, b) for a, b in holes if any(a <= sec <= b for sec in unwritten)]
 
 
 def _fill_gaps(
@@ -308,9 +307,21 @@ def _fill_gaps(
         return result
 
     lines = segment_material.material_lines(content)
-    unwritten = _unwritten(result.document, lines)
-    for start_sec, end_sec in _holes(result.document, lines):
-        result = _fill_one(client, video_title, result, unwritten, start_sec, end_sec)
+    attempted: set[tuple[int, int]] = set()
+    for _ in range(_MAX_FILL_CALLS):
+        # **每一輪重算**，不是照主稿的清單跑完。補一個大洞如果只補回兩三步，那個
+        # 區間裡剩下的空白仍然是空白——實測 v33 就是這樣：主稿的洞比預算多，一個
+        # 232 秒的洞排在第四位，永遠輪不到它。重算之後預算會花在「現在還缺的地方」。
+        holes = [hole for hole in _holes(result.document, lines) if hole not in attempted]
+        if not holes:
+            break
+        # 每次補最大的那個：漏掉最多內容的優先。補過的不再重試——模型回空的
+        # steps（「這一段真的沒東西可寫」）是正當答案，不該把剩下的預算耗在上面。
+        hole = max(holes, key=lambda h: h[1] - h[0])
+        attempted.add(hole)
+        result = _fill_one(
+            client, video_title, result, _unwritten(result.document, lines), *hole
+        )
     return result
 
 
