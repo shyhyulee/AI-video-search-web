@@ -268,3 +268,30 @@ def test_transcript_column_junk_when_no_transcript_at_all():
     這是刻意的：analyzer 那邊「沒有音軌」已經另外走 has_audio_stream() 判斷，
     這支只負責「有字幕但整欄是垃圾」那一種。"""
     assert segment_material.is_transcript_column_junk([]) is False
+
+
+def test_material_time_range_reads_the_first_and_last_line():
+    material = segment_material.build_material(
+        [_segment(start_sec=12.0, visual_description="開場"),
+         _segment(start_sec=198.0, visual_description="收尾")]
+    )
+    assert segment_material.material_time_range(material) == (12, 198)
+
+
+def test_material_time_range_ignores_segments_that_never_reached_the_material():
+    """範圍要照素材算，不是照片段算。
+
+    最後一個片段三欄全空時它不會出現在素材裡，模型看不到它——這時如果把範圍
+    報成 300 秒，document.py 的第四條規則就會叫模型寫到一個素材裡不存在的地方，
+    等於親手要求它編造尾段步驟。
+    """
+    material = segment_material.build_material(
+        [_segment(start_sec=12.0, visual_description="開場"),
+         _segment(start_sec=198.0, visual_description="收尾"),
+         _segment(start_sec=300.0)]
+    )
+    assert segment_material.material_time_range(material) == (12, 198)
+
+
+def test_material_time_range_is_none_when_nothing_survived():
+    assert segment_material.material_time_range("") is None

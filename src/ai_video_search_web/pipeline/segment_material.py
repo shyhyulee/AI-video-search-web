@@ -126,6 +126,41 @@ def build_material(segments: "list[SegmentRecord]", *, include_ocr: bool = False
     return "\n".join(lines)
 
 
+def material_lines(material: str) -> dict[int, str]:
+    """組好的素材拆回 `{行首秒數: 整行}`。
+
+    收「素材字串」而不是片段清單，是刻意的：呼叫端要的是**模型真的看得到的東西**，
+    而那跟片段清單不一定一樣——三欄都空的片段整行不會出現，整欄幻覺的字幕也會被
+    丟掉。重算一次過濾邏輯遲早會跟 `build_material()` 走偏，直接讀它的輸出就不會。
+    """
+    lines: dict[int, str] = {}
+    for line in material.split("\n"):
+        # 行首格式固定是 `[MM:SS｜N 秒] `，由 build_material() 產生。
+        if line.startswith("["):
+            lines[int(line.split("｜", 1)[1].split(" 秒]", 1)[0])] = line
+    return lines
+
+
+def material_time_range(material: str) -> tuple[int, int] | None:
+    """素材涵蓋的秒數範圍；沒有任何一行時回 None。
+
+    用途見 `document.py`：文件的第四條規則要告訴模型素材延伸到第幾秒，否則它會寫
+    完前面幾分鐘就停（實測同一份素材跑三次，涵蓋率 101.6%／31.6%／97.8%）。
+    """
+    lines = material_lines(material)
+    return (min(lines), max(lines)) if lines else None
+
+
+def material_after(material: str, after_sec: int) -> str:
+    """素材裡晚於某個秒數的那些行，格式跟 `build_material()` 的輸出一致。
+
+    給 `document.py` 的補寫用：文件停在前半段時，第二次呼叫**只餵沒被寫過的那一
+    段**。這是那個設計的防線——模型手上只有真素材，補不出素材裡沒有的東西。
+    """
+    lines = material_lines(material)
+    return "\n".join(line for sec, line in sorted(lines.items()) if sec > after_sec)
+
+
 def _clean(text: str | None) -> str:
     """去掉前後空白、把內部換行壓成空白，並把 VLM 偶爾產生的字面佔位字串當成空值。
 
