@@ -17,6 +17,15 @@ interface VideoPlayerProps {
    * 步驟就回不去了。不傳＝維持原本行為（搜尋頁與對話頁沒有這個需求，它們每次
    * 選的都是不同片段）。 */
   seekKey?: number
+  /** 播放位置變動時回報目前秒數（含使用者拖動進度條、暫停時的微調）。
+   *
+   * 用 callback 而不是把 ref 交出去：呼叫端要的是「現在停在第幾秒」這個值，
+   * 不是整個 media element 的控制權。給了 ref 就等於預設呼叫端可以自己
+   * play/pause/改 src，那會跟上面那段 seek 邏輯打架。
+   *
+   * `timeupdate` 在播放中約每 250ms 觸發一次，所以呼叫端存進 state 前要自己
+   * 決定精度（對話搜尋是取整數秒，見 ConversationPage）。 */
+  onTimeChange?: (sec: number) => void
 }
 
 /** 共用影片播放器：同一支影片內切換片段直接 seek，不重新載入整支影片；
@@ -30,6 +39,7 @@ export function VideoPlayer({
   className = '',
   autoPlay = true,
   seekKey,
+  onTimeChange,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const loadedVideoId = useRef<number | null>(null)
@@ -56,7 +66,12 @@ export function VideoPlayer({
         loadedVideoId.current = videoId
         e.currentTarget.currentTime = startSec
         if (autoPlay) e.currentTarget.play().catch(() => {})
+        onTimeChange?.(e.currentTarget.currentTime)
       }}
+      // seeked 而不是只有 timeupdate：暫停狀態下拖動進度條不會觸發 timeupdate，
+      // 而「停在某一格再提問」正是這個功能最主要的用法。
+      onTimeUpdate={(e) => onTimeChange?.(e.currentTarget.currentTime)}
+      onSeeked={(e) => onTimeChange?.(e.currentTarget.currentTime)}
     />
   )
 }

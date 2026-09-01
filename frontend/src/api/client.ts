@@ -1,6 +1,8 @@
 import type {
   ApiErrorBody,
   ConversationTurn,
+  FrameQAResponse,
+  FrameQATurn,
   HeaderStats,
   Job,
   SearchResponse,
@@ -21,8 +23,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!resp.ok) {
-    const body = (await resp.json()) as ApiErrorBody
-    throw new ApiError(resp.status, body)
+    // 回應**不一定**是 api/errors.py 那個 Error Schema：路由不存在時 FastAPI
+    // 自己回 `{"detail": "Not Found"}`，伺服器沒起來時連 JSON 都不是。直接讀
+    // `body.error.message` 會在錯誤處理裡再丟一個 TypeError，使用者看到的就變成
+    // 「Cannot read properties of undefined」而不是真正的錯誤——這在後端沒有
+    // 重啟、少了一條新路由時實際發生過。
+    const body = await resp.json().catch(() => null)
+    const known =
+      body && typeof body === 'object' && 'error' in body
+        ? (body as ApiErrorBody)
+        : { error: { code: 'UNEXPECTED_RESPONSE', message: `HTTP ${resp.status}`, details: null } }
+    throw new ApiError(resp.status, known)
   }
   if (resp.status === 204) {
     return undefined as T
@@ -89,6 +100,23 @@ export function getThumbnailUrl(videoId: number): string {
 
 /** 還沒到終態（queued／running）的工作。「影片與分析」頁靠它在重新整理後把
  * 進行中的分析接回進度顯示——追蹤清單本身只活在 React state，F5 就沒了。 */
+/** 對某支影片第 atSec 秒的那一格畫面提問。
+ *
+ * history 是**同一格畫面**先前的問答，由呼叫端保管、時間點一變就清空——帶著
+ * 別格畫面的問答會讓模型答錯格。端點掛在 videos 而不是 conversations 底下：
+ * 它不讀也不寫對話狀態，見 docs/19-停格畫面問答功能計畫.md。 */
+export function askAboutFrame(
+  videoId: number,
+  atSec: number,
+  question: string,
+  history: FrameQATurn[] = [],
+): Promise<FrameQAResponse> {
+  return request<FrameQAResponse>(`/videos/${videoId}/frame-qa`, {
+    method: 'POST',
+    body: JSON.stringify({ at_sec: atSec, question, history }),
+  })
+}
+
 export function listActiveJobs(jobType?: 'analysis' | 'download'): Promise<Job[]> {
   const query = jobType ? `?active=true&job_type=${jobType}` : '?active=true'
   return request<Job[]>(`/jobs${query}`)

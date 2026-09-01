@@ -385,3 +385,61 @@ def test_get_document_returns_stored_document(client):
     assert resp.status_code == 200
     assert resp.json()["document"]["title"] == "生產流程"
     assert resp.json()["model"] == "gpt-4o-mini"
+
+
+def test_frame_qa_returns_the_answer_and_echoes_the_timestamp(client, monkeypatch):
+    """停格畫面問答：問哪一秒就回哪一秒。
+
+    回傳 at_sec 不是多餘的——前端送出之後使用者可能又把影片拖走了，答案要標得
+    出來自哪一格，否則畫面上會出現一則對不上目前時間點的回答。
+    """
+    from ai_video_search_web.pipeline import frame_qa
+    from ai_video_search_web.services import video_service
+
+    monkeypatch.setattr(
+        video_service, "answer_about_frame",
+        lambda video, at_sec, question, history: frame_qa.FrameAnswer(
+            answer=f"看到了：{question}｜{len(history)} 輪上下文", cost_usd=0.00045,
+        ),
+    )
+    video_id = make_video()
+
+    resp = client.post(
+        f"/api/v1/videos/{video_id}/frame-qa",
+        json={
+            "at_sec": 252.0,
+            "question": "畫面中有幾個箱子？",
+            "history": [{"question": "有幾個人？", "answer": "三個人。"}],
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["at_sec"] == 252.0
+    assert body["answer"] == "看到了：畫面中有幾個箱子？｜1 輪上下文"
+    assert body["cost_usd"] == 0.00045
+
+
+def test_frame_qa_on_a_missing_video_is_404(client):
+    resp = client.post(
+        "/api/v1/videos/9999/frame-qa", json={"at_sec": 1.0, "question": "這是什麼？"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "VIDEO_NOT_FOUND"
+
+
+def test_frame_qa_when_the_frame_cannot_be_extracted_is_422_not_500(client):
+    """影片存在但抽不出畫面（檔案不見、ffmpeg 逾時）要走錯誤對映表，不能讓
+    subprocess 的例外穿到 API 層變成 500——使用者剛按下送出，要看得到「哪一秒
+    抽不出畫面」而不是伺服器錯誤。
+
+    `make_video()` 的 file_path 本來就指向不存在的路徑，所以這裡不用 mock。
+    """
+    video_id = make_video()
+
+    resp = client.post(
+        f"/api/v1/videos/{video_id}/frame-qa", json={"at_sec": 5.0, "question": "這是什麼？"}
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "FRAME_UNAVAILABLE"

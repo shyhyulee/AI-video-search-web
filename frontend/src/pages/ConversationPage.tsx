@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { getStats, listVideos, sendConversationMessage, startConversation } from '../api/client'
-import type { SearchResult, Video } from '../api/types'
+import {
+  askAboutFrame,
+  getStats,
+  listVideos,
+  sendConversationMessage,
+  startConversation,
+} from '../api/client'
+import type { FrameQATurn, SearchResult, Video } from '../api/types'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { ChatBubble } from '../components/ChatBubble'
@@ -36,6 +42,20 @@ function summarizeModalities(results: SearchResult[]): string {
 interface Message {
   speaker: 'user' | 'assistant'
   text: string
+  /** 這則訊息屬於停格問答時，它是針對哪一秒的畫面。 */
+  frameSec?: number
+}
+
+/** 同一格畫面的問答串。**時間點一變就整串丟掉**——把別格畫面的問答帶進去，
+ * 模型會拿舊畫面的內容回答新畫面的問題。 */
+interface FrameThread {
+  atSec: number
+  turns: FrameQATurn[]
+}
+
+function formatTimestamp(sec: number): string {
+  const whole = Math.max(0, Math.floor(sec))
+  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`
 }
 
 /** 後端的 LLM 可以在使用者勾選的範圍內「再收窄」（例如使用者說「只看第一支」）。
@@ -70,6 +90,14 @@ export function ConversationPage() {
   const [results, setResults] = useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [statusText, setStatusText] = useState('')
+  // 播放器現在停在第幾秒（整數）。停格問答問的就是這一格。
+  const [playerSec, setPlayerSec] = useState(0)
+  // 輸入框是不是對著畫面問。**刻意用明確模式而不是讓 intent LLM 自己判斷**：
+  // 那要多一次分類呼叫，而且現有 intent 會改寫使用者原句（docs/05 記過否定詞
+  // 被改掉的 bug）。把「畫面中有幾個人」誤判成新搜尋，使用者只會拿到一堆
+  // 不相干的片段。見 docs/19-停格畫面問答功能計畫.md。
+  const [frameMode, setFrameMode] = useState(false)
+  const [frameThread, setFrameThread] = useState<FrameThread | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const { data: stats } = useQuery({ queryKey: statsKey(), queryFn: getStats })
@@ -116,9 +144,57 @@ export function ConversationPage() {
     },
   })
 
+  // 停格問答走 videos/{id}/frame-qa，不經過對話狀態：它不產生搜尋結果，也不該
+  // 影響下一輪搜尋的指代解析（「第一支」指的仍然是上一輪搜尋的結果）。
+  const frameMutation = useMutation({
+    mutationFn: ({
+      videoId, atSec, question, history,
+    }: { videoId: number; atSec: number; question: string; history: FrameQATurn[] }) =>
+      askAboutFrame(videoId, atSec, question, history),
+    onSuccess: (data, variables) => {
+      setMessages((prev) => [
+        ...prev,
+        { speaker: 'assistant', text: data.answer, frameSec: data.at_sec },
+      ])
+      setFrameThread((prev) => ({
+        atSec: variables.atSec,
+        turns: [
+          ...(prev && prev.atSec === variables.atSec ? prev.turns : []),
+          { question: variables.question, answer: data.answer },
+        ],
+      }))
+      setStatusText(`花費 $${data.cost_usd.toFixed(4)}｜問的是 ${formatTimestamp(data.at_sec)} 的畫面`)
+    },
+    onError: (err: Error) => {
+      setMessages((prev) => [...prev, { speaker: 'assistant', text: `看畫面時發生錯誤：${err.message}` }])
+      setStatusText('發生錯誤')
+    },
+  })
+
+  const askFrame = (question: string) => {
+    if (!selected) return
+    const atSec = playerSec
+    setMessages((prev) => [...prev, { speaker: 'user', text: question, frameSec: atSec }])
+    setInput('')
+    setStatusText('看畫面中…')
+    frameMutation.mutate({
+      videoId: selected.video_id,
+      atSec,
+      question,
+      // 時間點一變就不帶舊上下文——那是別格畫面的問答
+      history: frameThread && frameThread.atSec === atSec ? frameThread.turns : [],
+    })
+  }
+
   const sendMessage = (overrideText?: string) => {
     const message = (overrideText ?? input).trim()
-    if (!message || conversationId === null || sendMutation.isPending) return
+    if (!message || busy) return
+    // 畫面模式下同一個輸入框改問這一格，不進搜尋
+    if (frameMode && selected) {
+      askFrame(message)
+      return
+    }
+    if (conversationId === null) return
     setMessages((prev) => [...prev, { speaker: 'user', text: message }])
     setInput('')
     setStatusText('思考中…')
@@ -141,6 +217,10 @@ export function ConversationPage() {
 
   const selected = selectedIndex !== null ? results[selectedIndex] : null
   const showSuggestions = messages.length === 1
+  const busy = sendMutation.isPending || frameMutation.isPending
+  // 選了片段才有畫面可問；沒選的時候播放器本身也還沒出現。
+  const canAskFrame = selected !== null
+  const askingFrame = frameMode && canAskFrame
 
   return (
     <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row-reverse">
@@ -155,7 +235,12 @@ export function ConversationPage() {
       <Card className="flex w-full min-w-0 max-h-[70vh] flex-col md:min-h-0 md:w-1/2 md:max-h-none">
         <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
           {messages.map((m, i) => (
-            <ChatBubble key={i} speaker={m.speaker} text={m.text} />
+            <ChatBubble
+              key={i}
+              speaker={m.speaker}
+              text={m.text}
+              frameLabel={m.frameSec === undefined ? undefined : formatTimestamp(m.frameSec)}
+            />
           ))}
           {showSuggestions && (
             <div className="flex flex-wrap gap-2">
@@ -174,17 +259,40 @@ export function ConversationPage() {
               : '尚未有已分析完成的影片，先在「影片與分析」頁籤加入並分析影片'
             : ' '}
         </p>
+        {askingFrame && (
+          <div className="mt-2 flex items-center gap-2 rounded-xl border border-primary bg-primary-soft px-3 py-2 text-sm">
+            <span className="font-bold text-primary-hover">
+              針對畫面 {formatTimestamp(playerSec)} 提問
+            </span>
+            <span className="min-w-0 flex-1 truncate text-text-secondary">{selected?.video_title}</span>
+            <button
+              type="button"
+              onClick={() => setFrameMode(false)}
+              className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-text-secondary hover:bg-sand"
+            >
+              取消
+            </button>
+          </div>
+        )}
         <form onSubmit={onSubmit} className="mt-1 flex shrink-0 items-end gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onComposerKeyDown}
-            disabled={conversationId === null || sendMutation.isPending}
+            disabled={(conversationId === null && !askingFrame) || busy}
             rows={2}
-            placeholder="輸入想找的內容，Enter 送出、Shift+Enter 換行"
+            placeholder={
+              askingFrame
+                ? '問這一格畫面，例如：畫面中有幾個人？'
+                : '輸入想找的內容，Enter 送出、Shift+Enter 換行'
+            }
             className="flex-1 resize-none rounded-xl border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none disabled:opacity-60"
           />
-          <Button type="submit" variant="primary" disabled={conversationId === null || sendMutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={(conversationId === null && !askingFrame) || busy}
+          >
             送出
           </Button>
         </form>
@@ -198,7 +306,25 @@ export function ConversationPage() {
       <div className="flex w-full min-w-0 flex-col gap-4 md:min-h-0 md:w-1/2">
         <Card className="w-full">
           {selected ? (
-            <VideoPlayer videoId={selected.video_id} startSec={selected.start_sec} title={selected.video_title} />
+            <>
+              <VideoPlayer
+                videoId={selected.video_id}
+                startSec={selected.start_sec}
+                title={selected.video_title}
+                onTimeChange={(sec) => setPlayerSec(Math.floor(sec))}
+              />
+              {/* 停在想問的那一格再按。按鈕留在播放器旁邊而不是輸入框旁邊：
+                  使用者的注意力在畫面上，而「這一格」指的就是他正在看的東西。 */}
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">目前 {formatTimestamp(playerSec)}</span>
+                <Button
+                  variant={askingFrame ? 'primary' : 'secondary'}
+                  onClick={() => setFrameMode((prev) => !prev)}
+                >
+                  {askingFrame ? '結束畫面提問' : `問這一格（${formatTimestamp(playerSec)}）`}
+                </Button>
+              </div>
+            </>
           ) : (
             <EmptyState title="尚未選取片段" />
           )}

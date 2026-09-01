@@ -59,3 +59,25 @@ class VideoDocumentOut(BaseModel):
 
 class YoutubeDownloadRequest(BaseModel):
     url: str
+
+
+class FrameQATurn(BaseModel):
+    """同一格畫面先前的一組問答，供追問時帶上下文。"""
+    question: str
+    answer: str
+
+
+class FrameQARequest(BaseModel):
+    at_sec: float
+    question: str
+    #: 同一格畫面的先前問答。**由前端保管、時間點一變就清空**——帶著別格畫面的
+    #: 問答會讓模型答錯格。存前端而不是伺服器，理由跟對話搜尋的 video_ids 相同：
+    #: 它屬於「使用者現在正在看的那一格」，不是需要跨請求持久化的狀態。
+    history: list[FrameQATurn] = []
+
+
+class FrameQAOut(BaseModel):
+    #: 回傳問的是哪一秒：前端送出後使用者可能又把影片拖走了，答案要標得出來源。
+    at_sec: float
+    answer: str
+    cost_usd: float

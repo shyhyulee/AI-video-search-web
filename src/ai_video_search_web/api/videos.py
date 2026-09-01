@@ -13,7 +13,13 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from ..schemas.jobs import JobOut
-from ..schemas.videos import VideoDocumentOut, VideoOut, YoutubeDownloadRequest
+from ..schemas.videos import (
+    FrameQAOut,
+    FrameQARequest,
+    VideoDocumentOut,
+    VideoOut,
+    YoutubeDownloadRequest,
+)
 from ..services import job_manager, video_service
 from ..services.errors import DocumentNotFoundError, ThumbnailUnavailableError, VideoNotFoundError
 
@@ -145,6 +151,24 @@ def get_document(video_id: int) -> VideoDocumentOut:
 def stream_video(video_id: int) -> FileResponse:
     video = _get_video_or_raise(video_id)
     return FileResponse(video.file_path, media_type="video/mp4")
+
+
+@router.post("/{video_id}/frame-qa", response_model=FrameQAOut)
+def ask_about_frame(video_id: int, payload: FrameQARequest) -> FrameQAOut:
+    """對這支影片第 `at_sec` 秒的那一格畫面提問。
+
+    放在 videos 而不是 conversations 底下：它不讀也不寫任何對話狀態，之後要在
+    搜尋影片頁或影片庫的觀看模式加同一個功能，直接呼叫這支就好。計畫見
+    docs/19-停格畫面問答功能計畫.md。
+    """
+    video = _get_video_or_raise(video_id)
+    result = video_service.answer_about_frame(
+        video,
+        payload.at_sec,
+        payload.question,
+        [(turn.question, turn.answer) for turn in payload.history],
+    )
+    return FrameQAOut(at_sec=payload.at_sec, answer=result.answer, cost_usd=result.cost_usd)
 
 
 @router.get("/{video_id}/thumbnail")

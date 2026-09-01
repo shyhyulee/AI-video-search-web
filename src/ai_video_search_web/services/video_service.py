@@ -21,8 +21,15 @@ from typing import BinaryIO
 
 from .. import db, downloader
 from ..db import ModalityFlags, SegmentRecord, VideoRecord
-from ..pipeline import analyzer, document as document_pipeline, media, summary as summary_pipeline
+from ..pipeline import (
+    analyzer,
+    document as document_pipeline,
+    frame_qa as frame_qa_pipeline,
+    media,
+    summary as summary_pipeline,
+)
 from ..pipeline.openai_client import get_client
+from .errors import FrameUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +222,32 @@ def load_document(video: VideoRecord) -> document_pipeline.VideoDocument | None:
     if not video.document_json:
         return None
     return document_pipeline.VideoDocument.model_validate_json(video.document_json)
+
+
+def answer_about_frame(
+    video: VideoRecord,
+    at_sec: float,
+    question: str,
+    history: list[tuple[str, str]] | None = None,
+) -> frame_qa_pipeline.FrameAnswer:
+    """回答關於這支影片某一格畫面的問題。
+
+    **刻意不要求影片已經分析過**：問的是畫面本身，不是片段索引，所以只要檔案在
+    就答得出來。這也讓功能之後推到「還沒分析的影片」時不用改這裡。
+
+    抽幀失敗（檔案不見、ffmpeg 逾時）轉成 FrameUnavailableError，不讓
+    subprocess 的例外直接穿到 API 層變成 500——使用者剛按下送出，要看得到
+    「哪一秒抽不出畫面」而不是伺服器錯誤。
+    """
+    if not video.file_path or not Path(video.file_path).exists():
+        raise FrameUnavailableError(f"影片 {video.id} 的檔案不存在，無法擷取畫面")
+
+    try:
+        return frame_qa_pipeline.answer_about_frame(
+            get_client(), Path(video.file_path), at_sec, question, history
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise FrameUnavailableError(f"擷取第 {int(at_sec)} 秒的畫面失敗") from exc
 
 
 def generate_thumbnail(video: VideoRecord, size: tuple[int, int] = _THUMBNAIL_SIZE) -> bytes | None:

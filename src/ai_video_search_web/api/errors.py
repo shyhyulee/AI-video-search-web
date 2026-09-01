@@ -23,6 +23,9 @@ _ERROR_MAP: dict[type[Exception], tuple[int, str]] = {
     # 手刻 JSONResponse，見 services/errors.py 的說明。
     errors.DocumentNotFoundError: (404, "DOCUMENT_NOT_FOUND"),
     errors.ThumbnailUnavailableError: (404, "THUMBNAIL_UNAVAILABLE"),
+    # 422 而不是 404：影片存在（404 已經由 VideoNotFoundError 表達過了），是
+    # 「這一秒抽不出畫面」——使用者送出的請求本身沒辦法被滿足。
+    errors.FrameUnavailableError: (422, "FRAME_UNAVAILABLE"),
     # 502：失敗的是上游的 YouTube／yt-dlp，不是使用者的請求有問題。
     errors.YoutubeSearchError: (502, "YOUTUBE_SEARCH_FAILED"),
 }

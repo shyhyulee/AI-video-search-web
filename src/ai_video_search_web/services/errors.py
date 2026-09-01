@@ -64,3 +64,12 @@ class ThumbnailUnavailableError(ServiceError):
 
 class YoutubeSearchError(ServiceError):
     """YouTube 搜尋失敗（yt-dlp 解析失敗、網路問題、YouTube 改版等）。"""
+
+
+class FrameUnavailableError(ServiceError):
+    """抽不出這支影片指定時間點的畫面（檔案不存在或 ffmpeg 擷取失敗）。
+
+    跟 ThumbnailUnavailableError 分開而不是共用：縮圖抽不出來對前端是正常狀態
+    （顯示佔位圖就好），停格問答抽不出來則是使用者剛送出的請求失敗了，訊息要
+    講得出是哪一秒。兩者的 HTTP 狀態碼也不同。
+    """

@@ -136,6 +136,19 @@ export interface ConversationTurn {
   video_ids: number[]
 }
 
+/** 停格畫面問答的一組問答，追問時帶回後端當上下文。 */
+export interface FrameQATurn {
+  question: string
+  answer: string
+}
+
+export interface FrameQAResponse {
+  /** 回傳問的是哪一秒：送出後使用者可能又把影片拖走了，答案要標得出來源。 */
+  at_sec: number
+  answer: string
+  cost_usd: number
+}
+
 // 沿用 docs/08-web-ui-migration-design.md 第 6 節的 Error Schema，
 // api/errors.py 實作。
 export interface ApiErrorBody {
