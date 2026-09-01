@@ -52,10 +52,15 @@ function narrowedScopeNote(
   return `｜這一輪只搜了：${titles.join('、')}`
 }
 
-/** 「對話搜尋」頁面，對齊 docs/10-web-ui-ux-warm-responsive-design.md
- * §6.4：桌機（≥900px）左右並排——左：對話訊息流；右：本輪結果與播放器
- * （播放器在上、結果清單在下，清單自己捲動）。≤900px 改回上下排列（對話在
- * 上、結果在下），對齊文件的響應式規則，也是這頁原本（Phase 1–4）的版面。
+/** 「對話搜尋」頁面：桌機（≥900px）左右並排——**左：本輪結果與播放器**
+ * （播放器在上、結果清單在下，清單自己捲動）；**右：對話訊息流**。≤900px
+ * 改回上下排列（對話在上、結果在下），對齊 docs/10 的響應式規則，也是這頁
+ * 原本（Phase 1–4）的版面。
+ *
+ * 左右的方向跟 docs/10 §6.4 原文（「左：對話訊息流；右：結果與播放器」）**相反**，
+ * 也跟 docs/11 §8.1 當初照那份原文做的方向相反：2026-09-01 使用者要求對齊影片庫
+ * 與搜尋影片——那兩頁都是清單在左、播放器與詳細在右，對話搜尋原本是唯一的例外。
+ *
  * 第一名結果用大版型 Evidence Card，其餘刻意不做 search_tab 那個完整分數
  * 面板（Tkinter 版本身也沒有），重用簡化版播放器。 */
 export function ConversationPage() {
@@ -138,9 +143,15 @@ export function ConversationPage() {
   const showSuggestions = messages.length === 1
 
   return (
-    <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row">
+    <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row-reverse">
       {/* 主從版面一律左右各半（md:w-1/2），跟影片庫／搜尋影片同一個比例，
-          切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。 */}
+          切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。
+
+          用 `md:flex-row-reverse` 換左右，而不是把兩塊在 JSX 裡對調：對調會連
+          ≤900px 的上下順序一起翻過去，變成結果在上、對話（含輸入框）在下，而
+          docs/10 的響應式規則要的是「對話在上、結果在下」，那不在這次要求的範圍
+          內。DOM 順序維持「對話 → 結果」也是語意上正確的順序（先輸入、後結果），
+          螢幕閱讀器與 Tab 都照這個走；代價是桌機的視覺順序與 Tab 順序相反。 */}
       <Card className="flex w-full min-w-0 max-h-[70vh] flex-col md:min-h-0 md:w-1/2 md:max-h-none">
         <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
           {messages.map((m, i) => (
