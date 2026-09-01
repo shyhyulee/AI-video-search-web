@@ -55,12 +55,14 @@ def _fake_response(parsed, prompt_tokens: int, completion_tokens: int):
     )
 
 
-def _continuation() -> document._Continuation:
-    return document._Continuation(
-        heading="成品檢查與出貨",
-        steps=[
-            document.DocumentStep(timestamp_sec=580.0, heading="出貨前檢查", detail="逐片檢查焊點。")
-        ],
+def _filled(*, at: float = 300.0, steps: bool = True) -> document._FilledSection:
+    return document._FilledSection(
+        heading="中段製程",
+        steps=(
+            [document.DocumentStep(timestamp_sec=at, heading="浸漆", detail="定子浸入油漆槽。")]
+            if steps
+            else []
+        ),
         uncovered=["包裝方式影片沒有交代"],
     )
 
@@ -70,9 +72,10 @@ def _segments_reaching(*seconds: float):
     return [_segment(start_sec=s, visual_description=f"第 {s:.0f} 秒的畫面") for s in seconds]
 
 
-# 一份只寫到 77 秒、素材卻延伸到 600 秒的文件——補寫要救的就是這一種。
-# 門檻是素材的九成（540 秒），77 遠遠不到。
-_STOPS_EARLY = (0.0, 77.0, 300.0, 580.0, 600.0)
+# 文件唯一的步驟在 77 秒（見 _document()），素材卻一路到 600 秒——中間 300、580
+# 兩行沒有任何步驟指到，就是補寫要救的那個洞。素材從 60 秒開始而不是 0，是為了讓
+# 開頭那段不構成第二個洞（77 - 60 沒有超過門檻），測試才只看得到一個洞。
+_HAS_A_HOLE = (60.0, 77.0, 300.0, 580.0, 600.0)
 
 
 def test_generate_document_returns_parsed_and_computes_cost():
@@ -168,7 +171,7 @@ def test_prompt_states_the_material_time_range_and_a_tail_threshold():
     # 所以第二次呼叫也要餵一個像樣的回應。這裡只看第一次的 prompt。
     client.chat.completions.parse.side_effect = [
         _fake_response(_document(), 100, 10),
-        _fake_response(_continuation(), 100, 10),
+        _fake_response(_filled(), 100, 10),
     ]
 
     document.generate_document(
@@ -178,8 +181,10 @@ def test_prompt_states_the_material_time_range_and_a_tail_threshold():
     )
 
     prompt = client.chat.completions.parse.call_args_list[0].kwargs["messages"][0]["content"]
+    assert "共 2 行" in prompt
     assert "從第 12 秒延伸到第 600 秒" in prompt
     assert "最後一個步驟應該落在第 540 秒之後" in prompt  # 600 的九成
+    assert "不要跳過超過 60 秒的素材" in prompt
 
 
 def test_prompt_keeps_the_do_not_invent_guardrail_next_to_the_coverage_rule():
@@ -213,23 +218,25 @@ def test_generate_document_raises_when_every_segment_is_empty():
     client.chat.completions.parse.assert_not_called()
 
 
-def test_a_document_that_stops_early_gets_the_tail_written_and_both_costs_counted():
-    """停在前半段就再問一次，把補到的接成新的一節。
+def test_a_hole_in_the_middle_gets_filled_and_both_costs_counted():
+    """文件跳過的那一段，拿那一段的素材再問一次，把補到的插回時間軸。
 
-    第四條規則把 v37 的涵蓋率從平均 32.5% 拉到 88.0%，但 12 次裡仍有 3 次落在
-    38.6%～70.3%——prompt 改得動分布，保證不了每一次，而使用者拿到的就是「這一次」。
+    這是第二次撞到「prompt 保證不了」：第四條規則要求寫到片尾，模型就用「寫幾步
+    開頭、跳到片尾補兩步」滿足它——v37 用 11 個步驟拿到 97.8% 涵蓋率，中間空了
+    514 秒。把「不要跳過超過 60 秒」也寫進規則之後 A/B 各三次，最大空隙
+    270/314/226 → 381/302/350 秒，沒有改善。
     """
     client = MagicMock()
     client.chat.completions.parse.side_effect = [
         _fake_response(_document(), 20000, 3000),
-        _fake_response(_continuation(), 5000, 500),
+        _fake_response(_filled(), 5000, 500),
     ]
 
-    result = document.generate_document(client, "影片", _segments_reaching(*_STOPS_EARLY))
+    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
 
     assert client.chat.completions.parse.call_count == 2
-    assert [s.heading for s in result.document.sections] == ["表面貼裝", "成品檢查與出貨"]
-    assert result.document.sections[-1].steps[0].timestamp_sec == 580.0
+    # 補到的步驟併進洞前面那一節（另有測試說明為什麼不自成一節）
+    assert [s.timestamp_sec for s in result.document.sections[0].steps] == [77.0, 300.0]
     assert result.document.uncovered == ["迴焊爐的溫度曲線影片沒有交代", "包裝方式影片沒有交代"]
     # 兩次呼叫的費用都要算進去，否則 videos.cost_usd 會少記
     assert result.cost_usd == pytest.approx(
@@ -238,30 +245,92 @@ def test_a_document_that_stops_early_gets_the_tail_written_and_both_costs_counte
     )
 
 
-def test_the_continuation_only_sees_material_that_was_not_written_yet():
-    """補寫只餵沒被寫過的那一段——這是這個設計唯一的防幻覺依據。
+def test_filled_steps_join_the_section_the_hole_belongs_to():
+    """補到的步驟要併進洞前面那一節，不要自成一節接在後面。
 
-    模型手上只有真素材，就補不出素材裡沒有的東西；連同「已經寫到第幾秒」一起
-    告訴它，才不會把前面重寫一遍。
+    主稿的章節本來就可能橫跨整支影片（實跑看到過一節的步驟是 02:14、04:03、
+    10:15），補寫如果自成新章節接在它後面，時間軸就變成 615 秒跳回 140 秒。
+    """
+    client = MagicMock()
+    two_sections = _document().model_copy(update={"sections": [
+        document.DocumentSection(heading="開頭", steps=[
+            document.DocumentStep(timestamp_sec=77.0, heading="開場", detail="工廠外觀。")]),
+        document.DocumentSection(heading="結尾", steps=[
+            document.DocumentStep(timestamp_sec=600.0, heading="出貨", detail="成品裝箱。")]),
+    ]})
+    client.chat.completions.parse.side_effect = [
+        _fake_response(two_sections, 100, 10),
+        _fake_response(_filled(at=300.0), 100, 10),
+    ]
+
+    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
+
+    assert [s.heading for s in result.document.sections] == ["開頭", "結尾"]
+    assert [s.timestamp_sec for s in result.document.sections[0].steps] == [77.0, 300.0]
+
+
+def test_a_hole_before_the_first_step_becomes_its_own_section():
+    """洞在文件最前面時沒有「前面那一節」可以併，補的是文件根本還沒開始寫的
+    一段，自成一節才對。"""
+    client = MagicMock()
+    starts_late = _document().model_copy(update={"sections": [
+        document.DocumentSection(heading="收尾", steps=[
+            document.DocumentStep(timestamp_sec=600.0, heading="出貨", detail="成品裝箱。")]),
+    ]})
+    client.chat.completions.parse.side_effect = [
+        _fake_response(starts_late, 100, 10),
+        _fake_response(_filled(at=300.0), 100, 10),
+    ]
+
+    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
+
+    assert [s.heading for s in result.document.sections] == ["中段製程", "收尾"]
+
+
+def test_the_fill_only_sees_material_inside_the_hole():
+    """補寫只餵那個洞的素材——這是這個設計唯一的防幻覺依據。
+
+    模型手上沒有別的東西，就補不出素材裡沒有的內容；已經有步驟指到的那幾行也要
+    排除，否則它會把寫過的再寫一遍。
     """
     client = MagicMock()
     client.chat.completions.parse.side_effect = [
         _fake_response(_document(), 100, 10),
-        _fake_response(_continuation(), 100, 10),
+        _fake_response(_filled(), 100, 10),
     ]
 
-    document.generate_document(client, "影片", _segments_reaching(*_STOPS_EARLY))
+    document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
 
     prompt = client.chat.completions.parse.call_args_list[1].kwargs["messages"][0]["content"]
     assert "第 300 秒的畫面" in prompt
     assert "第 580 秒的畫面" in prompt
-    assert "第 0 秒的畫面" not in prompt  # 已經寫過的不要重餵
-    assert "第 77 秒的畫面" not in prompt
-    assert "已經整理到第 77 秒" in prompt
+    assert "第 600 秒的畫面" in prompt  # 素材最後一行也是洞的一部分
+    assert "第 60 秒的畫面" not in prompt  # 洞的範圍之外
+    assert "第 77 秒的畫面" not in prompt  # 已經有步驟指到
+    assert "第 77 秒到第 600 秒這一段沒有被寫進去" in prompt
     assert "不要為了填滿而發明步驟" in prompt
 
 
-def test_content_log_is_never_continued():
+def test_the_token_budget_grows_with_the_size_of_the_hole():
+    """預算要跟著洞的大小走，不能給固定值。
+
+    實測一個 96 行的洞會把固定的 4000 撞爆（LengthFinishReasonError），然後靜靜
+    退回那份沒補到的文件——v2 因此出現過一次「5 個步驟、涵蓋率 4%」。
+    """
+    client = MagicMock()
+    big = _segments_reaching(60.0, *[float(70 + i * 10) for i in range(90)])
+    client.chat.completions.parse.side_effect = [
+        _fake_response(_document(), 100, 10),
+        _fake_response(_filled(at=300.0), 100, 10),
+    ]
+
+    document.generate_document(client, "影片", big)
+
+    budget = client.chat.completions.parse.call_args_list[1].kwargs["max_completion_tokens"]
+    assert budget > 4000
+
+
+def test_content_log_is_never_filled():
     """時間軸紀錄不補。實測同一套補寫在 SOP 上補了 6 個對得上素材的步驟，在球賽
     精華上補出約 25 個、幾乎一行素材一步，內容是「比賽結束的信號｜最終鳴哨結束
     比賽」這種填充句（棒球沒有鳴哨）。
@@ -272,47 +341,68 @@ def test_content_log_is_never_continued():
     client = MagicMock()
     client.chat.completions.parse.return_value = _fake_response(_document("content_log"), 100, 10)
 
-    result = document.generate_document(client, "影片", _segments_reaching(*_STOPS_EARLY))
+    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
 
     assert client.chat.completions.parse.call_count == 1
     assert len(result.document.sections) == 1
 
 
-def test_a_document_that_already_reaches_the_end_is_not_continued():
-    """已經寫到門檻之後就不要多花一次呼叫。"""
+def test_a_document_without_holes_makes_no_extra_calls():
+    """每一行素材都有步驟指到，就不要多花呼叫。"""
     client = MagicMock()
     client.chat.completions.parse.return_value = _fake_response(_document(), 100, 10)
 
-    # 素材只到 80 秒，門檻 72 秒，文件的 77 秒已經越過
-    document.generate_document(client, "影片", _segments_reaching(0.0, 77.0, 80.0))
+    # 素材只有 77 與 80 兩行，文件的 77 秒指到第一行，兩行相距 3 秒
+    document.generate_document(client, "影片", _segments_reaching(77.0, 80.0))
 
     assert client.chat.completions.parse.call_count == 1
 
 
-def test_an_empty_continuation_keeps_its_reason_but_adds_no_section():
-    """尾段真的沒東西可寫時，回空的 steps 是正確答案，不是失敗。
+def test_at_most_three_holes_are_filled():
+    """補寫次數有上限，補最大的幾個。不設限的話，一份步驟稀疏的長片會變成
+    每個空隙一次呼叫。"""
+    client = MagicMock()
+    sparse = _document().model_copy(update={"sections": [
+        document.DocumentSection(heading="零星", steps=[
+            document.DocumentStep(timestamp_sec=t, heading=f"第 {t} 秒", detail="…")
+            for t in (0.0, 200.0, 400.0, 600.0, 800.0)]),
+    ]})
+    client.chat.completions.parse.side_effect = [
+        _fake_response(sparse, 100, 10),
+        *[_fake_response(_filled(at=t), 100, 10) for t in (100.0, 300.0, 500.0)],
+    ]
 
-    那個理由要留在 uncovered——它正是使用者該知道的「為什麼文件到這裡就停了」。
+    document.generate_document(
+        client, "影片", _segments_reaching(*[float(s) for s in range(0, 900, 10)])
+    )
+
+    assert client.chat.completions.parse.call_count == 1 + document._MAX_FILL_CALLS
+
+
+def test_an_empty_fill_keeps_its_reason_but_adds_no_section():
+    """那一段真的沒東西可寫時，回空的 steps 是正確答案，不是失敗。
+
+    那個理由要留在 uncovered——它正是使用者該知道的「為什麼這裡沒有步驟」。
     """
     client = MagicMock()
     client.chat.completions.parse.side_effect = [
         _fake_response(_document(), 100, 10),
         _fake_response(
-            document._Continuation(heading="片尾", steps=[], uncovered=["後面只剩片尾字卡"]), 100, 10
+            document._FilledSection(heading="片尾", steps=[], uncovered=["這段只剩片尾字卡"]), 100, 10
         ),
     ]
 
-    result = document.generate_document(client, "影片", _segments_reaching(*_STOPS_EARLY))
+    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
 
     assert len(result.document.sections) == 1
-    assert result.document.uncovered[-1] == "後面只剩片尾字卡"
+    assert result.document.uncovered[-1] == "這段只剩片尾字卡"
 
 
-def test_a_failed_continuation_keeps_the_document_it_already_has():
+def test_a_failed_fill_keeps_the_document_it_already_has():
     """補寫是加分項，掛掉不要連累已經產好的文件。
 
-    跟 analyzer 那邊「文件失敗退回摘要」同一個取捨：一份寫到前半段的文件仍然有用，
-    為了補不到的尾段把它整份丟掉是更糟的結果。
+    跟 analyzer 那邊「文件失敗退回摘要」同一個取捨：一份有洞的文件仍然有用，
+    為了補不到的那一段把它整份丟掉是更糟的結果。
     """
     client = MagicMock()
     client.chat.completions.parse.side_effect = [
@@ -320,7 +410,7 @@ def test_a_failed_continuation_keeps_the_document_it_already_has():
         RuntimeError("上游 429"),
     ]
 
-    result = document.generate_document(client, "影片", _segments_reaching(*_STOPS_EARLY))
+    result = document.generate_document(client, "影片", _segments_reaching(*_HAS_A_HOLE))
 
     assert [s.heading for s in result.document.sections] == ["表面貼裝"]
     assert result.cost_usd > 0

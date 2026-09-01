@@ -6,14 +6,21 @@ docs/05-known-limitations-and-open-items.md），只能人眼看，代表改 pro
 資料庫就算得出來，而且那一輪的 A/B 就是靠它們才分得出訊號的。這支腳本把當時臨時
 寫的查詢固定下來。
 
-量五項，兩類：
+分三類：
 
 **「寫到哪裡為止」**（2026-09-01 那條覆蓋規則要動的東西）
 - `coverage`：`max(timestamp_sec) / duration_sec`，文件寫到影片的百分之幾。
 - `material_coverage`：分母改成素材最後一行的秒數。這才是公允的分母——素材本來就
   到不了片尾（最後一個場景的長度就是差距），拿片長當分母會系統性低估。
-- `second_half` / `tail_20`：後半段與最後 20% 各有幾個步驟。涵蓋率只看最遠的那一
-  點，一個孤零零的尾段步驟就能讓它變好看，這兩個數字看的是密度。
+- `second_half` / `tail_20`：後半段與最後 20% 各有幾個步驟。
+
+**「中間有沒有跳過」**（涵蓋率被繞過去之後補的，見 GAP_LIMIT_SEC）
+- `max_gap_sec` / `gaps_over_limit` / `skipped_share`：最大的空白有多長、超過門檻的
+  空白有幾個、有多少比例的素材落在那些空白裡。
+- **為什麼涵蓋率不夠**：它只看最遠的那一點，所以「寫幾步開頭、跳到片尾補兩步」就能
+  拿到 97.8%——v37 實測就是這樣，中間空了 514 秒、62 行素材有 77% 沒被寫到。
+- `backwards`：照文件排列順序讀下來，時間往回跳了幾次。會誤報（章節依主題分、時間
+  軸上允許重疊），只在同一份文件的改動前後比較才有意義。
 
 **「這個時間戳是不是真的」**（防虛構）
 - `over_length`：超出影片長度的步驟數。2026-08-30 素材改成同時給總秒數之後應該
@@ -58,6 +65,13 @@ from ai_video_search_web.pipeline import segment_material
 
 EVAL_RUNS_DIR = db.PROJECT_ROOT / "docs" / "eval-runs"
 
+# 「空隙」的門檻：相鄰兩個步驟之間跳過超過這麼多秒，就算漏掉了一段內容。
+#
+# 60 秒是使用者定的驗收線，不是量出來的最佳值。它的意義很具體：v37 的文件從
+# 03:40 直接跳到 09:40，中間 34 行素材全是不同的製程（浸漆、車削、切管、鑽孔、
+# 轉子組裝），那不是重複畫面，是真的被漏掉的環節。
+GAP_LIMIT_SEC = 60
+
 
 @dataclass
 class CoverageMetrics:
@@ -71,6 +85,10 @@ class CoverageMetrics:
     over_length: int
     off_grid: int
     uncovered_items: int
+    max_gap_sec: float
+    gaps_over_limit: int
+    skipped_share: float | None
+    backwards: int
 
 
 def steps_of(document: dict) -> list[dict]:
@@ -79,8 +97,10 @@ def steps_of(document: dict) -> list[dict]:
     return [step for section in document.get("sections", []) for step in section.get("steps", [])]
 
 
-def measure(document: dict, segments: list, duration_sec: float | None) -> CoverageMetrics:
-    """算一份文件的五項指標。
+def measure(
+    document: dict, segments: list, duration_sec: float | None, gap_limit_sec: int = GAP_LIMIT_SEC
+) -> CoverageMetrics:
+    """算一份文件的八項指標。
 
     `document` 是 `VideoDocument` 的 dict（資料庫裡的 `document_json` 解出來的，
     或實驗跑出來的 `model_dump()`）——刻意收 dict 而不是 `VideoDocument`，這樣
@@ -92,6 +112,10 @@ def measure(document: dict, segments: list, duration_sec: float | None) -> Cover
 
     lines = material_lines(segments)
     material_end = max(lines, default=0)
+    gaps = _gaps(stamps, lines)
+    skipped = sum(
+        1 for sec in lines if any(a < sec < b for a, b in gaps if b - a > gap_limit_sec)
+    )
 
     return CoverageMetrics(
         steps=len(steps),
@@ -104,7 +128,37 @@ def measure(document: dict, segments: list, duration_sec: float | None) -> Cover
         over_length=sum(1 for t in stamps if duration_sec and t > duration_sec),
         off_grid=sum(1 for t in stamps if int(t) not in lines),
         uncovered_items=len(document.get("uncovered", [])),
+        max_gap_sec=round(max((b - a for a, b in gaps), default=0.0), 1),
+        gaps_over_limit=sum(1 for a, b in gaps if b - a > gap_limit_sec),
+        skipped_share=round(skipped / len(lines), 4) if lines else None,
+        backwards=_backwards(steps),
     )
+
+
+def _backwards(steps: list[dict]) -> int:
+    """照文件的排列順序讀下來，時間往回跳了幾次。
+
+    **這個指標會誤報，不能單獨看**：章節是依主題分的，時間軸上允許互相重疊
+    （`docs/05` 記過 Intel 那份「自動化生產線 02:09~15:30」與「測試與品檢
+    11:45~18:01」），跨章節的回跳是正當的。它有用的地方是**同一份文件改動前後
+    比較**——補寫的步驟一度自成一節接在文件末尾，讓時間軸從 615 秒跳回 140 秒，
+    就是靠這個數字看出來的。
+    """
+    times = [float(s["timestamp_sec"]) for s in steps]
+    return sum(1 for a, b in zip(times, times[1:]) if b < a)
+
+
+def _gaps(stamps: list[float], lines: dict[int, str]) -> list[tuple[float, float]]:
+    """相鄰步驟之間的空白區間，兩端補上素材的頭與尾。
+
+    頭尾要補：一份從 03:40 才開始寫的文件，前面那三分半也是漏掉的內容，不能因為
+    「第一步之前沒有前一步」就不算。邊界用**素材**的頭尾而不是 0 與片長——素材本
+    來就到不了片尾，拿片長當邊界會把一個必然存在的差距算成漏寫。
+    """
+    if not stamps or not lines:
+        return []
+    edges = [float(min(lines))] + sorted(stamps) + [float(max(lines))]
+    return [(a, b) for a, b in zip(edges, edges[1:]) if b > a]
 
 
 def material_lines(segments: list) -> dict[int, str]:
@@ -168,8 +222,8 @@ def main() -> None:
         print("沒有任何已整理成文件的影片——確認文件已經產生，或 --videos 給對了嗎？")
         return
 
-    print(f"{'id':>4} {'標題':<26}{'類型':<14}{'步驟':>5}{'涵蓋率':>9}{'對素材':>9}"
-          f"{'後半':>5}{'尾20%':>6}{'超長':>5}{'脫格':>5}{'uncov':>6}")
+    print(f"{'id':>4} {'標題':<24}{'類型':<14}{'步驟':>5}{'步/段':>7}{'對素材':>8}"
+          f"{'最大空隙':>9}{'>60s':>6}{'漏掉':>7}{'倒退':>5}{'脫格':>5}{'uncov':>6}")
     per_video = {}
     for row in rows:
         document = json.loads(row["document_json"])
@@ -177,19 +231,24 @@ def main() -> None:
         metrics = measure(document, segments, row["duration_sec"])
         per_video[row["id"]] = {"title": row["title"], "doc_type": row["document_type"], **asdict(metrics)}
 
-        # 涵蓋率的警示線放 90%：2026-09-01 那輪 A/B 的通過條件就是它，而現況是
-        # 15 支只有 2 支過得了。
-        flag = " " if (metrics.material_coverage or 0) >= 0.9 else "<"
-        print(f"{row['id']:>4} {row['title'][:24]:<26}{str(row['document_type']):<14}"
-              f"{metrics.steps:>5}{_pct(metrics.coverage):>9}{_pct(metrics.material_coverage):>9}"
-              f"{metrics.second_half:>5}{metrics.tail_20:>6}{metrics.over_length:>5}"
-              f"{metrics.off_grid:>5}{metrics.uncovered_items:>6} {flag}")
+        # 警示線兩條：涵蓋率（對素材）90%、以及沒有超過門檻的空隙。前者是
+        # 2026-09-01 那輪的驗收線，後者是同一天稍晚訂的——一份寫到片尾但中間
+        # 空了六分鐘的文件，涵蓋率漂亮，內容照樣是漏的。
+        lines = len(material_lines(segments))
+        flag = " " if metrics.gaps_over_limit == 0 and (metrics.material_coverage or 0) >= 0.9 else "<"
+        print(f"{row['id']:>4} {row['title'][:22]:<24}{str(row['document_type']):<14}"
+              f"{metrics.steps:>5}{metrics.steps / lines if lines else 0:>7.2f}"
+              f"{_pct(metrics.material_coverage):>8}{metrics.max_gap_sec:>9.0f}"
+              f"{metrics.gaps_over_limit:>6}{_pct(metrics.skipped_share):>7}"
+              f"{metrics.backwards:>5}{metrics.off_grid:>5}{metrics.uncovered_items:>6} {flag}")
 
         if args.samples:
             _print_samples(document, segments, args.samples)
 
     passing = sum(1 for m in per_video.values() if (m["material_coverage"] or 0) >= 0.9)
+    no_holes = sum(1 for m in per_video.values() if m["gaps_over_limit"] == 0)
     print(f"\n涵蓋率（對素材）達 90% 的：{passing}/{len(per_video)} 支")
+    print(f"沒有超過 {GAP_LIMIT_SEC} 秒空隙的：{no_holes}/{len(per_video)} 支")
     print(f"時間戳超出片長的步驟總數：{sum(m['over_length'] for m in per_video.values())}")
     print(f"對不上任何一行素材的步驟總數：{sum(m['off_grid'] for m in per_video.values())}"
           f"／{sum(m['steps'] for m in per_video.values())}")

@@ -71,9 +71,11 @@ _PROMPT_TEMPLATE = """以下是影片《{title}》依時間順序切出的素材
 
 3. **不適合就不要硬掰**。判斷成 content_log 時就老實做時間軸紀錄，不要為了湊出流程而發明步驟。
 
-4. **步驟要橫跨整段素材，不要只寫開頭**。這份素材從第 {first_sec} 秒延伸到第 {last_sec} 秒，最後一個步驟應該落在第 {tail_sec} 秒之後。影片後段的素材同樣是真實內容，不要寫完前面幾分鐘就停下來。
+4. **步驟要橫跨整段素材，中間也不能跳過**。這份素材共 {line_count} 行，從第 {first_sec} 秒延伸到第 {last_sec} 秒，最後一個步驟應該落在第 {tail_sec} 秒之後。
 
-   但**這不是要你湊數**：第 {tail_sec} 秒之後如果真的沒有值得寫成步驟的內容（只剩片尾字卡、重複畫面、或跟前面完全相同的作業），就把這件事寫進 uncovered，**絕對不要發明步驟去填滿**。寧可留白，也不要寫出素材裡沒有的事。
+   **相鄰兩個步驟之間，不要跳過超過 {gap_sec} 秒的素材**。被跳過的那幾行如果是不同的作業，就各自寫成步驟；只有在它們確實是**同一個動作的延續**（同一道工序連續好幾段、或畫面幾乎沒變）時才可以合併成一步。寫幾步開頭再跳到片尾補一步，不算橫跨。
+
+   但**這不是要你湊數**：某一段如果真的沒有值得寫成步驟的內容（只剩片尾字卡、黑畫面、重複畫面、或跟前面完全相同的作業），就把這件事寫進 uncovered，**絕對不要發明步驟去填滿**。寧可留白，也不要寫出素材裡沒有的事。
 
 其餘欄位：
 - title：這份文件的標題（不用照抄影片標題）。
@@ -84,21 +86,21 @@ _PROMPT_TEMPLATE = """以下是影片《{title}》依時間順序切出的素材
 
 {content}"""
 
-# 補寫用的第二次呼叫，見 _extend_to_the_end()。刻意只餵「還沒被寫過的那一段素材」
-# 而不是整份：模型手上只有真素材，就補不出素材裡沒有的東西。
-_CONTINUE_TEMPLATE = """影片《{title}》的文件已經整理到第 {covered_sec} 秒，但素材一直延伸到第 {last_sec} 秒。
+# 補寫用的第二次呼叫，見 _fill_gaps()。刻意只餵「沒被寫進文件的那一段素材」而不是
+# 整份：模型手上只有真素材，就補不出素材裡沒有的東西。
+_FILL_TEMPLATE = """影片《{title}》的文件裡，**第 {start_sec} 秒到第 {end_sec} 秒這一段沒有被寫進去**。
 
-以下是**還沒被寫進文件**的那一段素材，每行是一個片段：
+以下是那一段的素材，每行是一個片段：
 
-{tail}
+{window}
 
-請只針對這段素材補寫步驟，接在既有文件後面，並給這一節一個 heading。
+請只針對這段素材補寫步驟，並給這一節一個 heading。
 
 - timestamp_sec **直接填素材方括號裡的秒數**（例如 `[03:18｜198 秒]` 就填 198），不要自己換算。
-- 只寫第 {covered_sec} 秒之後的內容，前面已經寫過的不要重寫。
-- **這段素材如果沒有值得寫成步驟的內容**（只剩片尾字卡、黑畫面、或重複前面已經寫過的作業），就回傳空的 steps，把原因寫進 uncovered。**不要為了填滿而發明步驟**——寧可回空，也不要寫出素材裡沒有的事。
+- **只寫這一段的內容**，這段之前與之後的部分文件已經寫過了，不要重寫。
+- **這段素材如果沒有值得寫成步驟的內容**（只剩片尾字卡、黑畫面、或跟前面完全相同的作業重複），就回傳空的 steps，把原因寫進 uncovered。**不要為了填滿而發明步驟**——寧可回空，也不要寫出素材裡沒有的事。
 
-既有文件已經涵蓋的章節：{headings}"""
+文件現有的章節：{headings}"""
 
 
 # 第四條規則裡「最後一個步驟應該落在第 N 秒之後」的 N，取素材長度的九成。
@@ -108,9 +110,26 @@ _CONTINUE_TEMPLATE = """影片《{title}》的文件已經整理到第 {covered_
 # 點是把「寫完前三分之一就停」拉回來，不是把最後一秒也榨出來。
 _TAIL_FRACTION = 0.9
 
+# 相鄰兩個步驟之間最多可以跳過的秒數。
+#
+# **這條是「寫到片尾」不夠用才補的**：只要求最後一步落在門檻之後，模型會用「寫幾步
+# 開頭、跳到片尾補兩步」滿足它——實測 v37 用 11 個步驟拿到 97.8% 涵蓋率，中間空了
+# 514 秒、62 行素材裡 77% 沒被寫到。涵蓋率這個代理指標被繞過去了，正是 docs/18
+# §6.2 說的那件事。
+#
+# 60 秒是驗收線，不是量出來的最佳值：v37 被跳過的那 6 分鐘有 34 行素材，全是不同
+# 的製程（浸漆、車削、切管、鑽孔、轉子組裝），不是重複畫面。場景長度正規化到
+# 8～12 秒，所以 60 秒大約是 5～7 行。
+_MAX_STEP_GAP_SEC = 60
+
+# 一份文件最多補幾個洞。三次是成本與完整度的取捨：v37 每次約有 2～3 個洞，補一個
+# 洞的成本約 US$0.001（只餵那一段素材）。洞多到超過三個的影片，補完最大的三個之後
+# 剩下的仍會留白——這是刻意的上限，不是「補完為止」。
+_MAX_FILL_CALLS = 3
+
 
 def _coverage_bounds(material: str) -> dict[str, int]:
-    """第四條規則要填的三個秒數：素材的起訖，以及最後一步的下限。"""
+    """第四條規則要填的數字：素材的行數與起訖、最後一步的下限、以及空隙上限。"""
     time_range = segment_material.material_time_range(material)
     if time_range is None:
         # 每個片段的三個欄位都是空的（或整欄被判定成幻覺而丟掉）。這種素材本來就
@@ -118,9 +137,11 @@ def _coverage_bounds(material: str) -> dict[str, int]:
         raise ValueError("這支影片的片段沒有任何可用內容，無法整理成文件")
     first_sec, last_sec = time_range
     return {
+        "line_count": len(segment_material.material_lines(material)),
         "first_sec": first_sec,
         "last_sec": last_sec,
         "tail_sec": int(last_sec * _TAIL_FRACTION),
+        "gap_sec": _MAX_STEP_GAP_SEC,
     }
 
 
@@ -158,8 +179,8 @@ class VideoDocument(BaseModel):
     uncovered: list[str]
 
 
-class _Continuation(BaseModel):
-    """補寫回來的一節。`steps` 允許是空的——那是「尾段真的沒東西可寫」的正確答案。"""
+class _FilledSection(BaseModel):
+    """補寫回來的一節。`steps` 允許是空的——那是「這一段真的沒東西可寫」的正確答案。"""
 
     heading: str
     steps: list[DocumentStep]
@@ -215,82 +236,163 @@ def generate_document(
     cost_usd = chat_completion_cost(
         response.usage, PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD
     )
-    return _extend_to_the_end(
+    return _fill_gaps(
         client, video_title, DocumentResult(document=parsed, cost_usd=cost_usd), content, bounds
     )
 
 
-def _last_timestamp(doc: VideoDocument) -> float:
-    return max((s.timestamp_sec for sec in doc.sections for s in sec.steps), default=0.0)
+def _step_seconds(doc: VideoDocument) -> list[float]:
+    return sorted(s.timestamp_sec for sec in doc.sections for s in sec.steps)
 
 
-def _extend_to_the_end(
+def _unwritten(doc: VideoDocument, lines: dict[int, str]) -> dict[int, str]:
+    """素材裡還沒有任何步驟指到的那些行。"""
+    written = {int(t) for t in _step_seconds(doc)}
+    return {sec: line for sec, line in lines.items() if sec not in written}
+
+
+def _holes(doc: VideoDocument, lines: dict[int, str]) -> list[tuple[int, int]]:
+    """文件沒有寫到的時間區間，兩端補上素材的頭與尾。
+
+    頭尾要算進來：一份從 03:40 才開始寫的文件，前面那三分半也是漏掉的內容；而
+    「只寫到一半就停」不過是最後那個洞特別大而已——**尾段不是特例，是同一件事**。
+    """
+    unwritten = _unwritten(doc, lines)
+    if not lines:
+        return []
+    # 落在素材範圍外的時間戳要排除，否則邊界不再單調遞增、算出來的區間是負的。
+    # 那種步驟本來就是壞的（前端也擋著不給點），不該拿來當「已經寫過」的依據。
+    first, last = float(min(lines)), float(max(lines))
+    stamps = [t for t in _step_seconds(doc) if first <= t <= last]
+    if not stamps:
+        return []
+    edges = [first] + stamps + [last]
+    holes = [(int(a), int(b)) for a, b in zip(edges, edges[1:]) if b - a > _MAX_STEP_GAP_SEC]
+    # 洞裡沒有沒寫過的素材就沒得補。用閉區間比對而不是開區間：頭尾那兩個洞的邊界
+    # 就是素材的第一行與最後一行本身，開區間會把它們排除掉——「只寫到一半就停」
+    # 那種情況會因此漏掉素材的最後一行。
+    holes = [(a, b) for a, b in holes if any(a <= sec <= b for sec in unwritten)]
+    # 大的先補：呼叫次數有上限，優先補漏掉最多內容的那幾個，再照時間排回去
+    holes.sort(key=lambda h: h[1] - h[0], reverse=True)
+    return sorted(holes[:_MAX_FILL_CALLS])
+
+
+def _fill_gaps(
     client: OpenAI,
     video_title: str,
     result: DocumentResult,
     content: str,
     bounds: dict[str, int],
 ) -> DocumentResult:
-    """文件還是停在前半段的話，只拿沒被寫過的那段素材再問一次，把補到的接回去。
+    """文件跳過的每一段，各拿那一段的素材再問一次，把補到的插回時間軸上。
 
-    **為什麼 prompt 規則不夠**：第四條規則把 v37 的涵蓋率從平均 32.5% 拉到 88.0%，
-    但 12 次裡仍有 3 次落在 38.6%～70.3%。這件事的本質是輸出變異，靠 prompt 只能
-    改變分布、不能保證每一次——而使用者拿到的就是「這一次」。
+    **為什麼 prompt 規則不夠**：這是第二次撞到同一件事。第四條規則要求「寫到片尾」，
+    模型就用「寫幾步開頭、跳到片尾補兩步」滿足它——實測 v37 用 11 個步驟拿到 97.8%
+    涵蓋率，中間空了 514 秒、62 行素材裡 77% 沒被寫到。後來把「不要跳過超過 60 秒」
+    也寫進規則，A/B 各三次，最大空隙 270/314/226 → 381/302/350 秒，**沒有改善**。
+    prompt 改得動分布，保證不了每一次。
 
-    **`content_log` 不補**，這是實測逼出來的：同一套補寫在 v37（SOP）補了 6 個
-    步驟、每一步都對得上素材、`uncovered` 誠實寫下「剩下只有重複字幕與片尾字卡」；
-    但在龍隊精華（`content_log`）補出約 25 個步驟，幾乎一行素材一步，內容是
-    「比賽結束的信號｜最終鳴哨結束比賽」這種填充句（棒球根本沒有鳴哨）。差別可以
-    解釋：時間軸紀錄的每一行素材「本身」就是內容，模型於是全部記成步驟。逼一份
-    本來就沒有流程的文件寫到片尾，只會生出看起來完整、實際是湊的東西。
+    **只餵那個洞的素材**，這是防幻覺的依據：模型手上沒有別的東西，補不出素材裡沒有
+    的內容，而且明確允許回空的 steps——那一段真的只剩片尾字卡時，回空才是正確答案。
 
-    **失敗不影響已經產好的文件**：補寫是加分項，第二次呼叫掛掉或被拒絕時記
-    warning 就好，不要讓一份可用的文件跟著沒了（跟 analyzer 那邊「文件失敗退回
-    摘要」同一個取捨）。
+    **`content_log` 不補**，這是實測逼出來的：同一套機制在 v37（SOP）補了 6 個步驟、
+    每一步都對得上素材、`uncovered` 誠實寫下「剩下只有重複字幕與片尾字卡」；但在龍隊
+    精華（`content_log`）補出約 25 個步驟，幾乎一行素材一步，內容是「比賽結束的信號
+    ｜最終鳴哨結束比賽」這種填充句（棒球根本沒有鳴哨）。時間軸紀錄的每一行素材本身
+    就是內容，模型於是全部記成步驟。
+
+    **失敗不影響已經產好的文件**：補寫是加分項，某一次呼叫掛掉就記 warning、留著手上
+    這份（跟 analyzer 那邊「文件失敗退回摘要」同一個取捨）。
     """
-    document = result.document
-    covered_sec = int(_last_timestamp(document))
-    if document.doc_type == "content_log" or covered_sec >= bounds["tail_sec"]:
+    if result.document.doc_type == "content_log":
         return result
 
-    tail = segment_material.material_after(content, covered_sec)
-    if not tail:
-        return result
+    lines = segment_material.material_lines(content)
+    unwritten = _unwritten(result.document, lines)
+    for start_sec, end_sec in _holes(result.document, lines):
+        result = _fill_one(client, video_title, result, unwritten, start_sec, end_sec)
+    return result
+
+
+def _fill_one(
+    client: OpenAI,
+    video_title: str,
+    result: DocumentResult,
+    unwritten: dict[int, str],
+    start_sec: int,
+    end_sec: int,
+) -> DocumentResult:
+    """補一個洞。補不到就原樣回傳，不讓已經產好的文件跟著沒了。"""
+    document = result.document
+    window = [line for sec, line in sorted(unwritten.items()) if start_sec <= sec <= end_sec]
 
     try:
         response = client.chat.completions.parse(
             model=MODEL_NAME,
             messages=[{
                 "role": "user",
-                "content": _CONTINUE_TEMPLATE.format(
+                "content": _FILL_TEMPLATE.format(
                     title=video_title,
-                    covered_sec=covered_sec,
-                    last_sec=bounds["last_sec"],
-                    tail=tail,
+                    start_sec=start_sec,
+                    end_sec=end_sec,
+                    window="\n".join(window),
                     headings="、".join(s.heading for s in document.sections),
                 ),
             }],
-            response_format=_Continuation,
-            # 補的是尾段，不是整份，一半的預算夠用（實測 v37 補 6 步）。
-            max_completion_tokens=4000,
+            response_format=_FilledSection,
+            # 依洞的大小給預算，不要給固定值：實測一個 96 行的洞會把 4000 撞爆
+            # （LengthFinishReasonError），然後靜靜退回那份沒補到的文件。
+            max_completion_tokens=min(8000, 400 + 80 * len(window)),
         )
         extra = response.choices[0].message.parsed
     except Exception:
-        logger.warning("文件補寫失敗，保留只寫到前半段的版本", exc_info=True)
+        logger.warning("補寫 %s~%s 秒失敗，這一段留白", start_sec, end_sec, exc_info=True)
         return result
 
     if extra is None:
-        logger.warning("文件補寫沒有回傳可用內容，保留只寫到前半段的版本")
+        logger.warning("補寫 %s~%s 秒沒有回傳可用內容，這一段留白", start_sec, end_sec)
         return result
 
     cost_usd = result.cost_usd + chat_completion_cost(
         response.usage, PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD
     )
-    # steps 是空的就不要塞一個空章節進去——那是「尾段真的沒東西可寫」的正確答案，
-    # 而它給的理由要留著（那正是使用者該知道的「為什麼文件到這裡就停了」）。
-    written = [DocumentSection(heading=extra.heading, steps=extra.steps)] if extra.steps else []
-    sections = document.sections + written
+    # steps 是空的就不要塞一個空章節進去——那是「這一段真的沒東西可寫」的正確答案，
+    # 而它給的理由要留著（那正是使用者該知道的「為什麼這裡沒有步驟」）。
+    sections = document.sections
+    if extra.steps:
+        sections = _merge_filled(
+            sections, DocumentSection(heading=extra.heading, steps=extra.steps), start_sec
+        )
     merged = document.model_copy(
         update={"sections": sections, "uncovered": document.uncovered + extra.uncovered}
     )
     return DocumentResult(document=merged, cost_usd=cost_usd)
+
+
+def _merge_filled(
+    sections: list[DocumentSection], filled: DocumentSection, start_sec: int
+) -> list[DocumentSection]:
+    """把補到的步驟併進「洞前面那一步」所屬的章節，並讓那一節依時間排好。
+
+    **補寫的步驟刻意不自成一節。** 一度是那樣做的，實跑之後讀起來是壞的：主稿的
+    章節本來就可能橫跨整支影片（實測一節的步驟是 02:14、04:03、10:15 三個），補寫
+    的新章節接在它後面，時間軸就變成 615 秒跳回 140 秒。改成併回去之後，那一節內
+    部依時間排序，讀起來才是單調的。
+
+    代價是模型給補寫那一節的 heading 用不到了（除非洞在文件的最前面，那時候補的
+    是「文件根本還沒開始寫」的一段，自成一節才對）。**既有章節仍然不重排**：章節
+    是依主題分的，時間軸上允許互相重疊（`docs/05` 記過 Intel 那份「自動化生產線
+    02:09~15:30」與「測試與品檢 11:45~18:01」），照時間硬排會把作者的分章打散。
+    """
+    home, latest = None, None
+    for i, section in enumerate(sections):
+        for step in section.steps:
+            if step.timestamp_sec <= start_sec and (latest is None or step.timestamp_sec > latest):
+                home, latest = i, step.timestamp_sec
+    if home is None:
+        return [filled] + sections
+
+    merged = sections[home].model_copy(update={
+        "steps": sorted(sections[home].steps + filled.steps, key=lambda s: s.timestamp_sec)
+    })
+    return sections[:home] + [merged] + sections[home + 1:]
