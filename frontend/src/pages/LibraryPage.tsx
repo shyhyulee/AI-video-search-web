@@ -1,9 +1,6 @@
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpDown } from 'lucide-react'
-import { listActiveJobs, listVideos } from '../api/client'
-import type { Video } from '../api/types'
 import { Button, IconButton } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
@@ -15,14 +12,9 @@ import { VideoDetailPanel } from '../components/VideoDetailPanel'
 import { VideoWatchView } from '../components/VideoWatchView'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatCost, formatDateTime, formatDuration } from '../lib/format'
-import { activeJobsKey, libraryVideosKey } from '../lib/queryKeys'
+import { useLibraryList, type FilterKind, type SortColumn } from '../lib/useLibraryList'
 import { useSearchScope } from '../lib/useSearchScope'
-import { CATEGORY_ORDER, classifyVideo, matchesLibraryQuery, type VideoCategory } from '../lib/videoCategory'
-
-// 篩選只留分析狀態。原本還有「無字幕」（`!has_transcript`）與「純畫面」
-// （`!has_transcript && !has_ocr`）兩個模態篩選，已移除，見 docs/11 §8.7。
-type FilterKind = 'all' | 'analyzed' | 'failed'
-type SortColumn = 'title' | 'segment_count' | 'cost' | 'analyzed_at'
+import { CATEGORY_ORDER, type VideoCategory } from '../lib/videoCategory'
 
 // 狀態篩選從三顆 chips 改成下拉，是為了把 chips 那一列整條讓給主題分類——
 // 半版寬的卡片（§8.10）塞不下「搜尋列＋主題 chips＋狀態 chips」三列控制項，
@@ -32,10 +24,6 @@ const STATUS_FILTERS: { key: FilterKind; label: string }[] = [
   { key: 'analyzed', label: '分析完成' },
   { key: 'failed', label: '分析失敗' },
 ]
-
-/** 重新分析進行中時，清單與 job 狀態的重取間隔。跟「影片分析」頁同一個
- * 節奏——那頁的說明見 VideosPage 的 LIST_POLL_MS。 */
-const LIBRARY_POLL_MS = 3000
 
 const SORT_LABEL: Record<SortColumn, string> = {
   title: '影片名稱',
@@ -56,21 +44,14 @@ const STATUS_LABEL: Record<string, string> = {
  * 見 docs/07-ui-structure-and-features.md 6.2 節。排序改用明確的下拉＋方向切換，
  * 取代原本表格可點擊欄位標題的排序方式（改成 list-item 後不再有欄位標題）。 */
 export function LibraryPage() {
-  const [filter, setFilter] = useState<FilterKind>('all')
-  const [category, setCategory] = useState<VideoCategory | 'all'>('all')
-  // 庫內搜尋：邊打邊篩，不用送出。它跟「片段搜尋」頁的語意檢索是兩件事——
-  // 只比對已經在手上的標題與摘要，不打 API、不跳頁，見 docs/11 §8.17.5。
-  const [query, setQuery] = useState('')
-  const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
-  const [sortReverse, setSortReverse] = useState(true)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  // 勾選成搜尋範圍的影片。用 Set 而不是陣列，跟「影片分析」頁的批次勾選
-  // 一致（見 VideosPage 的 toggleSelected）。刻意不設數量上限——VideosPage
-  // 的上限是分析成本天花板，搜尋範圍沒有這個成本（查詢向量只 embed 一次）。
-  const [picked, setPicked] = useState<Set<number>>(new Set())
-  // navigate 只剩「在此／在選取影片內搜尋」在用（設好共用的搜尋範圍後跳到
-  // 「片段搜尋」頁）；這頁上方原本那條自由文字搜尋列已移除，搜尋一律在
-  // 「片段搜尋」頁進行。
+  // 清單、篩選、排序、勾選全部住在 useLibraryList；這裡只剩排版與動作。
+  const {
+    videos, activeJobs, isLoading, isError, refetch,
+    rows, selected, categoryOf, statusFiltered, categoryCounts, activeCategory,
+    filter, setFilter, setCategory, query, setQuery,
+    sortColumn, setSortColumn, sortReverse, toggleSortDirection, select,
+    picked, pickedIds, togglePicked, clearPicked,
+  } = useLibraryList()
   // 觀看模式：點文件裡的步驟時間戳進去，左播放器、右摘要與文件（見
   // VideoWatchView）。存的是「哪一支影片的第幾秒」，null＝正常的清單版面。
   //
@@ -79,108 +60,11 @@ export function LibraryPage() {
   // 得處理 keep-alive 下的參數消化，SearchPage 的 `consumedParams` 就是為此
   // 存在的——那是獨立的一步，先不綁進來。
   const [watching, setWatching] = useState<{ videoId: number; sec: number } | null>(null)
+  // navigate 只剩「在此／在選取影片內搜尋」在用（設好共用的搜尋範圍後跳到
+  // 「片段搜尋」頁）；這頁上方原本那條自由文字搜尋列已移除，搜尋一律在
+  // 「片段搜尋」頁進行。
   const navigate = useNavigate()
   const { setScope } = useSearchScope()
-
-  const {
-    data: videos,
-    isLoading: videosLoading,
-    isError: videosError,
-    refetch: refetchVideos,
-  } = useQuery({
-    queryKey: libraryVideosKey(),
-    queryFn: () => listVideos(),
-    // 有影片在重新分析時清單要跟著重取：`status` 什麼時候變回 analyzed、片段數
-    // 與成本什麼時候換成新一輪的，只有清單知道，job 輪詢看不到。
-    refetchInterval: (query) =>
-      query.state.data?.some((v) => v.status === 'analyzing') ? LIBRARY_POLL_MS : false,
-  })
-
-  // 重新分析的進度來源。跟「影片分析」頁共用同一個 query key，兩頁只會有
-  // 一份快取、一組請求；重新整理後也是靠它把進行中的工作接回來。
-  const { data: activeJobs } = useQuery({
-    queryKey: activeJobsKey('analysis'),
-    queryFn: () => listActiveJobs('analysis'),
-    refetchInterval: LIBRARY_POLL_MS,
-  })
-
-  // 每支影片的主題分類。純函式，videos 沒換就不必重算。
-  const categoryOf = useMemo(() => {
-    const map = new Map<number, VideoCategory>()
-    for (const v of videos ?? []) map.set(v.id, classifyVideo(v))
-    return map
-  }, [videos])
-
-  // 狀態篩選單獨抽出來，因為 chips 上的數量要跟著它變（但不跟著關鍵字變，
-  // 理由見 categoryCounts）。
-  const statusFiltered = useMemo(() => {
-    if (!videos) return []
-    // 「分析完成」也收 analyzing：重新分析中的影片手上還有上一輪的結果，
-    // 用這個篩選找它是找得到的，不該因為正在更新就整支消失。
-    if (filter === 'analyzed') return videos.filter((v) => v.status !== 'failed')
-    if (filter === 'failed') return videos.filter((v) => v.status === 'failed')
-    return videos
-  }, [videos, filter])
-
-  // chips 上的數量只受狀態篩選影響，**刻意不受搜尋關鍵字影響**：跟著關鍵字變的
-  // 話，打字時每一顆數字都在跳，那排數字就失去「這個分類有幾支影片」的意義。
-  const categoryCounts = useMemo(() => {
-    const counts = new Map<VideoCategory, number>()
-    for (const v of statusFiltered) {
-      const c = categoryOf.get(v.id)
-      if (c) counts.set(c, (counts.get(c) ?? 0) + 1)
-    }
-    return counts
-  }, [statusFiltered, categoryOf])
-
-  // 選中的分類可能在換了狀態篩選之後整個消失（例如只看「分析失敗」時一支運動
-  // 賽事都沒有）。跟 §8.7 的預設選取一樣用推導、不用 useEffect 同步 state：直接
-  // 當成「全部」，就不會出現「選中一顆畫面上不存在的 chip、清單卻是空的」。
-  const activeCategory = category !== 'all' && !categoryCounts.has(category) ? 'all' : category
-
-  const rows = useMemo(() => {
-    const filtered = statusFiltered.filter(
-      (v) =>
-        (activeCategory === 'all' || categoryOf.get(v.id) === activeCategory) && matchesLibraryQuery(v, query),
-    )
-
-    const key = (v: Video): string | number => {
-      if (sortColumn === 'title') return v.title
-      if (sortColumn === 'segment_count') return v.segment_count ?? 0
-      if (sortColumn === 'cost') return v.cost_usd ?? 0
-      return v.analyzed_at ?? v.created_at
-    }
-    const sorted = [...filtered].sort((a, b) => {
-      const ka = key(a)
-      const kb = key(b)
-      if (ka < kb) return sortReverse ? 1 : -1
-      if (ka > kb) return sortReverse ? -1 : 1
-      return 0
-    })
-    return sorted
-  }, [statusFiltered, activeCategory, categoryOf, query, sortColumn, sortReverse])
-
-  // 預設選第一支影片，右側詳細面板不會是空白。刻意用「推導」而不是 useEffect
-  // 去同步 selectedId：這樣切換篩選／排序後如果原本選的那支不在清單裡了，會
-  // 自動落回第一筆，不需要額外的 effect，也不會出現「面板空白一瞬間」。
-  const selected = rows.find((v) => v.id === selectedId) ?? rows[0] ?? null
-
-  // 勾選中的影片可能已經被刪掉（或還原成待分析）。跟 selectedId／activeCategory
-  // 一樣用推導、不用 useEffect 同步：畫面永遠只會算進「現在還存在而且可搜」的
-  // 那幾支，不會送出一個指向不存在影片的搜尋範圍。刻意用整份 videos 而不是
-  // 篩選後的 rows——切換分類或打關鍵字時不該把已經勾好的影片踢出範圍。
-  const pickedIds = useMemo(
-    () => (videos ?? []).filter((v) => picked.has(v.id) && v.status === 'analyzed').map((v) => v.id),
-    [videos, picked],
-  )
-
-  const togglePicked = (id: number) =>
-    setPicked((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
 
   const searchInVideos = (ids: number[]) => {
     setScope(ids)
@@ -245,7 +129,7 @@ export function LibraryPage() {
               <IconButton
                 icon={<ArrowUpDown className="h-4 w-4" />}
                 aria-label={sortReverse ? '目前為遞減排序，點擊改為遞增' : '目前為遞增排序，點擊改為遞減'}
-                onClick={() => setSortReverse((r) => !r)}
+                onClick={toggleSortDirection}
               />
             </div>
           </div>
@@ -280,11 +164,11 @@ export function LibraryPage() {
               />
             ))}
           </div>
-          <div className="md:min-h-0 md:flex-1 md:overflow-auto" aria-busy={videosLoading}>
-            {videosLoading ? (
+          <div className="md:min-h-0 md:flex-1 md:overflow-auto" aria-busy={isLoading}>
+            {isLoading ? (
               <LoadingSkeleton variant="list-item" count={4} />
-            ) : videosError ? (
-              <ErrorState title="載入影片庫失敗" onRetry={() => refetchVideos()} />
+            ) : isError ? (
+              <ErrorState title="載入影片庫失敗" onRetry={() => refetch()} />
             ) : rows.length === 0 ? (
               <EmptyState
                 {...emptyStateText({
@@ -310,7 +194,7 @@ export function LibraryPage() {
                   onCheckedChange={() => togglePicked(v.id)}
                   checkboxDisabled={v.status !== 'analyzed'}
                   checkboxDisabledReason="這支影片還沒有分析完成的片段，不能加入搜尋範圍"
-                  onClick={() => setSelectedId(v.id)}
+                  onClick={() => select(v.id)}
                   meta={
                     <>
                       {formatDuration(v.duration_sec)} ・{' '}
@@ -344,7 +228,7 @@ export function LibraryPage() {
               variant="secondary"
               size="sm"
               disabled={picked.size === 0}
-              onClick={() => setPicked(new Set())}
+              onClick={clearPicked}
             >
               清除選取
             </Button>
