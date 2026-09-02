@@ -93,32 +93,33 @@ export function SearchPage() {
     searchMutation.mutate({ q: queryText.trim(), videoIds: scopeVideoIds })
   }
 
+  // 搜尋框跟結果清單疊在**左半邊**、寬度一樣；右半邊的播放器與證據面板因此
+  // 從最上緣開始，不必等搜尋框那一塊的高度。三頁共用的左右各半（md:w-1/2）
+  // 比例沒有變，變的是搜尋框從「橫跨整頁的第一列」收進左欄。
   return (
-    <div className="flex h-full flex-col gap-4">
-      <Card>
-        {/* 改變範圍不會自動重新搜尋（跟改關鍵字一樣要按一次「搜尋」），維持
-            「按下去才會花錢」的可預期行為。 */}
-        <SearchScopeBar className="mb-2" />
-        <form onSubmit={onSubmit} className="flex items-center gap-2">
-          <SearchField
-            size="lg"
-            value={queryText}
-            onChange={(e) => setQueryText(e.target.value)}
-            placeholder="描述想尋找的事件、人物、動作或教學內容"
-          />
-          <Button type="submit" variant="primary" size="lg">
-            搜尋
-          </Button>
-        </form>
-        <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
-          {statusText}
-        </p>
-      </Card>
+    <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row">
+      <div className="flex w-full min-w-0 flex-col gap-4 md:min-h-0 md:w-1/2">
+        <Card className="shrink-0">
+          {/* 改變範圍不會自動重新搜尋（跟改關鍵字一樣要按一次「搜尋」），維持
+              「按下去才會花錢」的可預期行為。 */}
+          <SearchScopeBar className="mb-2" />
+          <form onSubmit={onSubmit} className="flex items-center gap-2">
+            <SearchField
+              size="lg"
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+              placeholder="描述想尋找的事件、人物、動作或教學內容"
+            />
+            <Button type="submit" variant="primary" size="lg">
+              搜尋
+            </Button>
+          </form>
+          <p className="mt-2 text-sm text-text-secondary" aria-live="polite">
+            {statusText}
+          </p>
+        </Card>
 
-      <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
-        {/* 主從版面一律左右各半（md:w-1/2）：影片庫／搜尋影片／對話搜尋三頁
-            共用同一個比例，切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。 */}
-        <Card className="flex w-full min-w-0 flex-col md:min-h-0 md:w-1/2">
+        <Card className="flex min-w-0 flex-col md:min-h-0 md:flex-1">
           <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
               <EmptyState title="輸入描述以搜尋影片內容" hints={['例如：找出工廠中有人出現的片段', '例如：找出工廠中有機器人出現的片段']} />
@@ -135,31 +136,31 @@ export function SearchPage() {
             )}
           </div>
         </Card>
-
-        <Card className="flex w-full min-w-0 flex-col gap-3 md:min-h-0 md:w-1/2 md:overflow-auto">
-          {/* 有結果就一定有選取（搜完自動選第一名），所以這裡的空狀態只剩兩種
-              情況：還沒搜過，或搜過但沒找到。兩者要給不一樣的提示——「尚未選取
-              片段」在自動選取之後已經不可能是真的。 */}
-          {selected ? (
-            <>
-              <VideoPlayer
-                videoId={selected.video_id}
-                startSec={selected.start_sec}
-                title={selected.video_title}
-                autoPlay={playOnSelect}
-              />
-              <EvidencePanel result={selected} />
-            </>
-          ) : searchMutation.isSuccess ? (
-            <EmptyState
-              title="沒有找到相關片段"
-              hints={['試試較簡短的描述', '改用人物／動作／物件名稱', '或清除搜尋範圍改搜全部影片']}
-            />
-          ) : (
-            <EmptyState title="搜尋後這裡會顯示片段與播放器" />
-          )}
-        </Card>
       </div>
+
+      <Card className="flex w-full min-w-0 flex-col gap-3 md:min-h-0 md:w-1/2 md:overflow-auto">
+        {/* 有結果就一定有選取（搜完自動選第一名），所以這裡的空狀態只剩兩種
+            情況：還沒搜過，或搜過但沒找到。兩者要給不一樣的提示——「尚未選取
+            片段」在自動選取之後已經不可能是真的。 */}
+        {selected ? (
+          <>
+            <VideoPlayer
+              videoId={selected.video_id}
+              startSec={selected.start_sec}
+              title={selected.video_title}
+              autoPlay={playOnSelect}
+            />
+            <EvidencePanel result={selected} />
+          </>
+        ) : searchMutation.isSuccess ? (
+          <EmptyState
+            title="沒有找到相關片段"
+            hints={['試試較簡短的描述', '改用人物／動作／物件名稱', '或清除搜尋範圍改搜全部影片']}
+          />
+        ) : (
+          <EmptyState title="搜尋後這裡會顯示片段與播放器" />
+        )}
+      </Card>
     </div>
   )
 }
