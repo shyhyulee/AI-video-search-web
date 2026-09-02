@@ -342,7 +342,7 @@ def test_analysis_slot_is_released_when_the_worker_dies_before_its_own_error_han
     以前 worker 會無聲死掉、pump 永遠停在 queue.get()、slot 永不釋放，之後
     每一支影片都卡在 queued。
     """
-    monkeypatch.setattr(analyzer, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("沒有 API 金鑰")))
+    monkeypatch.setattr(analyzer.worker, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("沒有 API 金鑰")))
 
     real_video = tmp_path / "real.mp4"
     real_video.write_bytes(b"not really a video")

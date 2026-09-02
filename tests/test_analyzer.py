@@ -82,7 +82,7 @@ def test_analyze_worker_emits_error_event_when_client_creation_fails(monkeypatch
     monkeypatch.setattr(analyzer.db, "get_video", lambda vid: MagicMock(
         file_path="/dev/null", duration_sec=10, title="測試影片", pipeline_stage=None))
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
-    monkeypatch.setattr(analyzer, "get_client", MagicMock(side_effect=RuntimeError("沒有 API 金鑰")))
+    monkeypatch.setattr(analyzer.worker, "get_client", MagicMock(side_effect=RuntimeError("沒有 API 金鑰")))
 
     q: queue.Queue = queue.Queue()
     analyzer._analyze_worker(1, q)
@@ -125,8 +125,8 @@ def test_analyze_worker_emits_exactly_one_terminal_event_on_normal_failure(monke
     monkeypatch.setattr(analyzer.db, "get_video", lambda vid: MagicMock(
         file_path="/dev/null", duration_sec=10, title="測試影片", pipeline_stage="場景切分中"))
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
-    monkeypatch.setattr(analyzer, "get_client", lambda: MagicMock())
-    monkeypatch.setattr(analyzer, "_run_scene_detection_and_transcription",
+    monkeypatch.setattr(analyzer.worker, "get_client", lambda: MagicMock())
+    monkeypatch.setattr(analyzer.worker, "_run_scene_detection_and_transcription",
                         MagicMock(side_effect=RuntimeError("場景切分爆炸")))
 
     q: queue.Queue = queue.Queue()
@@ -208,7 +208,7 @@ def test_embed_segment_texts_skips_missing_texts(monkeypatch):
 def test_run_embedding_phase_stops_at_same_segment_as_sequential(monkeypatch):
     """平行送出片段內三個 embedding 後，budget 截斷的時機（在第幾個片段停）
     要跟循序版本完全一致：一個片段的三個 embedding 都做完才檢查一次。"""
-    monkeypatch.setattr(analyzer, "BUDGET_USD", 0.20)  # 固定測試用的門檻，不依賴正式常數的實際值
+    monkeypatch.setattr(analyzer.context, "BUDGET_USD", 0.20)  # 固定測試用的門檻，不依賴正式常數的實際值
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
 
     call_count = {"n": 0}
@@ -322,8 +322,8 @@ def test_run_local_ocr_and_document_combines_costs_without_double_counting(monke
         ctx.spend(0.03)
         return analyzer._DocumentPhaseOutput(summary="摘要文字")
 
-    monkeypatch.setattr(analyzer, "_run_local_ocr", fake_run_local_ocr)
-    monkeypatch.setattr(analyzer, "_run_document_phase", fake_run_document_phase)
+    monkeypatch.setattr(analyzer.phases, "_run_local_ocr", fake_run_local_ocr)
+    monkeypatch.setattr(analyzer.phases, "_run_document_phase", fake_run_document_phase)
 
     ctx = _context(initial_cost=0.05)
     output = analyzer._run_local_ocr_and_document(ctx, [], [])
@@ -344,8 +344,8 @@ def test_run_local_ocr_and_document_isolates_local_ocr_failure(monkeypatch):
         ctx.spend(0.03)
         return analyzer._DocumentPhaseOutput(summary="摘要照常產生")
 
-    monkeypatch.setattr(analyzer, "_run_local_ocr", fake_run_local_ocr)
-    monkeypatch.setattr(analyzer, "_run_document_phase", fake_run_document_phase)
+    monkeypatch.setattr(analyzer.phases, "_run_local_ocr", fake_run_local_ocr)
+    monkeypatch.setattr(analyzer.phases, "_run_document_phase", fake_run_document_phase)
 
     ctx = _context(initial_cost=0.05)
     output = analyzer._run_local_ocr_and_document(ctx, [], [])
@@ -475,8 +475,8 @@ def test_run_scene_detection_and_transcription_returns_both_results(monkeypatch)
         ctx.spend(0.01)
         return "TRANSCRIBE_RESULT"
 
-    monkeypatch.setattr(analyzer, "_run_scene_detection", fake_run_scene_detection)
-    monkeypatch.setattr(analyzer, "_run_transcription", fake_run_transcription)
+    monkeypatch.setattr(analyzer.phases, "_run_scene_detection", fake_run_scene_detection)
+    monkeypatch.setattr(analyzer.phases, "_run_transcription", fake_run_transcription)
 
     ctx = _context()
     scenes, transcribe_result = analyzer._run_scene_detection_and_transcription(ctx, 10.0)
@@ -500,8 +500,8 @@ def test_run_scene_detection_and_transcription_joins_thread_even_if_scene_detect
         ctx.spend(0.01)
         return "TRANSCRIBE_RESULT"
 
-    monkeypatch.setattr(analyzer, "_run_scene_detection", fake_run_scene_detection)
-    monkeypatch.setattr(analyzer, "_run_transcription", fake_run_transcription)
+    monkeypatch.setattr(analyzer.phases, "_run_scene_detection", fake_run_scene_detection)
+    monkeypatch.setattr(analyzer.phases, "_run_transcription", fake_run_transcription)
 
     try:
         analyzer._run_scene_detection_and_transcription(_context(), 10.0)
@@ -525,8 +525,8 @@ def test_run_scene_detection_and_transcription_scene_error_wins_when_both_fail(m
         transcription_completed["done"] = True
         raise RuntimeError("轉錄也失敗")
 
-    monkeypatch.setattr(analyzer, "_run_scene_detection", fake_run_scene_detection)
-    monkeypatch.setattr(analyzer, "_run_transcription", fake_run_transcription)
+    monkeypatch.setattr(analyzer.phases, "_run_scene_detection", fake_run_scene_detection)
+    monkeypatch.setattr(analyzer.phases, "_run_transcription", fake_run_transcription)
 
     try:
         analyzer._run_scene_detection_and_transcription(_context(), 10.0)
@@ -556,7 +556,7 @@ def test_run_vlm_phase_uses_three_frames_for_every_scene(monkeypatch):
         received.append(frame_fractions)
         return DescribeResult("d", None, 0.0, len(frame_fractions))
 
-    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+    monkeypatch.setattr(analyzer.phases, "_describe_segment_with_retry", fake_describe)
 
     scenes = [
         NormalizedScene(0.0, 10.0, source_raw_duration=10.0),   # 沒被硬切
@@ -588,7 +588,7 @@ def test_vlm_batch_size_keeps_images_in_flight_at_six():
 def test_run_vlm_phase_preserves_scene_order_despite_parallel_completion(monkeypatch):
     """批次內用執行緒平行呼叫，完成的先後順序不保證跟送出順序一樣——結果
     一定要照送出順序組裝，不能被完成順序打亂。"""
-    monkeypatch.setattr(analyzer, "VLM_BATCH_SIZE", 3)
+    monkeypatch.setattr(analyzer.phases, "VLM_BATCH_SIZE", 3)
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
     monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: f"T{s}")
     monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
@@ -598,7 +598,7 @@ def test_run_vlm_phase_preserves_scene_order_despite_parallel_completion(monkeyp
         time.sleep(0.03 * (3 - start_sec))
         return DescribeResult(description=f"D{start_sec}", ocr_text=None, cost_usd=0.0, frame_count=1)
 
-    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+    monkeypatch.setattr(analyzer.phases, "_describe_segment_with_retry", fake_describe)
 
     scenes = [
         NormalizedScene(0.0, 1.0, source_raw_duration=1.0),
@@ -620,7 +620,7 @@ def test_run_vlm_phase_checks_budget_once_per_batch_not_per_scene(monkeypatch):
     """budget 檢查放寬成「整批做完才檢查」：循序版本會在第 2 個場景就因為
     超支停下來，批次版本要等整批（3 個場景）都做完才檢查，所以 3 個全部
     被處理——這是刻意接受的已知取捨，不是 bug。"""
-    monkeypatch.setattr(analyzer, "VLM_BATCH_SIZE", 3)
+    monkeypatch.setattr(analyzer.phases, "VLM_BATCH_SIZE", 3)
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
     monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: "")
     monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
@@ -628,7 +628,7 @@ def test_run_vlm_phase_checks_budget_once_per_batch_not_per_scene(monkeypatch):
     def fake_describe(client, video_path, start_sec, end_sec, frame_fractions):
         return DescribeResult(description="d", ocr_text=None, cost_usd=0.15, frame_count=1)
 
-    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+    monkeypatch.setattr(analyzer.phases, "_describe_segment_with_retry", fake_describe)
 
     scenes = [
         NormalizedScene(0.0, 1.0, source_raw_duration=1.0),
@@ -646,8 +646,8 @@ def test_run_vlm_phase_checks_budget_once_per_batch_not_per_scene(monkeypatch):
 
 def test_run_vlm_phase_stops_at_batch_boundary_when_more_scenes_remain(monkeypatch):
     """第 2 批超支後，第 3 批完全不該開始。"""
-    monkeypatch.setattr(analyzer, "BUDGET_USD", 0.20)  # 固定測試用的門檻，不依賴正式常數的實際值
-    monkeypatch.setattr(analyzer, "VLM_BATCH_SIZE", 2)
+    monkeypatch.setattr(analyzer.context, "BUDGET_USD", 0.20)  # 固定測試用的門檻，不依賴正式常數的實際值
+    monkeypatch.setattr(analyzer.phases, "VLM_BATCH_SIZE", 2)
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
     monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: "")
     monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
@@ -658,7 +658,7 @@ def test_run_vlm_phase_stops_at_batch_boundary_when_more_scenes_remain(monkeypat
         call_count["n"] += 1
         return DescribeResult(description="d", ocr_text=None, cost_usd=0.11, frame_count=1)
 
-    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+    monkeypatch.setattr(analyzer.phases, "_describe_segment_with_retry", fake_describe)
 
     scenes = [
         NormalizedScene(0.0, 1.0, source_raw_duration=1.0),
@@ -682,7 +682,7 @@ def test_run_vlm_phase_stops_at_batch_boundary_when_more_scenes_remain(monkeypat
 def test_run_vlm_phase_isolates_single_scene_failure(monkeypatch):
     """單一場景的 VLM 呼叫失敗（例如內容審查拒絕）不該讓整支分析失敗——
     只跳過那個場景的畫面描述／OCR，字幕跟其他場景不受影響。"""
-    monkeypatch.setattr(analyzer, "VLM_BATCH_SIZE", 3)
+    monkeypatch.setattr(analyzer.phases, "VLM_BATCH_SIZE", 3)
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
     monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: f"字幕{s}")
     monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
@@ -692,7 +692,7 @@ def test_run_vlm_phase_isolates_single_scene_failure(monkeypatch):
             raise RuntimeError("內容審查拒絕")
         return DescribeResult(description=f"D{start_sec}", ocr_text=f"O{start_sec}", cost_usd=0.05, frame_count=1)
 
-    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+    monkeypatch.setattr(analyzer.phases, "_describe_segment_with_retry", fake_describe)
 
     scenes = [
         NormalizedScene(0.0, 1.0, source_raw_duration=1.0),
@@ -717,7 +717,7 @@ def test_run_vlm_phase_isolates_single_scene_failure(monkeypatch):
 
 def test_run_vlm_phase_failure_does_not_trigger_budget_break(monkeypatch):
     """失敗場景的花費算 0，不會誤觸發 budget 截斷。"""
-    monkeypatch.setattr(analyzer, "VLM_BATCH_SIZE", 2)
+    monkeypatch.setattr(analyzer.phases, "VLM_BATCH_SIZE", 2)
     monkeypatch.setattr(analyzer.db, "update_video_status", MagicMock())
     monkeypatch.setattr(analyzer.asr, "text_for_range", lambda segments, s, e: "")
     monkeypatch.setattr(analyzer.asr, "scores_for_range", lambda segments, s, e: _NO_SCORES)
@@ -727,7 +727,7 @@ def test_run_vlm_phase_failure_does_not_trigger_budget_break(monkeypatch):
             raise RuntimeError("失敗")
         return DescribeResult(description="d", ocr_text=None, cost_usd=0.19, frame_count=1)
 
-    monkeypatch.setattr(analyzer, "_describe_segment_with_retry", fake_describe)
+    monkeypatch.setattr(analyzer.phases, "_describe_segment_with_retry", fake_describe)
 
     scenes = [
         NormalizedScene(0.0, 1.0, source_raw_duration=1.0),
@@ -743,7 +743,7 @@ def test_run_vlm_phase_failure_does_not_trigger_budget_break(monkeypatch):
 
 
 def test_describe_segment_with_retry_retries_on_rate_limit_then_succeeds(monkeypatch):
-    monkeypatch.setattr(analyzer, "VLM_RATE_LIMIT_RETRY_WAIT_SEC", 0.0)
+    monkeypatch.setattr(analyzer.phases, "VLM_RATE_LIMIT_RETRY_WAIT_SEC", 0.0)
     monkeypatch.setattr(time, "sleep", lambda _: None)
 
     attempts = {"n": 0}
@@ -763,8 +763,8 @@ def test_describe_segment_with_retry_retries_on_rate_limit_then_succeeds(monkeyp
 
 
 def test_describe_segment_with_retry_gives_up_after_max_retries(monkeypatch):
-    monkeypatch.setattr(analyzer, "VLM_RATE_LIMIT_MAX_RETRIES", 2)
-    monkeypatch.setattr(analyzer, "VLM_RATE_LIMIT_RETRY_WAIT_SEC", 0.0)
+    monkeypatch.setattr(analyzer.phases, "VLM_RATE_LIMIT_MAX_RETRIES", 2)
+    monkeypatch.setattr(analyzer.phases, "VLM_RATE_LIMIT_RETRY_WAIT_SEC", 0.0)
     monkeypatch.setattr(time, "sleep", lambda _: None)
 
     attempts = {"n": 0}

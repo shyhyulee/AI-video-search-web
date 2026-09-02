@@ -1,37 +1,17 @@
-"""分析 pipeline orchestrator：串起場景切分→ASR→逐片段 VLM→建立向量→寫入索引，
-背景執行緒執行、透過 Queue 回報進度（由 services/job_manager.py 的 pump
-thread 讀走、寫進 jobs 表）。
+"""六個 phase 與它們的常數、中間資料列。
 
-只呼叫 asr/vlm/embedding 模組暴露的 provider 無關介面，不直接碰 OpenAI SDK，
-方便之後在各模組內部加入其他供應商實作。
+Phase A（場景切分）／音訊轉錄 → Phase B（VLM 畫面分析）→ Phase C（建立向量）
+→ Phase D（寫入 segments）→ Phase E（本地 OCR）∥ Phase F（整理文件與摘要）。
+每個 phase 只收 `ctx` 加上自己真正需要的參數，不互相呼叫（唯二的例外是刻意
+平行的那兩組：`_run_scene_detection_and_transcription()` 與
+`_run_local_ocr_and_document()`）。
 
-_analyze_worker() 是整支流程的 orchestrator，呼叫下面幾個具名的
-_run_*()／_write_segments() phase 函式，對應 Phase A~F 的邏輯區塊
-（B~F 原本就有對應註解，A／音訊轉錄步驟原本沒有獨立標記，這次一併補上），
-拆出來是為了每個階段的邏輯可以獨立閱讀，不是要改變流程本身。每個 phase 都
-需要的三件事——這次分析的固定輸入（video_id／video_path／client）、進度回報、
-累計花費與預算判斷——集中在 _AnalysisContext，phase 函式只收 `ctx` 加上自己
-真正需要的參數（原本是把 `progress_queue` 一路傳下去、`total_cost` 進出每個
-簽名手工穿線，新增一個 phase 就要記得同時處理三件事才不會漏）。
-
-其中三組互不依賴的 phase 改成同時起跑縮短耗時（Tier 1 平行化，不改變任何
-判斷邏輯／輸出結果，見 docs/02-technical-decisions.md#分析流程平行化）：
-場景切分＋音訊轉錄（_run_scene_detection_and_transcription()）、Phase C
-片段內三個 embedding（_embed_segment_texts()）、本地 OCR＋整理文件
-（_run_local_ocr_and_document()）。其餘 phase 仍然照順序一個一個處理。
-
-Phase B（VLM 逐場景畫面分析）另外做了 Tier 2 平行化：改成逐批次平行送出
-（見 _run_vlm_phase() 與 docs/02-technical-decisions.md#分析流程平行化「Tier 2」）。
-budget 檢查粒度從「每個場景後」放寬成「每個批次後」，是刻意接受的已知取捨；
-批次平行會提高短時間內撞到 OpenAI rate limit 的機率，_describe_segment_with_retry()
-補上重試機制，這是這次平行化的必要配套，不是額外功能。
+只依賴 context 與 events，不認識 worker——流程的順序由 worker 決定。
 """
 from __future__ import annotations
 
 import json
 import logging
-import queue
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -39,49 +19,13 @@ from pathlib import Path
 
 from openai import OpenAI, RateLimitError
 
-from .. import db
-from . import asr, embedding, media, ocr_service, scene_detect, vlm
-from . import document as document_pipeline
-from . import summary as summary_pipeline
-from .openai_client import get_client
+from ... import db
+from .. import asr, embedding, media, ocr_service, scene_detect, vlm
+from .. import document as document_pipeline
+from .. import summary as summary_pipeline
+from .context import _AnalysisContext
 
 logger = logging.getLogger(__name__)
-
-# 預算演進：$0.20 →（VLM 條件式多幀）$0.30 →（長度上限放寬到 1 小時）$0.80 →
-# （**每個片段一律三幀**，見 FRAME_FRACTIONS）**$1.50**，2026-08-31 由使用者拍板。
-#
-# $1.50 的依據，用 v28／v33／v36 實跑反推的每片段費率（幾乎全部是 VLM 的圖片
-# token——embedding 與文件攤到每個片段趨近於零）：
-#
-#   1 幀 $0.00056／段、3 幀 $0.00144／段（實測倍率 2.57，兩支影片一致）
-#   文件另記的最高觀測費率是 $0.0009／段（1 幀），×2.57 = $0.00232／段
-#
-#   情境（密度用結構上限 7.5 段/分）        總計    $1.50 的餘裕
-#   52 分（ASR 的實際上限）· 實測費率        $0.87      42%
-#   52 分 · 最壞費率                        $1.22      19%
-#   60 分（理論上限）· 最壞費率              $1.40       7%
-#   60 分 · 最壞費率 · 無音軌（不花 ASR）    $1.04      31%
-#
-# 60 分鐘那一列的 7% 看起來很緊，但它碰不到——asr._extract_audio() 的 64kbps
-# 換算 Whisper 25MB 上限約 52~55 分鐘，超過就先卡在 ASR（見 MAX_DURATION_SEC）。
-# 實務上限那一列的餘裕是 19%。
-BUDGET_USD = 1.50
-# 原本 20 分鐘，2026-08-26 依使用者要求放寬到 1 小時；BUDGET_USD 同時由 $0.30
-# 調到 $0.80 配合它。$0.80 是依實測 10 支影片（1.0~18.6 分鐘）反推的：
-#
-#   成本 ≈ ASR($0.006/分，asr.PRICE_PER_MINUTE_USD 固定值)
-#          + 每片段 $0.00050~$0.00090（VLM＋embedding＋摘要，實測區間）
-#
-# 60 分鐘影片：實測密度下平均約 $0.55、最壞觀測費率約 $0.70。片段密度不會失控
-# ——scene_detect 會把場景正規化成 8~12 秒（MERGE_BELOW_SEC／SPLIT_ABOVE_SEC），
-# 所以密度的結構上限是 60/8 = 7.5 個/分，快剪內容也一樣。用「結構上限密度 ×
-# 最高觀測每片段費率」算出的最壞情況是 $0.765，仍在 $0.80 內（餘裕僅 4.6%）。
-#
-# 注意：$0.80 不是 60 分鐘影片真正的瓶頸。asr._extract_audio() 固定輸出 64kbps
-# 單聲道 mp3（實測 7,998 bytes/s），Whisper 的 25MB 上傳上限換算後約 52~55
-# 分鐘，且 ASR 例外會讓整支分析失敗（不是略過字幕）。所以超過約 52 分鐘的影片
-# 會先卡在 ASR，不會走到預算判斷。完整推導與實測資料見 docs/11 §8.12。
-MAX_DURATION_SEC = 60 * 60
 
 # **每個片段一律抽三張畫面**，位置在 10%／40%／70%（2026-08-31，P4）。
 #
@@ -123,27 +67,6 @@ VLM_RATE_LIMIT_RETRY_WAIT_SEC = 8.0
 
 
 @dataclass
-class AnalysisProgress:
-    stage: str
-    detail: str = ""
-
-
-@dataclass
-class AnalysisResult:
-    video_id: int
-    segment_count: int
-    cost_usd: float
-    partial: bool
-    vlm_failed_count: int = 0
-
-
-@dataclass
-class AnalysisError:
-    video_id: int
-    message: str
-
-
-@dataclass
 class _SceneAnalysisRow:
     """Phase B（VLM 逐片段畫面分析）單一場景的輸出，Phase C（建立向量）逐筆
     處理。用具名 dataclass、一個場景一筆，不是好幾個平行陣列——避免「新增一
@@ -176,227 +99,6 @@ class _SegmentRow:
     ocr_embedding: bytes | None
     scores: asr.SegmentScores
     frame_count: int
-
-
-class _AnalysisContext:
-    """一次分析從頭到尾共用的東西：固定的輸入（video_id／video_path／video_title／
-    client），加上兩個橫切關注點——進度回報與累計花費／預算判斷。
-
-    抽出來的理由：這兩件事原本靠參數手工穿過每個 phase 函式（`progress_queue`
-    一路往下傳、`total_cost` 進出每個簽名），新增或調整一個 phase 就要同時記得
-    三件事——更新 videos.pipeline_stage、送出 AnalysisProgress、累加並回傳花費
-    ——漏掉任何一件都不會報錯，只會安靜地少一個進度或少算一筆錢。
-    """
-
-    def __init__(
-        self,
-        video_id: int,
-        video_path: Path,
-        client: OpenAI,
-        progress_queue: "queue.Queue[object]",
-        video_title: str = "",
-        initial_cost: float = 0.0,
-    ) -> None:
-        self.video_id = video_id
-        self.video_path = video_path
-        # Phase F 整理文件時要把影片標題放進 prompt（`document.generate_document()`
-        # 的必要輸入）。放進 context 而不是一路傳參數，理由跟 video_path 一樣：
-        # 它是「這次分析的固定輸入」，不是某個 phase 算出來的中間結果。
-        self.video_title = video_title
-        self.client = client
-        self._progress_queue = progress_queue
-        self._initial_cost = initial_cost
-        self._cost = initial_cost
-        # 好幾個 phase 是在背景執行緒裡累加花費（音訊轉錄、本地 OCR），用鎖
-        # 讓 spend() 本身就是安全的，呼叫端不用各自想同步問題。
-        self._lock = threading.Lock()
-
-    # ------------------------------------------------------------------
-    # 花費與預算
-    # ------------------------------------------------------------------
-    @property
-    def total_cost(self) -> float:
-        with self._lock:
-            return self._cost
-
-    @property
-    def spent(self) -> float:
-        """這個 context 自己花掉的金額（不含起始基準），給 merge_branch() 用。"""
-        with self._lock:
-            return self._cost - self._initial_cost
-
-    def spend(self, amount: float) -> None:
-        with self._lock:
-            self._cost += amount
-
-    @property
-    def over_budget(self) -> bool:
-        return self.total_cost > BUDGET_USD
-
-    # ------------------------------------------------------------------
-    # 進度回報
-    # ------------------------------------------------------------------
-    def enter_stage(self, stage: str) -> None:
-        """階段切換：同時寫進 videos.pipeline_stage（重新整理頁面也看得到目前
-        跑到哪）與送出 AnalysisProgress 事件（Job Manager 的 pump thread 會把它
-        寫進 jobs 表）。兩者用同一段文字。"""
-        db.update_video_status(self.video_id, db.STATUS_ANALYZING, stage)
-        self._progress_queue.put(AnalysisProgress(stage=stage))
-
-    def report_progress(self, stage: str, detail: str, *, persist_as: str | None = None) -> None:
-        """階段內的百分比回報。預設只送事件、不寫 DB——這種事件很密集（場景
-        切分／音訊轉錄／本地 OCR 都是），沒必要每次都寫一次資料庫。
-
-        Phase B（畫面分析）是唯一會順便更新 pipeline_stage 的，而且兩邊的文字
-        格式本來就不一樣（DB 寫「畫面分析 40%」一整串，事件是 stage／detail
-        分開兩欄），所以用 persist_as 明確指定要寫進 DB 的字串，不假設兩者相同。
-        """
-        if persist_as is not None:
-            db.update_video_status(self.video_id, db.STATUS_ANALYZING, persist_as)
-        self._progress_queue.put(AnalysisProgress(stage=stage, detail=detail))
-
-    # ------------------------------------------------------------------
-    # 平行分支
-    # ------------------------------------------------------------------
-    def budget_branch(self) -> "_AnalysisContext":
-        """給「互相平行、而且各自都要判斷預算」的 phase 用：回傳一個從目前金額
-        起算、獨立累加的 context。兩個分支互相看不到對方的花費——這正是
-        _run_local_ocr_and_document() 既有的取捨（兩者合計可能比 BUDGET_USD 多出
-        一點點），用 budget_branch() 把它變成明講的機制而不是靠傳參數傳出來的
-        副作用。跑完用 merge_branch() 把增量併回主帳。
-        """
-        return _AnalysisContext(
-            video_id=self.video_id,
-            video_path=self.video_path,
-            client=self.client,
-            progress_queue=self._progress_queue,
-            video_title=self.video_title,
-            initial_cost=self.total_cost,
-        )
-
-    def merge_branch(self, branch: "_AnalysisContext") -> None:
-        """把分支自己花掉的增量併回主帳（不是把分支的總額覆蓋上來）。"""
-        self.spend(branch.spent)
-
-
-def is_within_duration_limit(duration_sec: int | None) -> bool:
-    return duration_sec is not None and duration_sec <= MAX_DURATION_SEC
-
-
-def start_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> threading.Thread:
-    thread = threading.Thread(target=_analyze_worker, args=(video_id, progress_queue), daemon=True)
-    thread.start()
-    return thread
-
-
-def _analyze_worker(video_id: int, progress_queue: "queue.Queue[object]") -> None:
-    """分析執行緒的最外層。唯一的職責是保證「不管發生什麼事，都會送出剛好一個
-    終端事件」（AnalysisResult 或 AnalysisError）。
-
-    這件事是硬需求不是防禦性程式碼：job_manager 的 pump thread 用
-    `queue.get()` 等終端事件、收到才會 break 並釋放分析 slot。少送一次，
-    pump 就永遠停在那裡、slot 永遠不會釋放，**之後每一支影片的分析都會卡在
-    queued，只能重啟伺服器**。實際踩得到的路徑是 `_run_analysis()` 進到自己
-    的 try 之前那幾行（讀影片紀錄、更新狀態、`get_client()`——缺 API 金鑰時
-    OpenAI() 會直接拋）。
-    """
-    try:
-        _run_analysis(video_id, progress_queue)
-    except Exception as exc:
-        # 走到這裡代表 _run_analysis() 內層的 except 沒接到（例如例外發生在它
-        # 自己的 try 之前，或連內層處理本身都失敗了）。訊息用最原始的形式，
-        # 不假設任何前置資料（例如影片標題）拿得到。
-        logger.error("分析執行緒異常結束（video_id=%s）：%s", video_id, exc, exc_info=True)
-        try:
-            db.update_video_status(video_id, db.STATUS_FAILED, f"分析失敗：{exc}")
-        except Exception:
-            logger.error("連標記分析失敗都寫不進資料庫（video_id=%s）", video_id, exc_info=True)
-        progress_queue.put(AnalysisError(video_id=video_id, message=str(exc)))
-
-
-def _run_analysis(video_id: int, progress_queue: "queue.Queue[object]") -> None:
-    video = db.get_video(video_id)
-    if video is None:
-        progress_queue.put(AnalysisError(video_id=video_id, message="找不到這支影片的紀錄"))
-        return
-
-    video_path = Path(video.file_path)
-    if not video_path.exists():
-        db.update_video_status(video_id, db.STATUS_FAILED, "找不到影片檔案")
-        progress_queue.put(AnalysisError(video_id=video_id, message="找不到影片檔案"))
-        return
-
-    # 這個階段切換刻意不透過 ctx：建立 context 需要 client，而 get_client()
-    # 必須留在「場景切分中」寫進 DB／送出事件之後——維持重構前的順序，
-    # get_client() 失敗（例如缺 API 金鑰）時的可觀察狀態才會跟以前一致。
-    db.update_video_status(video_id, db.STATUS_ANALYZING, "場景切分中")
-    progress_queue.put(AnalysisProgress(stage="場景切分中"))
-
-    ctx = _AnalysisContext(
-        video_id=video_id, video_path=video_path, client=get_client(), progress_queue=progress_queue,
-        video_title=video.title,
-    )
-
-    try:
-        duration_sec = float(video.duration_sec or 0)
-
-        scenes, transcribe_result = _run_scene_detection_and_transcription(ctx, duration_sec)
-
-        scene_rows, vlm_failed_count = _run_vlm_phase(ctx, scenes, transcribe_result)
-
-        segment_rows = _run_embedding_phase(ctx, scene_rows)
-
-        segment_ids = _write_segments(ctx, segment_rows)
-
-        segment_count = len(segment_rows)
-        partial = segment_count < len(scenes)
-        # 預算截斷跟「單一場景 VLM 失敗」是兩件互相獨立的事，各自有各自的訊息，
-        # 可能同時發生，用「；」串起來——不能共用同一個 partial 判斷或同一句
-        # 文字，不然使用者會看到誤導的原因（例如明明是內容審查拒絕，卻顯示
-        # 「已達預算上限」），見 docs/00-overview.md#33-整體資料流。
-        stage_notes = []
-        if partial:
-            stage_notes.append(f"已達預算上限（US${BUDGET_USD:.2f}），完成 {segment_count}/{len(scenes)} 片段")
-        if vlm_failed_count:
-            stage_notes.append(f"{vlm_failed_count} 個場景畫面分析失敗，已略過（保留字幕，無畫面描述）")
-        pipeline_stage = "；".join(stage_notes) or None
-
-        # Phase E（本地 OCR）／Phase F（整理文件與摘要）互不依賴，同時起跑縮短
-        # 耗時，見 docs/02-technical-decisions.md#分析流程平行化。本地 OCR 整段
-        # 失敗只記 log、不能讓已經成功的分析結果被判定為失敗，見
-        # docs/02-technical-decisions.md#vlm-與-ocr。
-        document_output = _run_local_ocr_and_document(ctx, segment_rows, segment_ids)
-
-        db.mark_video_analyzed(
-            video_id=video_id,
-            segment_count=segment_count,
-            cost_usd=ctx.total_cost,
-            asr_model=asr.MODEL_NAME,
-            vlm_model=vlm.MODEL_NAME,
-            embedding_model=embedding.MODEL_NAME,
-            pipeline_stage=pipeline_stage,
-            # 文件的花費已經透過 ctx.spend() 進了上面的 cost_usd，所以文件三欄
-            # 跟著這一句一起寫，不能改呼叫 db.update_video_document()——那支是
-            # 累加語意，會把同一次呼叫的錢算兩次。
-            summary=document_output.summary,
-            summary_model=document_output.summary_model,
-            document_json=document_output.document_json,
-            document_type=document_output.document_type,
-            document_model=document_output.document_model,
-        )
-        progress_queue.put(
-            AnalysisResult(
-                video_id=video_id, segment_count=segment_count, cost_usd=ctx.total_cost, partial=partial,
-                vlm_failed_count=vlm_failed_count,
-            )
-        )
-
-    except Exception as exc:  # 分析過程各種例外統一攔截，避免背景執行緒讓整支程式崩潰
-        current = db.get_video(video_id)  # 必須在下面 STATUS_FAILED 覆蓋 pipeline_stage 之前先讀
-        stage_label = (current.pipeline_stage if current else None) or "分析"
-        logger.error("「%s」在「%s」階段分析失敗：%s", video.title, stage_label, exc, exc_info=True)
-        db.update_video_status(video_id, db.STATUS_FAILED, f"分析失敗：{exc}")
-        progress_queue.put(AnalysisError(video_id=video_id, message=str(exc)))
 
 
 def _run_scene_detection(ctx: _AnalysisContext, duration_sec: float) -> list[scene_detect.NormalizedScene]:

@@ -4,7 +4,7 @@
 並把 `docs/02-technical-decisions.md`（Tier 3）「同時只分析一支影片」的
 隱性約束變成顯式機制。詳見 docs/09-web-ui-migration-plan.md 3.2 節。
 
-不改動 `analyzer.py`／`downloader.py` 任何一行既有 threading／併發邏輯：
+不改動 `analyzer`／`downloader.py` 任何一行既有 threading／併發邏輯：
 這裡只是起一條 pump thread，把「原本會被 Tk widget 讀走的 queue 事件」
 改成「寫進 jobs 表」。
 

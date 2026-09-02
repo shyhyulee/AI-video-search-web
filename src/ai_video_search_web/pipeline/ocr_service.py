@@ -2,7 +2,7 @@
 在中點抽一張畫面，見 vlm.py）可能漏掉的文字。純本機運算、不佔 BUDGET_USD，但有
 自己的時間上限，超過就提早結束（best-effort，不是全有全無）。任何一張畫面抽取
 或辨識失敗都只跳過那張，不影響其他畫面或整支影片分析——這個模組不碰資料庫、
-不呼叫 OpenAI，embedding 與寫入 db 由 analyzer.py 負責（跟 vlm.py／asr.py 的
+不呼叫 OpenAI，embedding 與寫入 db 由 analyzer/phases.py 負責（跟 vlm.py／asr.py 的
 責任邊界一致）。
 
 取樣採「回合制」廣度優先：第 1 輪讓每個場景都先拿到 1 張畫面，全部場景輪過
@@ -55,7 +55,7 @@ TIME_BUDGET_SEC = 60.0
 
 @dataclass
 class OcrEventResult:
-    """一個場景內、去重合併後的一筆本地 OCR 事件，供 analyzer.py 產生 embedding
+    """一個場景內、去重合併後的一筆本地 OCR 事件，供 analyzer/phases.py 產生 embedding
     並寫入 ocr_events 表。
     """
     segment_id: int | None

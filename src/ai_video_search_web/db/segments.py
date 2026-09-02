@@ -62,8 +62,8 @@ def create_table(conn: psycopg.Connection) -> None:
             no_speech_prob DOUBLE PRECISION,
             avg_logprob DOUBLE PRECISION,
             compression_ratio DOUBLE PRECISION,
-            -- 這個片段的畫面描述用了幾張畫面產生（1=單幀，2=條件式多幀觸發），見
-            -- pipeline/analyzer.py MULTI_FRAME_TRIGGER_SEC 旁的說明；NULL 代表這筆
+            -- 這個片段的畫面描述用了幾張畫面產生，見 pipeline/analyzer/phases.py 的
+            -- FRAME_FRACTIONS（現在一律三幀；曾經有過單幀／條件式多幀）；NULL 代表這筆
             -- 資料是欄位新增前的舊資料，語意上等同單幀（當時只有單幀取樣）。
             vlm_frame_count INTEGER,
             created_at TEXT NOT NULL,

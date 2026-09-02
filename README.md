@@ -141,7 +141,11 @@ src/ai_video_search_web/
   schemas/         # API 對外 Pydantic 契約
   api/             # FastAPI：main.py + 六個 router（videos／jobs／search／conversations／stats／youtube）
   pipeline/        # 分析與搜尋 pipeline（以下列主要模組，其餘見原始碼）
-    analyzer.py        #   orchestrator：串起場景切分→ASR→VLM→embedding→索引
+    analyzer/          #   orchestrator：串起場景切分→ASR→VLM→embedding→索引
+      events.py        #     進度／結果／錯誤三個事件（與 job_manager 的契約）
+      context.py       #     一次分析共用的進度回報與預算判斷
+      phases.py        #     六個 phase 與它們的常數
+      worker.py        #     執行緒入口與流程順序
     scene_detect.py     #   場景切分（PySceneDetect）
     asr.py               #   語音轉文字（Whisper）＋幻覺字幕過濾
     vlm.py                #   畫面描述＋畫面文字（GPT-4o-mini）
