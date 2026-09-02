@@ -62,7 +62,7 @@ test.describe('五個頁籤', () => {
     { path: '/videos', name: '影片分析', expect: '待分析影片' },
     { path: '/library', name: '影片庫', expect: '影片庫' },
     { path: '/search', name: '片段搜尋', expect: '搜尋' },
-    { path: '/conversation', name: 'AI對話', expect: '這一輪的相關片段' },
+    { path: '/conversation', name: 'AI對話', expect: '尚無結果' },
   ]
 
   for (const t of tabs) {

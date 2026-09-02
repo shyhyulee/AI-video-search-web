@@ -12,6 +12,7 @@ import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { ChatBubble } from '../components/ChatBubble'
 import { EmptyState } from '../components/EmptyState'
+import { EvidencePanel } from '../components/EvidencePanel'
 import { FilterChip } from '../components/FilterChip'
 import { SearchResultCard } from '../components/SearchResultCard'
 import { SearchScopeBar } from '../components/SearchScopeBar'
@@ -73,17 +74,20 @@ function narrowedScopeNote(
   return `｜這一輪只搜了：${titles.join('、')}`
 }
 
-/** 「AI對話」頁面：桌機（≥900px）左右並排——**左：本輪結果與播放器**
- * （播放器在上、結果清單在下，清單自己捲動）；**右：對話訊息流**。≤900px
- * 改回上下排列（對話在上、結果在下），對齊 docs/prompts/10 的響應式規則，也是這頁
- * 原本（Phase 1–4）的版面。
+/** 「AI對話」頁面：桌機（≥900px）左右並排——**左欄是對話訊息流（上半）與相關
+ * 片段清單（下半）**，**右欄是播放器與證據面板**。≤900px 改回上下排列
+ * （對話 → 清單 → 播放器），對齊 docs/prompts/10 的響應式規則。
  *
- * 左右的方向跟 docs/prompts/10 §6.4 原文（「左：對話訊息流；右：結果與播放器」）**相反**，
- * 也跟 docs/05 §8.1 當初照那份原文做的方向相反：2026-09-01 使用者要求對齊影片庫
- * 與搜尋影片——那兩頁都是清單在左、播放器與詳細在右，對話搜尋原本是唯一的例外。
+ * **左右翻過三次，方向的理由每次不同**：§8.1（2026-08-24）照 docs/prompts/10 §6.4
+ * 原文做成「左對話、右結果」；§8.18（2026-09-01）翻成「左結果、右對話」，理由是
+ * 對齊影片庫與片段搜尋那兩頁的「清單在左」；§8.24（2026-09-02）依使用者要求翻回
+ * 現在這個方向，同時把清單搬進左欄下半。附帶好處：桌機的視覺順序終於跟 DOM／
+ * Tab 順序一致（見版面那段註解）。
  *
- * 第一名結果用大版型 Evidence Card，其餘刻意不做 search_tab 那個完整分數
- * 面板（Tkinter 版本身也沒有），重用簡化版播放器。 */
+ * **右欄現在跟「片段搜尋」頁一致**：播放器 →「問這一格」列（這頁獨有）→
+ * `EvidencePanel`（影片標題、時間、三個模態分數、片段描述）。原本這頁刻意不做
+ * 分數面板（Tkinter 版沒有），2026-09-02 依使用者要求補上，兩頁的右欄因此只差
+ * 那一列停格提問。 */
 export function ConversationPage() {
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([{ speaker: 'assistant', text: GREETING }])
@@ -224,116 +228,94 @@ export function ConversationPage() {
   const askingFrame = frameMode && canAskFrame
 
   return (
-    <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row-reverse">
-      {/* 主從版面一律左右各半（md:w-1/2），跟影片庫／搜尋影片同一個比例，
-          切換頁籤時分隔線不會左右跳動。改比例要三頁一起改。
+    <div className="flex h-full flex-col gap-4 md:min-h-0 md:flex-row">
+      {/* 左右各半（md:w-1/2）：**左欄是對話框（上半）與相關片段清單（下半）**，
+          **右欄只有播放器**。跟「片段搜尋」頁同一個安排（左：輸入與清單／右：播放器），
+          三頁的 md:w-1/2 比例仍然一致。
 
-          用 `md:flex-row-reverse` 換左右，而不是把兩塊在 JSX 裡對調：對調會連
-          ≤900px 的上下順序一起翻過去，變成結果在上、對話（含輸入框）在下，而
-          docs/prompts/10 的響應式規則要的是「對話在上、結果在下」，那不在這次要求的範圍
-          內。DOM 順序維持「對話 → 結果」也是語意上正確的順序（先輸入、後結果），
-          螢幕閱讀器與 Tab 都照這個走；代價是桌機的視覺順序與 Tab 順序相反。 */}
-      <Card className="flex w-full min-w-0 max-h-[70vh] flex-col md:min-h-0 md:w-1/2 md:max-h-none">
-        <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
-          {messages.map((m, i) => (
-            <ChatBubble
-              key={i}
-              speaker={m.speaker}
-              text={m.text}
-              frameLabel={m.frameSec === undefined ? undefined : formatTimestamp(m.frameSec)}
-            />
-          ))}
-          {showSuggestions && (
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTED_PROMPTS.map((prompt) => (
-                <FilterChip key={prompt} label={prompt} onClick={() => sendMessage(prompt)} />
-              ))}
+          對話框用 `md:h-1/2` 固定佔左欄一半，清單 `md:flex-1` 吃掉剩下的：兩者都要能
+          獨立捲動，各給一半比讓它們互相擠壓好預測。窄螢幕維持 `max-h-[70vh]`。
+
+          方向由 `md:flex-row` 決定、兩塊在 JSX 裡不對調——對調會連 ≤900px 的上下順序
+          一起翻過去，而 docs/prompts/10 的響應式規則要的是「對話在上、結果在下」。
+          ≤900px 的順序因此是：對話 → 相關片段 → 播放器（播放器從第二位移到最後，
+          這是清單搬到左欄的連帶結果）。 */}
+      <div className="flex w-full min-w-0 flex-col gap-4 md:min-h-0 md:w-1/2">
+        <Card className="flex max-h-[70vh] flex-col md:h-1/2 md:min-h-0 md:max-h-none">
+          <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto">
+            {messages.map((m, i) => (
+              <ChatBubble
+                key={i}
+                speaker={m.speaker}
+                text={m.text}
+                frameLabel={m.frameSec === undefined ? undefined : formatTimestamp(m.frameSec)}
+              />
+            ))}
+            {showSuggestions && (
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTED_PROMPTS.map((prompt) => (
+                  <FilterChip key={prompt} label={prompt} onClick={() => sendMessage(prompt)} />
+                ))}
+              </div>
+            )}
+          </div>
+          {/* 跟「片段搜尋」頁共用同一份範圍，所以這裡也要看得到、也能移除。 */}
+          <SearchScopeBar className="mt-2" />
+          <p className="mt-2 text-xs text-text-muted">
+            {stats
+              ? stats.analyzed_count > 0
+                ? `已連接 ${stats.analyzed_count} 支影片索引`
+                : '尚未有已分析完成的影片，先在「影片分析」頁籤加入並分析影片'
+              : ' '}
+          </p>
+          {askingFrame && (
+            <div className="mt-2 flex items-center gap-2 rounded-xl border border-primary bg-primary-soft px-3 py-2 text-sm">
+              <span className="font-bold text-primary-hover">
+                針對畫面 {formatTimestamp(playerSec)} 提問
+              </span>
+              <span className="min-w-0 flex-1 truncate text-text-secondary">{selected?.video_title}</span>
+              <button
+                type="button"
+                onClick={() => setFrameMode(false)}
+                className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-text-secondary hover:bg-sand"
+              >
+                取消
+              </button>
             </div>
           )}
-        </div>
-        {/* 跟「片段搜尋」頁共用同一份範圍，所以這裡也要看得到、也能移除。 */}
-        <SearchScopeBar className="mt-2" />
-        <p className="mt-2 text-xs text-text-muted">
-          {stats
-            ? stats.analyzed_count > 0
-              ? `已連接 ${stats.analyzed_count} 支影片索引`
-              : '尚未有已分析完成的影片，先在「影片分析」頁籤加入並分析影片'
-            : ' '}
-        </p>
-        {askingFrame && (
-          <div className="mt-2 flex items-center gap-2 rounded-xl border border-primary bg-primary-soft px-3 py-2 text-sm">
-            <span className="font-bold text-primary-hover">
-              針對畫面 {formatTimestamp(playerSec)} 提問
-            </span>
-            <span className="min-w-0 flex-1 truncate text-text-secondary">{selected?.video_title}</span>
-            <button
-              type="button"
-              onClick={() => setFrameMode(false)}
-              className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-text-secondary hover:bg-sand"
+          <form onSubmit={onSubmit} className="mt-1 flex shrink-0 items-end gap-2">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onComposerKeyDown}
+              disabled={(conversationId === null && !askingFrame) || busy}
+              rows={2}
+              placeholder={
+                askingFrame
+                  ? '問這一格畫面，例如：畫面中有幾個人？'
+                  : '輸入想找的內容，Enter 送出、Shift+Enter 換行'
+              }
+              className="flex-1 resize-none rounded-xl border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none disabled:opacity-60"
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={(conversationId === null && !askingFrame) || busy}
             >
-              取消
-            </button>
-          </div>
-        )}
-        <form onSubmit={onSubmit} className="mt-1 flex shrink-0 items-end gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onComposerKeyDown}
-            disabled={(conversationId === null && !askingFrame) || busy}
-            rows={2}
-            placeholder={
-              askingFrame
-                ? '問這一格畫面，例如：畫面中有幾個人？'
-                : '輸入想找的內容，Enter 送出、Shift+Enter 換行'
-            }
-            className="flex-1 resize-none rounded-xl border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none disabled:opacity-60"
-          />
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={(conversationId === null && !askingFrame) || busy}
-          >
-            送出
-          </Button>
-        </form>
-        {statusText && (
-          <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
-            {statusText}
-          </p>
-        )}
-      </Card>
-
-      <div className="flex w-full min-w-0 flex-col gap-4 md:min-h-0 md:w-1/2">
-        <Card className="w-full">
-          {selected ? (
-            <>
-              <VideoPlayer
-                videoId={selected.video_id}
-                startSec={selected.start_sec}
-                title={selected.video_title}
-                autoPlay={playOnSelect}
-                onTimeChange={(sec) => setPlayerSec(Math.floor(sec))}
-              />
-              {/* 停在想問的那一格再按。按鈕留在播放器旁邊而不是輸入框旁邊：
-                  使用者的注意力在畫面上，而「這一格」指的就是他正在看的東西。 */}
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <span className="text-xs text-text-muted">目前 {formatTimestamp(playerSec)}</span>
-                <Button
-                  variant={askingFrame ? 'primary' : 'secondary'}
-                  onClick={() => setFrameMode((prev) => !prev)}
-                >
-                  {askingFrame ? '結束畫面提問' : `問這一格（${formatTimestamp(playerSec)}）`}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <EmptyState title="尚未選取片段" />
+              送出
+            </Button>
+          </form>
+          {statusText && (
+            <p className="mt-1 text-sm text-text-secondary" aria-live="polite">
+              {statusText}
+            </p>
           )}
         </Card>
 
-        <Card className="flex w-full flex-col md:min-h-0 md:flex-1">
-          <h2 className="mb-3 text-base font-bold text-text-primary">這一輪的相關片段</h2>
+        {/* 清單跟「片段搜尋」頁完全一樣：沒有標題列、每一筆都是同一種緊湊列。
+            原本第一名用大版型 Evidence Card（`featured`）並標「最相關片段」，
+            2026-09-02 依使用者要求拿掉——兩頁的結果清單現在長得一模一樣。 */}
+        <Card className="flex flex-col md:min-h-0 md:flex-1">
           <div className="md:min-h-0 md:flex-1 md:overflow-auto">
             {results.length === 0 ? (
               <EmptyState title="尚無結果" hints={['開始對話以取得相關片段']} />
@@ -343,7 +325,6 @@ export function ConversationPage() {
                   key={r.segment_id}
                   result={r}
                   rank={index + 1}
-                  featured={index === 0}
                   selected={index === selectedIndex}
                   onSelect={() => pick(index)}
                 />
@@ -352,6 +333,39 @@ export function ConversationPage() {
           </div>
         </Card>
       </div>
+
+      <Card className="flex w-full min-w-0 flex-col md:min-h-0 md:w-1/2 md:overflow-auto">
+        {selected ? (
+          <>
+            <VideoPlayer
+              videoId={selected.video_id}
+              startSec={selected.start_sec}
+              title={selected.video_title}
+              autoPlay={playOnSelect}
+              onTimeChange={(sec) => setPlayerSec(Math.floor(sec))}
+            />
+            {/* 停在想問的那一格再按。按鈕留在播放器旁邊而不是輸入框旁邊：
+                使用者的注意力在畫面上，而「這一格」指的就是他正在看的東西。
+                這一列是這頁**獨有**的，片段搜尋沒有；其餘往下的內容兩頁一致。 */}
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-xs text-text-muted">目前 {formatTimestamp(playerSec)}</span>
+              <Button
+                variant={askingFrame ? 'primary' : 'secondary'}
+                onClick={() => setFrameMode((prev) => !prev)}
+              >
+                {askingFrame ? '結束畫面提問' : `問這一格（${formatTimestamp(playerSec)}）`}
+              </Button>
+            </div>
+            {/* 播放器下方跟「片段搜尋」頁同一塊（影片標題、時間、三個模態分數、
+                片段描述）。原本這頁只有播放器，選了片段之後看不到它為什麼被選上。 */}
+            <div className="mt-3">
+              <EvidencePanel result={selected} />
+            </div>
+          </>
+        ) : (
+          <EmptyState title="尚未選取片段" />
+        )}
+      </Card>
     </div>
   )
 }

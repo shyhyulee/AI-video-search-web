@@ -106,7 +106,9 @@ test.describe('AI對話：一輪對話', () => {
     await send(page, '晶片工廠')
 
     await expect(page.getByText('找到 2 個相關片段。')).toBeVisible()
-    await expect(page.getByText('第一個片段的畫面描述')).toBeVisible()
+    // 描述會出現兩次：左欄清單一次、右欄證據面板一次（§8.24 之後右欄跟片段搜尋
+    // 一樣有 EvidencePanel），所以要指名第一個。
+    await expect(page.getByText('第一個片段的畫面描述').first()).toBeVisible()
 
     // 自動選第一名：播放器直接出現，不必先點卡片
     await expect(player(page)).toBeVisible()
