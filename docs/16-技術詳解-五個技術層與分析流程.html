@@ -397,7 +397,7 @@
 
       <div class="f">
         <span class="fl">在本專案負責什麼</span>
-        <p>五個頁籤（YouTube 搜尋、影片與分析、影片庫、搜尋影片、對話搜尋）各是一個 page 元件，共用 <code>components/</code> 下的卡片、按鈕、播放器。整個應用的組裝在 <code>App.tsx</code>。</p>
+        <p>五個頁籤（新增影片、影片分析、影片庫、片段搜尋、AI對話）各是一個 page 元件，共用 <code>components/</code> 下的卡片、按鈕、播放器。整個應用的組裝在 <code>App.tsx</code>。</p>
         <p>比較特別的是<b>頁籤切換的方式</b>。這個專案<u>沒有用 <code>&lt;Routes&gt;</code></u>，而是自己寫了一層 keep-alive：每個造訪過的頁籤都留在 DOM 裡，只是非作用中的被隱藏起來。</p>
         <figure class="code">
           <figcaption>frontend/src/App.tsx:76-92</figcaption>
@@ -435,7 +435,7 @@
             </tbody>
           </table>
         </div>
-        <p><b>延遲掛載</b>值得單獨講：頁籤要造訪過才會被掛載，第一次點進去才付出初始化成本（「對話搜尋」會建立一筆 conversation、「影片庫」會拉整份清單），之後就一直留著。</p>
+        <p><b>延遲掛載</b>值得單獨講：頁籤要造訪過才會被掛載，第一次點進去才付出初始化成本（「AI對話」會建立一筆 conversation、「影片庫」會拉整份清單），之後就一直留著。</p>
         <figure class="code">
           <figcaption>frontend/src/App.tsx:30-33</figcaption>
 <pre><span class="k">const</span> [mountedPaths, setMountedPaths] = useState&lt;string[]&gt;([])
@@ -448,7 +448,7 @@
 
       <div class="f">
         <span class="fl">為什麼是這個做法</span>
-        <p>用 <code>&lt;Routes&gt;</code> 的話，切頁籤＝卸載舊頁、掛載新頁，所有 state 歸零。對這個應用來說代價太高：使用者在「搜尋影片」打完關鍵字、看了結果，切去「影片庫」確認一件事再切回來，結果全沒了要重搜一次（而且重搜要花錢）。keep-alive 是為了這個場景。</p>
+        <p>用 <code>&lt;Routes&gt;</code> 的話，切頁籤＝卸載舊頁、掛載新頁，所有 state 歸零。對這個應用來說代價太高：使用者在「片段搜尋」打完關鍵字、看了結果，切去「影片庫」確認一件事再切回來，結果全沒了要重搜一次（而且重搜要花錢）。keep-alive 是為了這個場景。</p>
       </div>
 
       <div class="f">
@@ -1230,7 +1230,7 @@ _try_dispatch_next_analysis()</pre>
 
       <div class="f">
         <span class="fl">在本專案負責什麼</span>
-        <p>兩件事：<b>下載影片</b>（<code>downloader.py</code>）與<b>搜尋 YouTube</b>（<code>services/youtube_search_service.py</code>，「YouTube 搜尋」頁籤的資料來源）。下載跑在背景執行緒，透過 <code>queue.Queue</code> 回報進度，本身不碰資料庫、不知道 job 的存在。</p>
+        <p>兩件事：<b>下載影片</b>（<code>downloader.py</code>）與<b>搜尋 YouTube</b>（<code>services/youtube_search_service.py</code>，「新增影片」頁籤的資料來源）。下載跑在背景執行緒，透過 <code>queue.Queue</code> 回報進度，本身不碰資料庫、不知道 job 的存在。</p>
       </div>
 
       <div class="f">
@@ -2412,7 +2412,7 @@ sparse_order = sorted(sparse.items(), key=<span class="k">lambda</span> kv: kv[1
 
       <div class="f">
         <span class="fl">前端看到的樣子</span>
-        <p>「影片與分析」頁與「影片庫」頁各自輪詢 <code>/api/v1/jobs</code>（見 <a href="#a-l1-05">L1-05</a>）。因為進度在資料庫裡，<b>重新整理頁面、換一個分頁、甚至換一台裝置開，都看得到同一個進度</b>。這是把事件落地換來的直接好處。</p>
+        <p>「影片分析」頁與「影片庫」頁各自輪詢 <code>/api/v1/jobs</code>（見 <a href="#a-l1-05">L1-05</a>）。因為進度在資料庫裡，<b>重新整理頁面、換一個分頁、甚至換一台裝置開，都看得到同一個進度</b>。這是把事件落地換來的直接好處。</p>
         <div class="note">
           <span class="t">進度是雙寫的</span>
           <p>analyzer 的 <code>enter_stage()</code> 同時做兩件事：更新 <code>videos.pipeline_stage</code>（影片自己的狀態）＋送出 <code>AnalysisProgress</code> 事件（工作的狀態）。前者讓「影片庫」的列直接顯示階段，後者讓「工作」的進度條動。兩邊的文字格式本來就不一樣，不是重複（<code>pipeline/analyzer.py:222-239</code>）。</p>
@@ -2478,7 +2478,7 @@ sparse_order = sorted(sparse.items(), key=<span class="k">lambda</span> kv: kv[1
         <div class="tw">
           <table>
             <tbody>
-              <tr><td><b>輸入</b></td><td>一個 YouTube 網址（或使用者從「YouTube 搜尋」頁加入的影片）</td></tr>
+              <tr><td><b>輸入</b></td><td>一個 YouTube 網址（或使用者從「新增影片」頁加入的影片）</td></tr>
               <tr><td><b>處理</b></td><td>yt-dlp 下載 720p mp4 到 <code>video/job-{job_id}/</code></td></tr>
               <tr><td><b>輸出</b></td><td>本機 mp4 檔、標題、長度</td></tr>
               <tr><td><b>落到哪</b></td><td><code>videos</code> 表新增一列（<code>register_downloaded_video()</code>），狀態 pending</td></tr>
@@ -2486,7 +2486,7 @@ sparse_order = sorted(sparse.items(), key=<span class="k">lambda</span> kv: kv[1
             </tbody>
           </table>
         </div>
-        <p>下載是<b>獨立的 job type</b>，跟分析分開（見 <a href="#b-1">§1</a>）。下載完成不會自動開始分析——影片會停在 pending，等使用者在「影片與分析」頁按下分析。</p>
+        <p>下載是<b>獨立的 job type</b>，跟分析分開（見 <a href="#b-1">§1</a>）。下載完成不會自動開始分析——影片會停在 pending，等使用者在「影片分析」頁按下分析。</p>
       </div>
 
       <div class="f">

@@ -399,7 +399,7 @@ def test_list_library_videos_includes_analyzed_and_failed_excludes_pending(temp_
 
 
 def test_list_unanalyzed_videos_returns_pending_and_analyzing(temp_db):
-    """分析中的影片必須留在「影片與分析」的清單裡。漏掉 analyzing 的話，影片
+    """分析中的影片必須留在「影片分析」的清單裡。漏掉 analyzing 的話，影片
     會在整段分析期間從待分析清單與影片庫同時消失。"""
     pending_id = _make_video(title="pending")
     analyzing_id = _make_video(title="analyzing")

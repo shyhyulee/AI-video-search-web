@@ -33,7 +33,7 @@ const STATUS_FILTERS: { key: FilterKind; label: string }[] = [
   { key: 'failed', label: '分析失敗' },
 ]
 
-/** 重新分析進行中時，清單與 job 狀態的重取間隔。跟「影片與分析」頁同一個
+/** 重新分析進行中時，清單與 job 狀態的重取間隔。跟「影片分析」頁同一個
  * 節奏——那頁的說明見 VideosPage 的 LIST_POLL_MS。 */
 const LIBRARY_POLL_MS = 3000
 
@@ -45,7 +45,7 @@ const SORT_LABEL: Record<SortColumn, string> = {
 }
 
 // analyzing 也會出現在影片庫：分析成功過的影片按「重新分析」時留在原地跑完，
-// 不會跳去「影片與分析」再跳回來（見後端 db.list_library_videos()）。
+// 不會跳去「影片分析」再跳回來（見後端 db.list_library_videos()）。
 const STATUS_LABEL: Record<string, string> = {
   analyzed: '分析完成',
   failed: '分析失敗',
@@ -58,19 +58,19 @@ const STATUS_LABEL: Record<string, string> = {
 export function LibraryPage() {
   const [filter, setFilter] = useState<FilterKind>('all')
   const [category, setCategory] = useState<VideoCategory | 'all'>('all')
-  // 庫內搜尋：邊打邊篩，不用送出。它跟「搜尋影片」頁的語意檢索是兩件事——
+  // 庫內搜尋：邊打邊篩，不用送出。它跟「片段搜尋」頁的語意檢索是兩件事——
   // 只比對已經在手上的標題與摘要，不打 API、不跳頁，見 docs/11 §8.17.5。
   const [query, setQuery] = useState('')
   const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
   const [sortReverse, setSortReverse] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  // 勾選成搜尋範圍的影片。用 Set 而不是陣列，跟「影片與分析」頁的批次勾選
+  // 勾選成搜尋範圍的影片。用 Set 而不是陣列，跟「影片分析」頁的批次勾選
   // 一致（見 VideosPage 的 toggleSelected）。刻意不設數量上限——VideosPage
   // 的上限是分析成本天花板，搜尋範圍沒有這個成本（查詢向量只 embed 一次）。
   const [picked, setPicked] = useState<Set<number>>(new Set())
   // navigate 只剩「在此／在選取影片內搜尋」在用（設好共用的搜尋範圍後跳到
-  // 「搜尋影片」頁）；這頁上方原本那條自由文字搜尋列已移除，搜尋一律在
-  // 「搜尋影片」頁進行。
+  // 「片段搜尋」頁）；這頁上方原本那條自由文字搜尋列已移除，搜尋一律在
+  // 「片段搜尋」頁進行。
   // 觀看模式：點文件裡的步驟時間戳進去，左播放器、右摘要與文件（見
   // VideoWatchView）。存的是「哪一支影片的第幾秒」，null＝正常的清單版面。
   //
@@ -96,7 +96,7 @@ export function LibraryPage() {
       query.state.data?.some((v) => v.status === 'analyzing') ? LIBRARY_POLL_MS : false,
   })
 
-  // 重新分析的進度來源。跟「影片與分析」頁共用同一個 query key，兩頁只會有
+  // 重新分析的進度來源。跟「影片分析」頁共用同一個 query key，兩頁只會有
   // 一份快取、一組請求；重新整理後也是靠它把進行中的工作接回來。
   const { data: activeJobs } = useQuery({
     queryKey: activeJobsKey('analysis'),
@@ -328,7 +328,7 @@ export function LibraryPage() {
               ))
             )}
           </div>
-          {/* 動作列放最底下，跟「影片與分析」頁的批次動作列同一個位置。刻意
+          {/* 動作列放最底下，跟「影片分析」頁的批次動作列同一個位置。刻意
               不往上加第四列控制項——左欄上方已經有「標題＋狀態／排序」「庫內
               搜尋」「主題 chips」三列，半版寬（§8.10）再加就塞爆了。 */}
           <div className="mt-2 flex flex-wrap gap-2 border-t border-border pt-2">
@@ -395,13 +395,13 @@ function emptyStateText({
   if (libraryEmpty) {
     return {
       title: '影片庫還沒有任何影片',
-      hints: ['先到「YouTube 搜尋」頁加入影片，再到「影片與分析」頁分析'],
+      hints: ['先到「新增影片」頁加入影片，再到「影片分析」頁分析'],
     }
   }
   if (query !== '') {
     return {
       title: `找不到符合「${query}」的影片`,
-      hints: ['這裡只比對影片的標題與摘要', '要在影片內容裡找片段，請用「搜尋影片」頁'],
+      hints: ['這裡只比對影片的標題與摘要', '要在影片內容裡找片段，請用「片段搜尋」頁'],
     }
   }
   if (category !== 'all') {

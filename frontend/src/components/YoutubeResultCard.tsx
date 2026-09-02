@@ -19,11 +19,11 @@ interface YoutubeResultCardProps {
 
 /** YouTube 搜尋結果卡片：收合時只有縮圖／標題／頻道資訊，「播放」就地把縮圖
  * 換成 YouTube 內嵌播放器（不用離開這一頁確認影片內容），「加入待分析」把影片
- * 下載進來排進「影片與分析」頁的待分析清單，點「查看詳情」在卡片內就地展開
+ * 下載進來排進「影片分析」頁的待分析清單，點「查看詳情」在卡片內就地展開
  * 網址與說明（不用 Modal，窄螢幕不會擋住畫面）。
  *
  * 這張卡片**只負責下載、不觸發分析**：分析要花錢、也需要挑選要不要跑，一律
- * 留在「影片與分析」頁由使用者勾選後統一送出，這頁維持「挑片」的單一職責。
+ * 留在「影片分析」頁由使用者勾選後統一送出，這頁維持「挑片」的單一職責。
  *
  * 展開／播放／下載狀態都放在卡片內部，多張可以同時進行；外層 grid 記得加
  * items-start，不然展開一張會把同一列其他卡片一起撐高。 */
@@ -76,7 +76,7 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
   useJobSettlement([downloadJob], ([job]) => {
     if (job.status === 'completed') {
       // 下載完成 = 影片已經以 pending 狀態進 DB，刷新「待分析影片」清單與
-      // Header 統計卡；分析要不要跑、什麼時候跑，交給「影片與分析」頁決定。
+      // Header 統計卡；分析要不要跑、什麼時候跑，交給「影片分析」頁決定。
       queryClient.invalidateQueries({ queryKey: pendingVideosKey() })
       queryClient.invalidateQueries({ queryKey: statsKey() })
       setAdded(true)
@@ -91,7 +91,7 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
 
   const progressText = (() => {
     if (failure) return failure
-    if (added) return '✓ 已加入「影片與分析」待分析清單'
+    if (added) return '✓ 已加入「影片分析」待分析清單'
     if (downloadMutation.isPending) return '準備下載…'
     if (busy) return downloadJob?.progress_message ?? '下載中…'
     return ''

@@ -1,5 +1,5 @@
 """YouTube 搜尋 Application Service：用 yt-dlp 的 `ytsearch{n}:` 前綴查詢
-YouTube，回傳影片 metadata 清單，供「YouTube 搜尋」頁使用。
+YouTube，回傳影片 metadata 清單，供「新增影片」頁使用。
 
 刻意不引入 YouTube Data API v3：yt-dlp 已經是本專案的相依套件（downloader.py
 在用），`ytsearch40:` 實測 1.5 秒就能拿到 40 筆含標題／網址／時長／頻道／

@@ -72,7 +72,7 @@ function narrowedScopeNote(
   return `｜這一輪只搜了：${titles.join('、')}`
 }
 
-/** 「對話搜尋」頁面：桌機（≥900px）左右並排——**左：本輪結果與播放器**
+/** 「AI對話」頁面：桌機（≥900px）左右並排——**左：本輪結果與播放器**
  * （播放器在上、結果清單在下，清單自己捲動）；**右：對話訊息流**。≤900px
  * 改回上下排列（對話在上、結果在下），對齊 docs/10 的響應式規則，也是這頁
  * 原本（Phase 1–4）的版面。
@@ -101,7 +101,7 @@ export function ConversationPage() {
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const { data: stats } = useQuery({ queryKey: statsKey(), queryFn: getStats })
-  // 搜尋範圍跟「搜尋影片」頁共用同一份（在影片庫勾選），見 lib/useSearchScope.tsx。
+  // 搜尋範圍跟「片段搜尋」頁共用同一份（在影片庫勾選），見 lib/useSearchScope.tsx。
   const { videoIds: scopeVideoIds } = useSearchScope()
   // 只為了把回報的範圍 id 換成標題。跟 LibraryPage／SearchScopeBar 同一個
   // query key，react-query 共用快取、不會多打一次 API。
@@ -250,13 +250,13 @@ export function ConversationPage() {
             </div>
           )}
         </div>
-        {/* 跟「搜尋影片」頁共用同一份範圍，所以這裡也要看得到、也能移除。 */}
+        {/* 跟「片段搜尋」頁共用同一份範圍，所以這裡也要看得到、也能移除。 */}
         <SearchScopeBar className="mt-2" />
         <p className="mt-2 text-xs text-text-muted">
           {stats
             ? stats.analyzed_count > 0
               ? `已連接 ${stats.analyzed_count} 支影片索引`
-              : '尚未有已分析完成的影片，先在「影片與分析」頁籤加入並分析影片'
+              : '尚未有已分析完成的影片，先在「影片分析」頁籤加入並分析影片'
             : ' '}
         </p>
         {askingFrame && (

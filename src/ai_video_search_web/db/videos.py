@@ -137,13 +137,13 @@ def find_by_source_url(source_url: str) -> VideoRecord | None:
 
 # 一支影片在任何時刻都恰好屬於兩個清單的其中一個。分界是 analyzed_at：
 # 有值＝這支影片已經產出過可搜尋的結果，永遠屬於影片庫；沒有值＝還沒產出過，
-# 屬於「影片與分析」。status 只決定那一列長什麼樣子，不決定它在哪一頁。
+# 屬於「影片分析」。status 只決定那一列長什麼樣子，不決定它在哪一頁。
 #
 # 這條規則是為了讓 analyzing 有地方去。原本的切法是「pending 在工作區、
 # analyzed／failed 在影片庫」，中間的 analyzing 兩邊都不收——analyzer 一開始
 # 跑就把狀態改成 analyzing，影片會在整段分析期間（實測 43～93 秒）從兩個頁籤
 # 同時消失，連那一列上的進度顯示一起帶走。分成兩種 analyzing 之後：
-#   第一次分析（analyzed_at IS NULL）→ 留在「影片與分析」原地跑完
+#   第一次分析（analyzed_at IS NULL）→ 留在「影片分析」原地跑完
 #   重新分析（analyzed_at IS NOT NULL）→ 留在「影片庫」原地跑完
 _UNANALYZED_WHERE = f"(status = '{STATUS_PENDING}' OR (status = '{STATUS_ANALYZING}' AND analyzed_at IS NULL))"
 _LIBRARY_WHERE = (
@@ -153,7 +153,7 @@ _LIBRARY_WHERE = (
 
 
 def list_unanalyzed_videos() -> list[VideoRecord]:
-    """「影片與分析」頁籤用：還沒產出過分析結果的影片（pending＋第一次分析中）。"""
+    """「影片分析」頁籤用：還沒產出過分析結果的影片（pending＋第一次分析中）。"""
     with get_connection() as conn:
         rows = conn.execute(
             f"SELECT * FROM videos WHERE {_UNANALYZED_WHERE} ORDER BY created_at DESC"
@@ -197,7 +197,7 @@ def list_analyzed_videos() -> list[VideoRecord]:
 def list_library_videos() -> list[VideoRecord]:
     """「影片庫」頁籤用：分析完成、分析失敗，以及正在重新分析的影片。
 
-    重新分析中的影片留在這裡（不是跳回「影片與分析」再跳回來）：它的舊
+    重新分析中的影片留在這裡（不是跳回「影片分析」再跳回來）：它的舊
     segments 還在、還搜得到，對使用者來說它一直都是庫裡的影片，只是正在
     更新。見 _UNANALYZED_WHERE 上面那段分界說明。
     """

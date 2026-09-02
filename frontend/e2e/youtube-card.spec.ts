@@ -79,7 +79,7 @@ test('下載成功後卡片顯示已加入，且只收尾一次', async ({ page 
 
   await page.getByRole('button', { name: '加入待分析' }).click()
 
-  await expect(page.getByText('✓ 已加入「影片與分析」待分析清單')).toBeVisible()
+  await expect(page.getByText('✓ 已加入「影片分析」待分析清單')).toBeVisible()
   // 完成通知只跳一則。輪詢會把 completed 讀到很多次，去重壞掉的話會疊出好幾則。
   await expect(page.getByText(`已把「${ITEM.title}」加入待分析清單`)).toHaveCount(1)
 
@@ -98,7 +98,7 @@ test('下載失敗時顯示錯誤訊息，不顯示已加入', async ({ page }) 
   await page.getByRole('button', { name: '加入待分析' }).click()
 
   await expect(page.getByText(/下載失敗：這是假的下載失敗訊息/)).toBeVisible()
-  await expect(page.getByText('✓ 已加入「影片與分析」待分析清單')).toHaveCount(0)
+  await expect(page.getByText('✓ 已加入「影片分析」待分析清單')).toHaveCount(0)
 })
 
 test('影片已經在庫裡時給的是看得懂的話，不是後端原始訊息', async ({ page }) => {

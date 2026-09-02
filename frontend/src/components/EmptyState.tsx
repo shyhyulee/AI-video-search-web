@@ -5,7 +5,7 @@ interface EmptyStateProps {
   hints?: string[]
   icon?: ReactNode
   /** 選填的行動點（按鈕或連結）。用在「這個空狀態要靠別的頁面才能解掉」的
-   * 情境，例如待分析清單空了要去「YouTube 搜尋」頁加影片。 */
+   * 情境，例如待分析清單空了要去「新增影片」頁加影片。 */
   action?: ReactNode
 }
 

@@ -40,7 +40,7 @@ def _get_video_or_raise(video_id: int) -> video_service.VideoRecord:
 
 @router.get("", response_model=list[VideoOut])
 def list_videos(status: str | None = None) -> list[VideoOut]:
-    # `status=pending` ＝「影片與分析」頁的清單，包含 pending 與 analyzing 兩種
+    # `status=pending` ＝「影片分析」頁的清單，包含 pending 與 analyzing 兩種
     # 狀態（查詢字串沿用 pending 這個值，語意是「還沒進影片庫」）；不給 status
     # ＝「影片庫」的 analyzed／failed。分析中的影片一定要留在前者，否則會在整段
     # 分析期間從兩個頁籤同時消失，見 db.list_unanalyzed_videos()。
@@ -98,7 +98,7 @@ def analyze_video(video_id: int) -> JobOut:
 def reanalyze_video(video_id: int) -> JobOut:
     """重新分析。狀態怎麼切、舊結果什麼時候清，見
     `video_service.prepare_reanalysis()`——重點是分析成功過的影片會留在影片庫
-    原地跑完，不會跳去「影片與分析」再跳回來，舊片段也還搜得到。"""
+    原地跑完，不會跳去「影片分析」再跳回來，舊片段也還搜得到。"""
     _get_video_or_raise(video_id)
     job_id = job_manager.submit_analysis(video_id, reanalysis=True)
     return JobOut.from_record(job_manager.get_job_or_raise(job_id))
@@ -158,7 +158,7 @@ def ask_about_frame(video_id: int, payload: FrameQARequest) -> FrameQAOut:
     """對這支影片第 `at_sec` 秒的那一格畫面提問。
 
     放在 videos 而不是 conversations 底下：它不讀也不寫任何對話狀態，之後要在
-    搜尋影片頁或影片庫的觀看模式加同一個功能，直接呼叫這支就好。計畫見
+    片段搜尋頁或影片庫的觀看模式加同一個功能，直接呼叫這支就好。計畫見
     docs/19-停格畫面問答功能計畫.md。
     """
     video = _get_video_or_raise(video_id)

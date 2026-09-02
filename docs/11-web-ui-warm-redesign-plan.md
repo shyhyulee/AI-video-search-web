@@ -1191,3 +1191,26 @@ console error、零水平溢位。
 | console error | 零 |
 
 **順手修掉一個既有 bug**：第一次實跑時畫面顯示的錯誤是 `Cannot read properties of undefined (reading 'message')`，真正的原因是後端還沒重啟、少了新路由，FastAPI 回自己的 `{"detail": "Not Found"}`，而 `client.ts` 的 `request()` 直接讀 `body.error.message`——**在錯誤處理裡再丟一個 TypeError**，把真正的錯誤蓋掉。這是所有 API 呼叫共用的路徑，跟這個功能無關，只是這次剛好踩到。現在格式不符就退回 `HTTP {status}`。
+
+### 8.20 四個頁籤改名（2026-09-02）
+
+**需求**：`YouTube 搜尋 → 新增影片`、`影片與分析 → 影片分析`、`搜尋影片 → 片段搜尋`、`對話搜尋 → AI對話`。「影片庫」不動。
+
+| 路由 | 舊名 | 新名 |
+|---|---|---|
+| `/youtube` | YouTube 搜尋 | 新增影片 |
+| `/videos` | 影片與分析 | 影片分析 |
+| `/search` | 搜尋影片 | 片段搜尋 |
+| `/conversation` | 對話搜尋 | AI對話 |
+
+**路由與程式碼識別字一個都沒動**。跟 §8.6（「搜尋結果」改名「搜尋影片」時 `/search` 沒跟著改）同一個判斷：路由是內部識別字，改了會弄壞既有連結、`docs` 裡的引用與 e2e 的 `page.goto()`，而使用者要的只是顯示名稱。
+
+**改的不只是兩份 `NAV_ITEMS`**。`TopNav.tsx`／`MobileBottomNav.tsx` 是名稱的來源，但畫面上另有六處**指路文案**把舊名寫死在字串裡：影片庫的兩種空狀態（`LibraryPage.tsx`）、待分析清單的空狀態（`VideosPage.tsx`）、新增影片頁的搜尋前提示（`YoutubeSearchPage.tsx`）、AI對話頁沒有已分析影片時的提示（`ConversationPage.tsx`）、YouTube 卡片加入成功後的「✓ 已加入『影片分析』待分析清單」（`YoutubeResultCard.tsx`）。只改導覽列，這些提示會指向一個畫面上已經不存在的頁籤名。
+
+**手機版順帶簡化**：`/youtube` 在 `MobileBottomNav` 原本縮寫成「YouTube」（§8.2 記過：桌機用完整標籤，手機版每格只有 64px 放不下），新名四個字放得下，兩份導覽現在共用同一份文字。桌機的三段收合（≥1180px 圖示＋文字／900–1180px 僅圖示／≤900px 換底部導覽）不受影響——名稱只有變短。
+
+**e2e 是照頁籤文字點擊與斷言的**，跟著改兩支：`smoke.spec.ts`（五頁籤逐一開、keep-alive 測試用 `tab(page, '片段搜尋')` 點擊）、`youtube-card.spec.ts`（加入成功的字串斷言）。
+
+**驗證**：`npm run lint`（oxlint ＋ query key 檢查）、`npm run build`（`tsc -b` ＋ vite）通過；Playwright `smoke.spec.ts` 19 passed、`youtube-card.spec.ts` ＋ `analysis-tracking.spec.ts` 6 passed。
+
+**文件的處理方式**：依 `README.md` 的維護規則，只同步「現況參考」那一類（`00`／`02`／`05`／`06`／`12`／`16` 與四份投影片 HTML），**§8.1～§8.19 與 `08`～`10`、`01` 既有條目維持當時的名稱不回頭改寫**；換算表放在 `00-overview.md` §3.6 與本節上方的表格。兩份備份檔（`專題發表投影片_Rock_BAK.html`、`專題發表投影片_精簡版.warm-backup.html`）與 `.pptx` 也沒動。

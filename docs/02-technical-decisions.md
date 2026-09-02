@@ -682,7 +682,7 @@ keep-alive 的，少了網址只影響「可分享」與「上一頁退出」，
 
 ### 端點掛在 videos 而不是 conversations
 
-`POST /videos/{id}/frame-qa` 不讀也不寫任何對話狀態。之後要在搜尋影片頁或影片庫的觀看模式加同一個功能，直接呼叫就好，不用先開一個對話。
+`POST /videos/{id}/frame-qa` 不讀也不寫任何對話狀態。之後要在片段搜尋頁或影片庫的觀看模式加同一個功能，直接呼叫就好，不用先開一個對話。
 
 ### `FrameUnavailableError` 是 422 不是 404
 

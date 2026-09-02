@@ -26,7 +26,7 @@ const SEEDED = {
  * `role="heading"`，用角色把兩者分開。
  *
  * 只適用於影片庫：`VideoListItem` 的 role 是 `onClick ? 'button' : undefined`，
- * 而「影片與分析」頁沒有詳細面板、不傳 onClick，那裡的列就是普通的 div——
+ * 而「影片分析」頁沒有詳細面板、不傳 onClick，那裡的列就是普通的 div——
  * 那頁也不會有標題重複的問題，直接用文字定位即可。 */
 const row = (page: Page, title: string) => page.getByRole('button', { name: new RegExp(title) })
 
@@ -58,11 +58,11 @@ function collectPageErrors(page: Page): string[] {
 
 test.describe('五個頁籤', () => {
   const tabs = [
-    { path: '/youtube', name: 'YouTube 搜尋', expect: '搜尋 YouTube' },
-    { path: '/videos', name: '影片與分析', expect: '待分析影片' },
+    { path: '/youtube', name: '新增影片', expect: '搜尋 YouTube' },
+    { path: '/videos', name: '影片分析', expect: '待分析影片' },
     { path: '/library', name: '影片庫', expect: '影片庫' },
-    { path: '/search', name: '搜尋影片', expect: '搜尋' },
-    { path: '/conversation', name: '對話搜尋', expect: '這一輪的相關片段' },
+    { path: '/search', name: '片段搜尋', expect: '搜尋' },
+    { path: '/conversation', name: 'AI對話', expect: '這一輪的相關片段' },
   ]
 
   for (const t of tabs) {
@@ -96,7 +96,7 @@ test.describe('影片庫', () => {
     await expect(row(page, SEEDED.tech)).toBeVisible()
     await expect(row(page, SEEDED.math)).toBeVisible()
     await expect(row(page, SEEDED.failed)).toBeVisible()
-    // 待分析的影片不該出現在影片庫（它屬於「影片與分析」頁）
+    // 待分析的影片不該出現在影片庫（它屬於「影片分析」頁）
     await expect(page.getByText(SEEDED.pending)).toHaveCount(0)
 
     // 預設選第一筆，右側面板要有內容而不是空白
@@ -214,7 +214,7 @@ test.describe('頁籤 keep-alive', () => {
     await page.getByLabel('搜尋影片庫').fill('晶片')
     await expect(page.getByText(SEEDED.math)).toHaveCount(0)
 
-    await tab(page, '搜尋影片').click()
+    await tab(page, '片段搜尋').click()
     await expect(page.getByText('輸入描述以搜尋影片內容')).toBeVisible()
 
     await tab(page, '影片庫').click()

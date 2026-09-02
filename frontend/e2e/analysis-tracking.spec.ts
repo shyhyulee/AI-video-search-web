@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-/** 「影片與分析」頁的分析追蹤狀態機。
+/** 「影片分析」頁的分析追蹤狀態機。
  *
  * smoke.spec.ts 對這頁只驗到「清單載得進來」「沒勾選時開始分析是停用的」就
  * 停了——真的按下去會呼叫 OpenAI，每跑一次測試付一次錢。但按下去之後那一整

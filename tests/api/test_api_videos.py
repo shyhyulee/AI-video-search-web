@@ -35,7 +35,7 @@ def test_list_videos_empty(client):
 def test_analyzing_video_stays_in_pending_list_and_out_of_library(client):
     """驗收條件：分析中的影片在任何時刻都至少屬於一個清單。
 
-    `?status=pending` ＝「影片與分析」頁，不帶 status ＝「影片庫」。analyzing
+    `?status=pending` ＝「影片分析」頁，不帶 status ＝「影片庫」。analyzing
     落在前者；兩個端點都不收的話，影片會在整段分析期間從畫面上消失。
     """
     analyzing_id = make_video(status=db.STATUS_ANALYZING)

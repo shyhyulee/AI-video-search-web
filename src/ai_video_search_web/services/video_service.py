@@ -163,7 +163,7 @@ def prepare_reanalysis(video: VideoRecord) -> None:
       欄位原封不動。影片留在影片庫、舊結果照樣搜得到，直到 analyzer 寫入新
       片段時才換掉（見 `analyzer._write_segments()`）。若清空後才開始跑，影片
       會在整段重新分析期間變成一支查不到東西的空殼，還會因為 `analyzed_at`
-      被清掉而從影片庫掉到「影片與分析」再跳回來。
+      被清掉而從影片庫掉到「影片分析」再跳回來。
     - 從沒成功過（第一次就失敗）：`reset_to_pending()`，清掉部分寫入的殘骸。
       它本來就沒有可保留的結果，而回到 pending 也正確反映了「這支還沒有東西」。
     """

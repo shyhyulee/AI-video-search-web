@@ -4,7 +4,7 @@ import { listVideos } from '../api/client'
 import { libraryVideosKey } from '../lib/queryKeys'
 import { useSearchScope } from '../lib/useSearchScope'
 
-/** 目前搜尋範圍的 chips，「搜尋影片」與「對話搜尋」兩頁共用同一份狀態
+/** 目前搜尋範圍的 chips，「片段搜尋」與「AI對話」兩頁共用同一份狀態
  * （見 lib/useSearchScope.tsx）。沒有勾選任何影片時整條不顯示——「全部影片」
  * 是預設狀態，不需要佔一行去講。
  *

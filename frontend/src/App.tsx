@@ -23,7 +23,7 @@ function App() {
   const { pathname } = useLocation()
   const isKnownPage = PAGES.some((p) => p.path === pathname)
 
-  // 造訪過的頁籤才掛載——第一次點進去才付出初始化成本（例如「對話搜尋」會
+  // 造訪過的頁籤才掛載——第一次點進去才付出初始化成本（例如「AI對話」會
   // 建立一筆 conversation、「影片庫」會拉整份清單），之後就一直留著不卸載。
   // 在 render 中呼叫自己的 setState 是 React 官方的「render 期間調整 state」
   // 用法：有 includes 擋著不會無限迴圈，React 會直接重跑這個 component，不會

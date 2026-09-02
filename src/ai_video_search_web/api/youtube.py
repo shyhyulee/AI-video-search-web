@@ -1,4 +1,4 @@
-"""YouTube 搜尋 API：查詢 YouTube 影片 metadata，供「YouTube 搜尋」頁的
+"""YouTube 搜尋 API：查詢 YouTube 影片 metadata，供「新增影片」頁的
 卡片列表使用。
 
 跟 /videos/youtube（下載）不同，這裡完全不落地：不下載檔案、不寫 videos 表、

@@ -46,11 +46,11 @@ function jobStatusInfo(
   return { text: '等待分析', kind: 'neutral' }
 }
 
-/** 「影片與分析」頁面：待分析影片列表、開始分析、移除，見
+/** 「影片分析」頁面：待分析影片列表、開始分析、移除，見
  * docs/07-ui-structure-and-features.md 6.1 節與
  * docs/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
  *
- * **這頁不再有「新增影片」區塊**：影片一律從「YouTube 搜尋」頁的卡片按
+ * **這頁不再有「新增影片」區塊**：影片一律從「新增影片」頁的卡片按
  * 「加入待分析」收進來，本機上傳也一併移除（見 docs/11 §8.5）。這頁的職責
  * 收斂成「決定哪些收進來的影片要送分析」——也是全站唯一會花錢的觸發點。
  *
@@ -240,7 +240,7 @@ export function VideosPage() {
             // 否則會變成無路可走的死路。
             <EmptyState
               title="目前沒有待分析影片"
-              hints={['到「YouTube 搜尋」頁找影片，按卡片上的「加入待分析」就會出現在這裡']}
+              hints={['到「新增影片」頁找影片，按卡片上的「加入待分析」就會出現在這裡']}
               icon={<MonitorPlay className="h-8 w-8" aria-hidden="true" />}
               action={
                 <Link
