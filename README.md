@@ -171,7 +171,9 @@ frontend/          # React + TypeScript + Vite + Tailwind + TanStack Query
     jobStatus.ts       #     isTerminal()／isActive()
     useJobSettlement.ts #     每個工作到終態時收尾剛好一次
     useAnalysisQueue.ts #     「影片分析」頁的資料層：待分析清單＋跑在上面的工作
-  e2e/               #   Playwright smoke（見上方「前端 e2e smoke」）
+    useLibraryList.ts   #     「影片庫」頁的資料層：清單、篩選、分類、排序、勾選範圍
+    useResultSelection.ts #   片段搜尋與 AI對話 共用：選哪一筆、播不播
+  e2e/               #   Playwright smoke ＋ 特徵測試（見上方「前端 e2e smoke」）
   scripts/           #   check-query-keys.mjs，掛在 npm run lint 上
 tests/             # pytest 測試（單元測試 + integration marker）
   api/               #   FastAPI TestClient 測試

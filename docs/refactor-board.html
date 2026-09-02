@@ -224,15 +224,15 @@
 <header>
   <div class="wrap">
     <h1>重構任務看板</h1>
-    <p class="sub">AI 影片搜尋 · <strong>第四輪重構（已完成）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
+    <p class="sub">AI 影片搜尋 · <strong>第五輪重構（已完成）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
       第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">13 <small>/ 13</small></span></div>
-      <div class="stat"><span class="k">本輪提交數</span><span class="v">13 <small>（另有看板更新）</small></span></div>
-      <div class="stat"><span class="k">進度</span><span class="v">E 5/5 <small>· F 6/6 · G 1/1</small></span></div>
-      <div class="stat"><span class="k">後端測試</span><span class="v">410 <small>← 382</small></span></div>
-      <div class="stat"><span class="k">前端 e2e</span><span class="v">32 <small>← 0</small></span></div>
-      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（E3 timeout）</small></span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">6 <small>/ 6</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">6 <small>（另有看板更新）</small></span></div>
+      <div class="stat"><span class="k">最大後端單檔</span><span class="v">538 <small>← 836 行</small></span></div>
+      <div class="stat"><span class="k">後端測試</span><span class="v">471 <small>← 463</small></span></div>
+      <div class="stat"><span class="k">前端 e2e</span><span class="v">57 <small>← 43</small></span></div>
+      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">0</span></div>
     </div>
   </div>
 </header>
@@ -293,8 +293,125 @@
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">13 <small>+12</small></span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">19 <small>+6</small></span></div>
     <div class="cards">
+
+      <p class="round-divider">第五輪（2026-09-02）</p>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R4</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>「選哪一筆、播不播」兩頁收成一份</h3>
+        <p>片段搜尋與 AI對話 各有一份 <code>results</code>／<code>selectedIndex</code>／<code>playOnSelect</code>／<code>selected</code>
+          與它兩端的處理。<code>lib/useResultSelection.ts</code> 43 行收下，兩頁只剩
+          <code>showResults(list)</code> 與 <code>pick(index)</code>。</p>
+        <div class="metrics"><span class="m"><b>e2e</b> 53 → 57</span><span class="m"><b>兩頁各</b> −10 行</span></div>
+        <details><summary>細節</summary><ul>
+          <li>對外只給兩個動詞，因為那兩條規則是<strong>成對的</strong>，分開寫容易只做一半——
+              而那正是實際發生過的事：§8.9 只給了搜尋頁，對話頁到 §8.21 才補上，中間隔了七天</li>
+          <li><strong>抽取時機是第二份出現的當下</strong>：§8.21 就是把搜尋頁那四行複製過去</li>
+          <li>搜尋頁的選取與播放<strong>原本零覆蓋</strong>（送出會呼叫 OpenAI），先用
+              <code>page.route()</code> 補 4 支、在舊實作上跑綠並用三個突變證明它會咬，才動手</li>
+          <li>突變打在 hook 上時<strong>兩頁的測試同時轉紅</strong>（拿掉自動選第一名：10 支裡 6 支紅）
+              ——這是「真的共用同一份規則」而不是「看起來很像」的證據</li>
+        </ul></details>
+        <div class="commit"><code>39aaab1</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R3</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>影片庫的清單資料層搬出頁面</h3>
+        <p>411 行裡約一百行是清單本身：兩個 query、六個 memo（分類計數／狀態篩選／庫內搜尋／排序／勾選）。
+          改排序跟改卡片長相動的是同一個檔案。</p>
+        <div class="metrics"><span class="m"><b>LibraryPage</b> 411 → 295 行</span><span class="m"><b>+4 支 e2e</b></span></div>
+        <details><summary>細節</summary><ul>
+          <li>七段邏輯（含註解）與搬移前<strong>逐字元相同</strong>，四個「用推導不用 useEffect」的決定
+              原樣搬過去，沒有趁機改寫</li>
+          <li>排序原本<strong>零覆蓋</strong>，4 支特徵測試先在舊實作上跑綠；新舊實作跑同一組測試都綠</li>
+          <li><strong>突變抓到我自己的測試太弱</strong>：種子資料 <code>analyzed_at</code> 同一秒寫入、預設排序
+              不保證（F4 記過的坑），排序鍵被改成常數時穩定排序會讓順序原封不動。修法是每個排序斷言
+              都先排出一個確定、而且跟待驗欄位順序不同的起點。補強後六個突變全部穩定轉紅</li>
+        </ul></details>
+        <div class="commit"><code>43d0265</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R2</span><span class="tag structure">結構</span><span class="tag">最高價值</span></div>
+        <h3><code>analyzer.py</code> 836 行拆成套件</h3>
+        <p>一個檔案裝四件事：預算與上限常數、跨每個 phase 的 <code>_AnalysisContext</code>、
+          執行緒入口與事件契約、六個 phase。</p>
+        <div class="metrics"><span class="m"><b>單檔 836 行</b> → 4 模組</span><span class="m"><b>最大</b> 538 行</span><span class="m"><b>對外 import</b> 不變</span></div>
+        <details><summary>細節</summary><ul>
+          <li><code>events</code>（葉）← <code>context</code> ← <code>phases</code> ← <code>worker</code>，單向無環；
+              門面把所有對外名字再匯出，<code>services/</code>／<code>schemas/</code>／<code>scripts/</code> 零改動</li>
+          <li><strong>計畫寫錯了，先停下來回報</strong>：原本寫「測試零改動」，實際有 79 處 monkeypatch。
+              數清楚之後發現其中 50 處 patch 的是<strong>協作者模組本身</strong>（<code>setattr(analyzer.db, …)</code>
+              patch 的是 db 模組，跟拆分無關），真正要重新指向的是 31 處</li>
+          <li>31 處只改 patch 的<strong>地址</strong>、斷言一個字沒改：位址必須指向<strong>讀那個名字的模組</strong>
+              （<code>analyzer.phases</code> 24、<code>analyzer.worker</code> 4、<code>analyzer.context</code> 2），
+              規則寫進套件 docstring</li>
+          <li><strong>機器驗證</strong>：28 個頂層名字的 AST 逐一比對，遺漏 0、多出 0，
+              唯一差異是 <code>_run_analysis</code> 的一行一個 token（<code>BUDGET_USD</code> →
+              <code>context.BUDGET_USD</code>，事先聲明過，為了讓 patch 一個位址同時影響門檻與訊息）</li>
+          <li>四個突變（over_budget 永遠 False／不送終端事件／批次大小失效／略過整理文件）分別讓
+              3、4、5、2 支轉紅——證明重新指向的 patch 沒有變成空轉</li>
+          <li>未做：<code>-m integration</code>（真 ffmpeg ＋ 真 OpenAI）依使用者決定沒跑。
+              <code>phases.py</code> 留在 538 行，六個 phase 互不呼叫、各自可讀，再拆只多五個 import 區</li>
+        </ul></details>
+        <div class="commit"><code>1280804</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R6</span><span class="tag structure">結構</span></div>
+        <h3>清掉兩件看起來還活著的東西</h3>
+        <p><code>getConversation()</code> 零呼叫端；<code>src/ai_video_search_web/ui/</code> 只剩 Tkinter 時代的九個
+          <code>.pyc</code>、沒有原始碼。</p>
+        <details><summary>細節</summary><ul>
+          <li>跟 F5 同一個判準：<code>uploadVideo()</code> 那種留了「端點還在、前端為什麼不用」的註解，
+              有資訊；這支沒有。後端端點與測試都留著</li>
+          <li><code>ui/</code> 的害處是<strong>看起來還活著</strong>——目錄樹上有它、<code>docs/07</code> 還在描述
+              Tkinter 介面，讀的人得自己打開才知道是空的。它不在版控裡，所以 commit 只看得到 client.ts</li>
+        </ul></details>
+        <div class="commit"><code>1017849</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R1</span><span class="tag structure">結構</span><span class="tag">成本</span></div>
+        <h3>每個模型的單價收成一張表</h3>
+        <p>六個 pipeline 模組各自寫一份 <code>0.15 / 1_000_000</code> 與 <code>0.60 / 1_000_000</code>，
+          十二個一模一樣的常數。改價要改六個檔案，漏一個不會有任何東西提醒。</p>
+        <div class="metrics"><span class="m"><b>12 常數</b> → 1 張表</span><span class="m"><b>+8 支測試</b></span></div>
+        <details><summary>細節</summary><ul>
+          <li>舊 docstring 明講過「不合併各模組定價——之後若分開演進不用被迫綁在一起」。
+              <strong>用模型當 key 正好保住那件事</strong>：<code>MODEL_NAME</code> 仍各自宣告，
+              換模型時價格自己跟著換，而不是要記得同時改兩個常數</li>
+          <li>查不到模型<strong>丟例外不回 0</strong>：0 會讓那條路徑「免費」，而
+              <code>analyzer.BUDGET_USD</code> 的護欄唯一依據就是累加的花費</li>
+          <li><strong>突變揭露一個既有缺口</strong>：把輸入與輸出單價對調，463 支照樣全綠——所有成本測試都拿
+              同一個常數算期望值，價格本身沒有任何測試釘住。新增的 8 支裡有一支把公告價寫死在測試裡</li>
+        </ul></details>
+        <div class="commit"><code>9dc8783</code></div>
+      </article>
+
+      <article class="card" data-kind="tests">
+        <div class="card-top"><span class="id">R0</span><span class="tag">測試</span><span class="tag">安全網</span></div>
+        <h3>對話頁的特徵測試</h3>
+        <p>全站行為最多的一頁（對話生命週期、結果選取與播放、停格問答的模式與上下文），
+          原本只有 smoke 那一支「頁面開得起來」。</p>
+        <div class="metrics"><span class="m"><b>e2e</b> 43 → 49</span><span class="m"><b>src/</b> 零改動</span></div>
+        <details><summary>細節</summary><ul>
+          <li>三支會花錢的端點用 <code>page.route()</code> 攔掉，理由跟 <code>playwright.config.ts</code> 既有原則一致</li>
+          <li><strong>影片串流換成 4KB 的 WebM fixture</strong>：種子資料的 <code>file_path</code> 指向不存在的檔案，
+              <code>&lt;video&gt;</code> 載不進來，那樣「定格」與「播放」兩種狀態都是 <code>paused</code>，等於驗不到</li>
+          <li>fixture 一定要<strong>自己處理 Range</strong>：<code>route.fulfill({ path })</code> 只回 200 整包，
+              Chromium 因此判定不可 seek（<code>video.seekable</code> 是 <code>[0,0]</code>、設 currentTime 被靜靜忽略）。
+              真的後端用 <code>FileResponse</code> 本來就支援 range</li>
+          <li>fixture 路徑用 <code>test.info().project.testDir</code> 而不是 <code>import.meta.url</code>——後者會讓
+              Playwright 改走 ESM loader 載進第二份 <code>@playwright/test</code>，直接噴
+              <code>did not expect test.describe()</code></li>
+          <li>四個突變全部轉紅；未覆蓋的也講明：IME 組字時的 Enter（Playwright 無法模擬 <code>isComposing</code>）</li>
+        </ul></details>
+        <div class="commit"><code>8e6a7b6</code></div>
+      </article>
 
       <p class="round-divider">第四輪（2026-08-29 ～ 30）</p>
 
@@ -858,6 +975,16 @@
   </article>
 
   <article class="card">
+    <div class="card-top"><span class="id">N5</span></div>
+    <h3>不抽 <code>MasterDetail</code> 版面元件</h3>
+    <p>三頁的主從版面看起來重複，攤開比對後<strong>六個半邊只有一組真的相同</strong>：右半有的是 Card、有的是
+      <code>div</code> 包兩張 Card，捲動一個 <code>overflow-auto</code> 一個 <code>overflow-hidden</code>，
+      對話頁還多 <code>max-h-[70vh]</code> 與 <code>md:flex-row-reverse</code>（§8.18）。真正共用的只有
+      <code>md:w-1/2</code> 那段字串與「50/50」這個決定，而這個專案的版面對
+      <code>min-h-0</code>／<code>overflow</code> 鏈極度敏感——多包一層 div 的風險大於收益。</p>
+  </article>
+
+  <article class="card">
     <div class="card-top"><span class="id">N4</span></div>
     <h3>不修正本地 OCR 失敗時的費用低估</h3>
     <p>舊版把累加金額放在區域變數，例外一拋就整個丟掉。這是<strong>行為</strong>不是結構債，已在程式碼註解標記。</p>
@@ -867,7 +994,21 @@
 
 <footer>
   <p>
-    <strong>第四輪</strong>（進行中）對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
+    <strong>第五輪</strong>對應 git 歷史：<code>8e6a7b6</code> → <code>9dc8783</code> →
+    <code>1017849</code> → <code>1280804</code> → <code>43d0265</code> → <code>39aaab1</code>
+    （6 個 commit；看板更新另外提交）。後端測試 <strong>463 → 471 passed</strong>、前端 e2e
+    <strong>43 → 57</strong>、最大的後端單檔 <strong>836 → 538 行</strong>、
+    <code>LibraryPage</code> 411→295、<code>ConversationPage</code> 367→357、<code>SearchPage</code> 175→165。
+    <strong>零刻意的行為變更</strong>。
+  </p>
+  <p>
+    本輪的驗證方式跟前兩輪一致（先補特徵測試、在舊實作上跑綠、突變測試證明它會咬），
+    另外多了兩次<strong>機器比對</strong>：R2 用 AST 逐一比對 28 個頂層名字（唯一差異是事先聲明的那一個 token），
+    R3 用逐字元比對搬移前後的七段清單邏輯。兩次「突變沒抓到」都不是程式的問題而是<strong>測試太弱</strong>
+    （R1 的價格對調、R3 的排序鍵歸零），補強後才收工。
+  </p>
+  <p>
+    <strong>第四輪</strong>對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
     <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code> →
     <code>b0032b7</code> → <code>7d9e926</code> → <code>f783695</code> → <code>8a27855</code> →
     <code>dddc675</code> → <code>d8e0c1b</code> → <code>ea95366</code>
