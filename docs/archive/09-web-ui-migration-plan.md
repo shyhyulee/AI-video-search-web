@@ -1,15 +1,15 @@
 # Web UI 遷移計畫
 
 > **類型**：執行紀錄｜**狀態**：任務已完成，唯讀
-> 分類說明與完整索引見 [`README.md`](README.md)。
+> 分類說明與完整索引見 [`../README.md`](../README.md)。
 
 ## 1. 文件目的
 
 專案目前是 Tkinter 桌面應用（五個頁籤：影片與分析／影片庫／搜尋結果／對話搜尋／處理紀錄），要在保留既有 Python pipeline／DB 邏輯不重寫的前提下，新增一版 Web UI（React + FastAPI），過渡期兩者並存。
 
-`08-web-ui-migration-design.md` 已有一份參考設計（技術選型、API 草案、頁面設計），但那份文件是在**沒有實際盤點現有程式碼**的情況下寫的，且它自己的第 4 節檔案結構建議（`src/existing_pipeline/`）跟它自己的警語（「`src/ai_video_search_web` 目前實際包含 Tkinter，不要立即重新命名」）互相矛盾。
+`../prompts/08-web-ui-migration-design.md` 已有一份參考設計（技術選型、API 草案、頁面設計），但那份文件是在**沒有實際盤點現有程式碼**的情況下寫的，且它自己的第 4 節檔案結構建議（`src/existing_pipeline/`）跟它自己的警語（「`src/ai_video_search_web` 目前實際包含 Tkinter，不要立即重新命名」）互相矛盾。
 
-本文件的目標是依照專案**目前程式與檔案的真實現況**（已用三個 Explore agent + 一個 Plan agent 完整盤點、且逐一親自讀過全部關鍵原始檔驗證行號與事實）重新推導一份可執行的計畫。技術選型大致沿用 `08-web-ui-migration-design.md`（React／FastAPI／Polling 這些主流選擇沒有爭議），但架構細節、Job 設計、檔案結構、分期順序都改成基於實測事實推導，多處明確偏離該文件。
+本文件的目標是依照專案**目前程式與檔案的真實現況**（已用三個 Explore agent + 一個 Plan agent 完整盤點、且逐一親自讀過全部關鍵原始檔驗證行號與事實）重新推導一份可執行的計畫。技術選型大致沿用 `../prompts/08-web-ui-migration-design.md`（React／FastAPI／Polling 這些主流選擇沒有爭議），但架構細節、Job 設計、檔案結構、分期順序都改成基於實測事實推導，多處明確偏離該文件。
 
 **目前狀態**：Phase 0～Phase 4 全部完成。實作細節與跟本文件原規劃的落差見 4.2／4.3／4.4／4.5 節「實作紀錄」。Phase 3 一開始受限於環境缺 Playwright 系統函式庫（`libnspr4.so` 等）無法視覺驗證，使用者事後手動裝好相依套件解鎖後，已補做完整的瀏覽器互動測試（見 4.4 節）。Phase 4 在使用者實測過上傳／YouTube 下載／分析輪詢後執行，過程中發現並記錄了一個真實的已知限制（見 4.5 節「實作紀錄」的「job 追蹤跨頁籤遺失」），使用者知情後選擇先完成 Phase 4 收尾，這個限制留待之後再處理。Tkinter UI（`ui/`／`app.py`／`theme.py`）已移除，專案現在是純 Web 應用。
 
@@ -47,7 +47,7 @@ requires = ["uv_build>=0.12.1,<0.13.0"]
 build-backend = "uv_build"
 ```
 
-沒有 `[tool.uv.build-backend]` 覆寫，`uv_build` 預設只認 `src/<單一 module>`。把 pipeline 搬到 `08-web-ui-migration-design.md` 建議的 `src/existing_pipeline/` 要嘛加多模組設定、要嘛動 20+ 檔案的 import path，換不到任何功能，純屬搬遷風險。**FastAPI 相關程式碼應該長在 `src/ai_video_search_web/` 內部**，跟現有 `db/`／`pipeline/`／`ui/` 平行，不新增頂層 `backend/`。`frontend/` 維持該文件建議：獨立 sibling 目錄，自己的 `package.json`，跟 Python packaging 無關。
+沒有 `[tool.uv.build-backend]` 覆寫，`uv_build` 預設只認 `src/<單一 module>`。把 pipeline 搬到 `../prompts/08-web-ui-migration-design.md` 建議的 `src/existing_pipeline/` 要嘛加多模組設定、要嘛動 20+ 檔案的 import path，換不到任何功能，純屬搬遷風險。**FastAPI 相關程式碼應該長在 `src/ai_video_search_web/` 內部**，跟現有 `db/`／`pipeline/`／`ui/` 平行，不新增頂層 `backend/`。`frontend/` 維持該文件建議：獨立 sibling 目錄，自己的 `package.json`，跟 Python packaging 無關。
 
 `pydantic>=2.13.4` 已是既有依賴（`pipeline/intent.py`／`translation.py`／`vlm.py` 用於 LLM structured output），FastAPI 原生用 Pydantic v2，型別風格可沿用，但 API 對外 schema 要跟這些內部私有 LLM-output schema **分開**，不要合併復用。
 
@@ -57,7 +57,7 @@ build-backend = "uv_build"
 
 ### 2.7 已明確決策：不做多影片平行分析
 
-`02-technical-decisions.md:278-280`（Tier 3）評估後**決定不做**「多支影片之間平行分析」（跟「序列處理避免同時打多個 API」的設計衝突）。這個約束今天能成立**純粹是意外繼承**——因為只有一個 Tkinter 視窗、`video_tab._start_next_analysis()` 是「pop 完才排下一支」的迴圈。Web 化後這個約束會直接消失，除非 Job Manager 把它變成顯式機制（見 3.2）。
+`../02-technical-decisions.md:278-280`（Tier 3）評估後**決定不做**「多支影片之間平行分析」（跟「序列處理避免同時打多個 API」的設計衝突）。這個約束今天能成立**純粹是意外繼承**——因為只有一個 Tkinter 視窗、`video_tab._start_next_analysis()` 是「pop 完才排下一支」的迴圈。Web 化後這個約束會直接消失，除非 Job Manager 把它變成顯式機制（見 3.2）。
 
 ## 3. 建議架構
 
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 **Retry／Cancel 範圍刻意縮小**：pipeline 完全沒有 checkpoint／取消 token，做「真取消」要把訊號貫穿進每個 phase 函式，超出這次遷移的合理範圍。所以：
 
-- Job 狀態只做 `queued/running/completed/failed` 四種（`08-web-ui-migration-design.md` 建議六種含 `retrying`/`cancelled`，本計畫不採用，避免做出假的取消能力）。
+- Job 狀態只做 `queued/running/completed/failed` 四種（`../prompts/08-web-ui-migration-design.md` 建議六種含 `retrying`/`cancelled`，本計畫不採用，避免做出假的取消能力）。
 - **Retry** = 對失敗 job 呼叫 `db.reset_to_pending()` 後建**全新**一筆 job 重新 submit（舊列保留當歷史）。
 - **Cancel** 只支援 `queued` 狀態（直接標記失敗＋「使用者取消」訊息）；`running` 不支援，API 回 409。
 
@@ -159,12 +159,12 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 1. `analyzer.py` 的進度介面是 `queue.Queue`，硬套 Celery 等於在 worker process 裡重新做一次上面的 pump thread，多繞一層 infra 沒有換到 Celery 原生能力。
 2. 併發上限本來就該是 1（2.7 節），`Semaphore(1)` 已經足夠。
-3. 專案目前零部署基礎設施，引入 Redis+broker 直接違背 `08-web-ui-migration-design.md` 自己「第一版不強制導入微服務」。
+3. 專案目前零部署基礎設施，引入 Redis+broker 直接違背 `../prompts/08-web-ui-migration-design.md` 自己「第一版不強制導入微服務」。
 4. SQLite 不適合當 Celery broker，會逼著同時換資料庫，違反該文件「先避免同時遷移資料庫」的原則。
 
 真正需要 Celery 的時機是「多支影片真的要平行分析」——但那正是 2.7 節已評估並否決的方向，若此產品決策不變，不需要這套 infra。
 
-同樣考慮過「把 Tkinter 5 處輪詢骨架跟 Job Manager 抽成共用邏輯」——`03-excluded-approaches.md:74-81` 已記錄類似想法評估後不做（5 處其實是三種不同寫法，硬抽共用骨架換到的行數少）。本計畫延續這個判斷，且 Job Manager 的輪詢需要 DB 持久化＋HTTP 語意，跟 Tk 輪詢需要 UI-thread-safe callback 本質不同，Phase 1 明確不把 Tkinter 改成呼叫 Job Manager。
+同樣考慮過「把 Tkinter 5 處輪詢骨架跟 Job Manager 抽成共用邏輯」——`../02-technical-decisions.md:74-81` 已記錄類似想法評估後不做（5 處其實是三種不同寫法，硬抽共用骨架換到的行數少）。本計畫延續這個判斷，且 Job Manager 的輪詢需要 DB 持久化＋HTTP 語意，跟 Tk 輪詢需要 UI-thread-safe callback 本質不同，Phase 1 明確不把 Tkinter 改成呼叫 Job Manager。
 
 ## 4. 分階段實作順序與驗收條件
 
@@ -204,7 +204,7 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - `uv run pytest` 256 通過（227 + 29 新增 API 測試）+ 1 deselected；上述 5 項驗收條件各自有對應測試，實測皆通過。另外用真實 `uvicorn`（非 TestClient）啟動，確認 `/docs`／`/openapi.json`（18 條路徑）／`/api/v1/stats` 都正常運作，且正確讀到真實 `app.db`（7 支已分析影片、537 個片段）。
 - `pyproject.toml` 新增 `fastapi>=0.115`、`uvicorn[standard]>=0.32`、`python-multipart>=0.0.9`（實際解析到 fastapi 0.141.1／starlette 1.6.0／uvicorn 0.52.4），新增 `ai-video-search-web-api` script entry。
 - 比原規劃多實作兩個 service 函式（規劃時沒預先想到，實作 API 時才發現需要）：`video_service.generate_thumbnail()`（供 `/videos/{id}/thumbnail`，沿用 `library_tab.py._set_thumbnail()` 的 ffmpeg 邏輯，即時產生不快取，Phase 3 規劃的「分析完成時就產生並保存」還沒做）、`video_service.register_uploaded_video()`（跟 `register_local_video()` 的差別：Web 上傳時磁碟檔名是系統產生的 uuid，跟使用者看到的標題是兩件事，不能沿用 `path.stem` 當標題）。`db.jobs.list_jobs()` 額外支援 `job_type`／`status` 篩選（dispatcher 挑下一個排隊工作要用）。
-- **範圍內的取捨**：`08-web-ui-migration-design.md` API 設計列的 `GET /api/v1/search/recent`（最近搜尋）**沒有實作**——Tkinter 版本這個功能純粹存在 `SearchResultsTab` 記憶體、`db/search_log.py` 沒有對應的查詢函式，屬於錦上添花功能，不影響任何驗收條件，之後有需要再補。
+- **範圍內的取捨**：`../prompts/08-web-ui-migration-design.md` API 設計列的 `GET /api/v1/search/recent`（最近搜尋）**沒有實作**——Tkinter 版本這個功能純粹存在 `SearchResultsTab` 記憶體、`db/search_log.py` 沒有對應的查詢函式，屬於錦上添花功能，不影響任何驗收條件，之後有需要再補。
 - **踩到的坑**：FastAPI 0.141.1 的 `app.routes` 在 `include_router()` 之後顯示的是內部 `_IncludedRouter` 物件、不是展開後的個別 endpoint 列表（跟舊版行為不同），直接數 `len(app.routes)` 會誤判成「路由沒掛上去」；正確驗證方式是打 `/openapi.json` 或直接用 `TestClient` 呼叫端點。另外測試 `test_second_analysis_job_waits_for_first_to_finish` 一度因為背景 pump thread 沒等它完全跑完（`mark_job_completed` + 鏈式派發下一個）測試函式就返回，導致 thread 殘留到下一個測試、撞上已經被 `monkeypatch` 換掉的 `db.DB_PATH`（`sqlite3.OperationalError: no such table: jobs`）；修法是讓測試明確 poll 到工作真的變成終態才返回，不能只 `set()` 事件就結束——這是背景執行緒測試常見的坑，記錄下來供之後寫 Phase 3 的非同步測試參考。
 
 ### 4.4 Phase 3 — React 前端（風險由低到高）✅ 已完成（四個頁面，含瀏覽器互動實測）
@@ -217,11 +217,11 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - **對話搜尋**：重用第 3 步的 Result Card／Player，只新增訊息串與 `conversation_id` 狀態管理。
 - **處理紀錄**：優先序最低。`_QueueLogHandler`＋`deque(maxlen=1000)`（`logs_tab.py`）是純 in-process 狀態，在「單 worker」約束下可以直接暴露 `GET /api/v1/logs` 讀同一份 deque，但這只在單 process 部署下成立，本計畫**明確標記為技術負債、這次不解決**（不是核心使用者流程，投入產出比低）。
 
-**驗收**：`08-web-ui-migration-design.md` 第 10 節驗收標準逐項手動驗證（重新整理不遺失任務狀態、CSV 匯出、跳轉播放時間點等）；「送出搜尋看到結果」「上傳並看到分析完成」兩條關鍵路徑至少有 E2E 測試（可用 Playwright）。
+**驗收**：`../prompts/08-web-ui-migration-design.md` 第 10 節驗收標準逐項手動驗證（重新整理不遺失任務狀態、CSV 匯出、跳轉播放時間點等）；「送出搜尋看到結果」「上傳並看到分析完成」兩條關鍵路徑至少有 E2E 測試（可用 Playwright）。
 
 **實作紀錄**：
 
-- 技術棧沿用 `08-web-ui-migration-design.md`：Vite + React 19 + TypeScript + Tailwind v4（用新版 `@tailwindcss/vite` plugin，CSS-first `@theme` 設定，不需要 `tailwind.config.js`／`postcss.config.js`）+ TanStack Query v5 + `react-router-dom`。**沒有引入 shadcn/ui**——這是刻意的範圍縮減：shadcn/ui 是用 CLI 從遠端 registry 複製元件原始碼進專案的機制，會多一層設定與網路依賴，這一輪的元件複雜度（表格、卡片、表單）用純 Tailwind utility class 就能對齊 `theme.py` 的設計系統（顏色／間距值直接抄過來，見 `frontend/src/index.css` 的 `@theme` 區塊），之後真的需要更複雜元件（Dialog、Combobox 之類）再評估加入，不算違背原技術選型的精神。
+- 技術棧沿用 `../prompts/08-web-ui-migration-design.md`：Vite + React 19 + TypeScript + Tailwind v4（用新版 `@tailwindcss/vite` plugin，CSS-first `@theme` 設定，不需要 `tailwind.config.js`／`postcss.config.js`）+ TanStack Query v5 + `react-router-dom`。**沒有引入 shadcn/ui**——這是刻意的範圍縮減：shadcn/ui 是用 CLI 從遠端 registry 複製元件原始碼進專案的機制，會多一層設定與網路依賴，這一輪的元件複雜度（表格、卡片、表單）用純 Tailwind utility class 就能對齊 `theme.py` 的設計系統（顏色／間距值直接抄過來，見 `frontend/src/index.css` 的 `@theme` 區塊），之後真的需要更複雜元件（Dialog、Combobox 之類）再評估加入，不算違背原技術選型的精神。
 - 4 個頁面（`影片與分析`／`影片庫`／`搜尋結果`／`對話搜尋`）全部完成，路由骨架見 `frontend/src/App.tsx`；**「處理紀錄」維持不做**，跟規劃一致。
 - 開發模式用 Vite dev server 的 `server.proxy`（`vite.config.ts`）把 `/api/*` 轉給 `127.0.0.1:8000`，前端程式碼一律用相對路徑呼叫 API，瀏覽器端同源、不觸發 CORS——後端 `api/main.py` 的 `CORSMiddleware` 設定變成「非 proxy 場景」（例如以後獨立部署）的保險，不是開發時實際依賴的機制。
 - `VideoOut` schema 補了三個規劃時沒想到、但 UI 需要的欄位：`has_transcript`／`has_visual`／`has_ocr`（`schemas/videos.py`、`api/videos.py`），邏輯抄自 `ui/library_tab.py._build_row()`，供影片庫的三個 Badge 使用；這是新層（schemas／api）的自然擴充，不算修改既有檔案的範圍。
@@ -230,7 +230,7 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 ### 4.5 Phase 4 — 切換與清理 ✅ 已完成
 
-兩邊穩定運行一段時間、功能對等確認後才移除 `ui/`／`app.py`／`theme.py`；才處理 `ai_video_search_web` 命名／`[project.scripts]` 收斂；同步更新 `00-overview.md`（目前仍只寫「四個頁籤」，未提對話搜尋，`07-ui-structure-and-features.md` 已標注此落差待確認）。
+兩邊穩定運行一段時間、功能對等確認後才移除 `ui/`／`app.py`／`theme.py`；才處理 `ai_video_search_web` 命名／`[project.scripts]` 收斂；同步更新 `../00-overview.md`（目前仍只寫「四個頁籤」，未提對話搜尋，`07-ui-structure-and-features.md` 已標注此落差待確認）。
 
 **實作紀錄**：
 
@@ -238,13 +238,13 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 - **實際刪除／改動的檔案**：`git rm -r` 整個 `src/ai_video_search_web/ui/`（8 個模組）、`app.py`、`theme.py`、`tests/test_widgets.py`（測 `ui/widgets.py`，隨其一起移除）。刪除前用 grep 確認 `pipeline/`／`db/`／`services/`／`schemas/`／`api/` 沒有任何檔案 import `ui/`／`app.py`／`theme.py`——這條依賴邊界在 Phase 1-3 全程維持乾淨，刪除本身沒有波及其他模組。
 - **進入點收斂**：`src/ai_video_search_web/__init__.py` 的 `main()` 從 `App().mainloop()` 改成呼叫 `api.main.run()`；`pyproject.toml` 的 `[project.scripts]` 從兩個進入點（`ai-video-search-web`／`ai-video-search-web-api`）收斂成一個：`ai-video-search-web` 現在直接啟動 Web API。`[tool.uv] python-preference = "only-system"` 的**設定值維持不變**（改動它有風險、沒有已知效益），但註解改成如實反映「原本因為 Tkinter／Tk CJK 字型問題而設，現在理由已經不成立，純粹維持不動避免無謂變動」，不再誤導成「還需要 Tkinter」。
 - **清掉兩處死碼**：`video_service.register_local_video()`（Phase 1 為 Tkinter「選擇本機影片」寫的，title 直接用 `path.stem`）與 `conversation_service.send_message(state, message)`（Phase 1 為 Tkinter 對話頁籤寫的純記憶體介面）——grep 確認兩者的唯一呼叫端都在剛刪除的 `ui/` 內，Web API 分別用 `register_uploaded_video()`／`send_message_by_id()` 取代。對應的舊測試（`test_services_video.py`／`test_services_conversation.py`）沒有直接刪除，改寫成測真正還在用的函式，`test_services_conversation.py` 額外補了 `start_conversation`／`get_conversation_state`／`send_message_by_id` 對 DB 讀寫的直接單元測試（原本只在 `tests/api/test_api_conversations.py` 間接測到）。
-- **README.md 全面改寫**：定位從「Tkinter 桌面應用」改成「Web 應用」；系統需求移除 `ffplay`（HTML5 Video 取代）、加入 Node.js／npm；執行方式改成「兩個終端機分別跑後端＋前端」；專案結構圖換成 `services/`／`schemas/`／`api/`／`frontend/`。順手修正一個實作前就存在的既有 bug：「深入文件」區塊的連結全部指向不存在的 `docs/organize-docs/` 路徑（實際文件都直接放在 `docs/` 下），已改成正確路徑，並補上 06／07／09 三份新文件的連結。
+- **../README.md 全面改寫**：定位從「Tkinter 桌面應用」改成「Web 應用」；系統需求移除 `ffplay`（HTML5 Video 取代）、加入 Node.js／npm；執行方式改成「兩個終端機分別跑後端＋前端」；專案結構圖換成 `services/`／`schemas/`／`api/`／`frontend/`。順手修正一個實作前就存在的既有 bug：「深入文件」區塊的連結全部指向不存在的 `docs/organize-docs/` 路徑（實際文件都直接放在 `docs/` 下），已改成正確路徑，並補上 06／07／09 三份新文件的連結。
 - **驗證**：`uv run pytest` 255 通過（256 − 4，對應被刪除的 `test_widgets.py` 4 個測試，其餘增減互相抵銷）+ 1 deselected；`uv run ai-video-search-web`（新的單一進入點）實測能正確啟動 FastAPI／uvicorn，`/api/v1/stats`／`/docs` 都正常回應，讀到真實 `app.db`（使用者測試期間已把已分析影片數從 7 支增加到 8 支、片段數 537→649，證實 Phase 3 的上傳／下載／分析流程在真實使用中確實可用）。
 
 ## 5. 風險與相容性
 
 - **SQLite 並發**：已用 WAL + busy_timeout=30s + 單 worker process 約束處理（見 3.2）。殘餘風險：WAL 在網路檔案系統上可能不可靠，目前 WSL2 環境下 `app.db` 留在 Linux 端檔案系統沒問題，之後若搬到網路磁碟要重新評估。
-- **成本追蹤缺口被放大**：`05-known-limitations-and-open-items.md` 已記錄「搜尋無上限」（`search_log` 沒有警示機制）與「VLM 無斷路器」兩個缺口。桌面版靠「單一使用者、有人盯著看」隱性防線，Web 化後這道防線消失。建議（非阻斷，Phase 2/3 內可做）：`search_service`／`conversation_service` 加簡單的每日累計費用檢查（`SELECT SUM(cost_usd) FROM search_log WHERE date(created_at)=date('now')` 超門檻回 429），順便補上待辦「Header 搜尋累計成本卡」。VLM 斷路器維持不修（超出這次遷移的合理範圍），僅記錄為風險。
+- **成本追蹤缺口被放大**：`../05-known-limitations-and-open-items.md` 已記錄「搜尋無上限」（`search_log` 沒有警示機制）與「VLM 無斷路器」兩個缺口。桌面版靠「單一使用者、有人盯著看」隱性防線，Web 化後這道防線消失。建議（非阻斷，Phase 2/3 內可做）：`search_service`／`conversation_service` 加簡單的每日累計費用檢查（`SELECT SUM(cost_usd) FROM search_log WHERE date(created_at)=date('now')` 超門檻回 429），順便補上待辦「Header 搜尋累計成本卡」。VLM 斷路器維持不修（超出這次遷移的合理範圍），僅記錄為風險。
 - **Tkinter／Web 並存測試策略**：全程只有 `uv run pytest` 一個指令，Phase 1-3 新測試都加進同一個 `tests/`（含 `tests/api/`，pytest 自動遞迴發現）。既有 207 個測試持續是 pipeline/db 層的唯一安全網；新增的 `tests/api/` 保護 Job Manager／schema／endpoint；兩者不重疊不取代。`ui/*_tab.py` 缺乏自動化測試是既有現況（非本次新增缺口），但 Phase 1 影響面最大，必須靠人工跑過 Tkinter 視窗補這個洞。
 
 ## 6. 決策速查表
@@ -253,7 +253,7 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 |---|---|---|
 | 任務佇列 infra | in-process threading + `jobs` 表 | 併發上限本來就該是 1（見 2.7）；Celery/Redis 維運成本遠高於實際需求 |
 | Category B 非同步包裝 | FastAPI threadpool，不進 `jobs` 表 | 秒級同步呼叫套輪詢只會多引入延遲，沒有 UX 收益 |
-| Tkinter 輪詢骨架 | 維持現狀，不與 Job Manager 共用 | `03-excluded-approaches.md` 已評估類似想法並判定不值得；兩者底層需求本質不同 |
+| Tkinter 輪詢骨架 | 維持現狀，不與 Job Manager 共用 | `../02-technical-decisions.md` 的「已排除方案」 已評估類似想法並判定不值得；兩者底層需求本質不同 |
 | Conversation 狀態 | 伺服器端 `conversations` 表 | 前端 round-trip 違反「重新整理不遺失狀態」驗收標準；缺乏成本稽核軌跡 |
 | 對話成本歸屬 | 對話層級彙總 | 零 pipeline 簽名改動、風險最低 |
 | 下載檔名衝突 | 修改 `downloader.py` 加 `dest_dir` 參數 | 單純加鎖解決不了「不同 URL、相同標題」的根本衝突 |
@@ -273,7 +273,7 @@ WAL 讓讀者不擋寫者、寫者不擋讀者，對症下藥「多請求同時�
 
 - **Phase 1**：`uv run pytest`（207 既有 + 新增 service 測試全綠）＋人工跑 `uv run ai-video-search-web` 點過五個頁籤主要操作。
 - **Phase 2**：`uv run pytest`（含 `tests/api/`）全綠；`uv run uvicorn ai_video_search_web.api.main:app` 啟動後用 `GET /docs` 手動核對每個 endpoint；針對 422/409/併發序列化三個安全缺口各寫一個明確測試並確認會失敗（改動前）／通過（改動後）。
-- **Phase 3**：`cd frontend && npm run dev` 對照 FastAPI dev server，手動走過 `08-web-ui-migration-design.md` 第 10 節驗收標準逐項；至少「搜尋」「上傳分析」兩條路徑跑 Playwright E2E。**實測結果**：補裝系統相依套件後，已用 Playwright 完成「搜尋」「對話搜尋」「影片庫排序／篩選／詳細面板」「影片播放 seek」的互動驗證，零 JS 錯誤，見 4.4 節「實作紀錄」。「上傳」「YouTube 下載＋分析輪詢」因需要真的觸發付費 API／長時間 job 流程，這次沒有跑 E2E，只驗證到程式碼與型別層級，是還沒補的驗收缺口，見第 9 節。
+- **Phase 3**：`cd frontend && npm run dev` 對照 FastAPI dev server，手動走過 `../prompts/08-web-ui-migration-design.md` 第 10 節驗收標準逐項；至少「搜尋」「上傳分析」兩條路徑跑 Playwright E2E。**實測結果**：補裝系統相依套件後，已用 Playwright 完成「搜尋」「對話搜尋」「影片庫排序／篩選／詳細面板」「影片播放 seek」的互動驗證，零 JS 錯誤，見 4.4 節「實作紀錄」。「上傳」「YouTube 下載＋分析輪詢」因需要真的觸發付費 API／長時間 job 流程，這次沒有跑 E2E，只驗證到程式碼與型別層級，是還沒補的驗收缺口，見第 9 節。
 - **全程**：兩邊（Tkinter／Web）功能對等前，`uv run pytest` 必須維持全綠，不允許為了 Web 版而修改或刪除既有測試斷言。
 
 ## 9. Phase 3 待辦與已知限制

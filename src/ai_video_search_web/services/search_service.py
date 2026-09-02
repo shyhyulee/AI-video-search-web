@@ -1,7 +1,7 @@
 """搜尋 Application Service：薄包裝 pipeline.search.search()。
 
 存在的理由是讓 api/ 只依賴 services/，不直接依賴 pipeline/，
-見 docs/09-web-ui-migration-plan.md。
+見 docs/archive/09-web-ui-migration-plan.md。
 """
 from __future__ import annotations
 

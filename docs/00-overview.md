@@ -7,15 +7,15 @@
 
 這份文件是專案的**總覽層**：系統現在長什麼樣、資料怎麼流、成本與限制在哪裡。想知道「這個資料夾其他文件各自負責什麼」請看 [`README.md`](README.md)，那裡有完整的分類索引。
 
-其餘文件依性質分成三類，`README.md` 有逐份說明：**現況參考**（會跟著程式碼持續維護）、**執行紀錄**（任務已結束，唯讀）、**原始需求 prompt**（使用者當初交付的規格原文，唯讀）。
+其餘文件依性質分成三類，而且**分類就寫在目錄結構上**：頂層是**現況參考**（會跟著程式碼持續維護）與開發歷程，`archive/` 是**已結束的執行紀錄**（唯讀），`prompts/` 是**原始需求 prompt**（使用者當初交付的規格原文，唯讀）。仍在追加的執行紀錄（`11 §8`、`18`）留在頂層。逐份說明見 `README.md`。
 
 ## 2. 背景與需求
 
 這個專案由使用者以三份原始 prompt 文件依序交付給 Claude Code 執行：UI 需求、OCR 功能需求、搜尋準確率提升需求。以下是三者實際要求的整理版。
 
-> **原始檔案的現況**：三份裡只有 UI 需求那份的原文還在版控裡（[`ui-reference/ui_prompt.md`](ui-reference/ui_prompt.md)）。OCR 與搜尋準確率那兩份（早期文字曾以 `Claude_Code_OCR_影片搜尋開發規劃.md`、`AI_Video_Search_搜尋準確率提升規劃.md` 稱呼）**從未進過版控、目前不存在**，本節的整理版與 [`02-technical-decisions.md`](02-technical-decisions.md) 是它們僅存的記錄。
+> **原始檔案的現況**：三份裡只有 UI 需求那份的原文還在版控裡（[`prompts/ui_prompt.md`](prompts/ui_prompt.md)）。OCR 與搜尋準確率那兩份（早期文字曾以 `Claude_Code_OCR_影片搜尋開發規劃.md`、`AI_Video_Search_搜尋準確率提升規劃.md` 稱呼）**從未進過版控、目前不存在**，本節的整理版與 [`02-technical-decisions.md`](02-technical-decisions.md) 是它們僅存的記錄。
 
-### 2.1 產品定位與 UI 需求（來自 [`ui-reference/ui_prompt.md`](ui-reference/ui_prompt.md)）
+### 2.1 產品定位與 UI 需求（來自 [`prompts/ui_prompt.md`](prompts/ui_prompt.md)）
 
 一套本機執行的 Tkinter 桌面應用，讓使用者上傳／下載影片後，用自然語言描述（人物、動作、物件、教學內容）搜尋影片中的關鍵時刻，取代人工逐格瀏覽。四個頁籤：
 
@@ -26,7 +26,7 @@
 
 全域 Header 顯示待分析／已分析／影片片段／累計成本四張統計卡。要求風格統一（集中管理顏色／間距／字型）、Responsive（1366×768 與 1920×1080 皆可用）。
 
-> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`06-conversational-search-flow.md`](06-conversational-search-flow.md)（設計）與 [`07-ui-structure-and-features.md`](07-ui-structure-and-features.md)（Tkinter UI 完整盤點，含此落差的記錄）。**這份 Tkinter 實作後來整個被 Web UI（React + FastAPI）取代並移除**，`07-ui-structure-and-features.md` 保留下來作為歷史設計記錄，實際程式碼已經不存在，見 3.5 節與 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
+> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`12-search-query-logic.md`](12-search-query-logic.md#7-多輪對話ai對話頁在這之上多做了什麼) §7（流程）與 [`archive/07-ui-structure-and-features.md`](archive/07-ui-structure-and-features.md)（Tkinter UI 完整盤點，含此落差的記錄）。**這份 Tkinter 實作後來整個被 Web UI（React + FastAPI）取代並移除**，`archive/07-ui-structure-and-features.md` 保留下來作為歷史設計記錄，實際程式碼已經不存在，見 3.5 節與 [`archive/09-web-ui-migration-plan.md`](archive/09-web-ui-migration-plan.md)。
 
 ### 2.2 OCR 功能需求
 
@@ -73,7 +73,7 @@
 |---|---|---|
 | 後端 API | FastAPI（`uvicorn`） | REST API，見 `api/`／`services/`／`schemas/` |
 | 前端 | React + TypeScript + Vite + Tailwind + TanStack Query | 見 `frontend/`；原本的 Tkinter 桌面 UI 已移除，見 3.5 節 |
-| 資料庫 | PostgreSQL 17（Docker，`docker-compose.yml`） | 關鍵字檢索用 `pg_trgm` GIN 索引 ＋ SQL 手算 BM25；`jobs`／`conversations` 表供背景工作與對話狀態持久化。2026-08 從 SQLite 遷移過來，見 [`14-postgresql-migration-plan.md`](14-postgresql-migration-plan.md) |
+| 資料庫 | PostgreSQL 17（Docker，`docker-compose.yml`） | 關鍵字檢索用 `pg_trgm` GIN 索引 ＋ SQL 手算 BM25；`jobs`／`conversations` 表供背景工作與對話狀態持久化。2026-08 從 SQLite 遷移過來，見 [`archive/14-postgresql-migration-plan.md`](archive/14-postgresql-migration-plan.md) |
 | ASR | OpenAI Whisper（`whisper-1`） | $0.006／分鐘 |
 | VLM（畫面描述＋OCR） | OpenAI GPT-4o-mini | 同一次呼叫回傳描述＋畫面文字，structured output |
 | Embedding | OpenAI `text-embedding-3-small` | 原生 1536 維，截短為 1024 維 |
@@ -99,7 +99,7 @@ frontend/（React SPA，透過 Vite dev server proxy 呼叫 /api/*）
                     jobs／conversations）
 ```
 
-單向依賴、無循環依賴：`db/` 不 import 任何 `pipeline/`／`services/`／`api/`；`pipeline/*` 不 import `services/`／`api/`。這個結構經過四輪重構驗證仍然健康（見 [`02-technical-decisions.md`](02-technical-decisions.md#重構)），Web UI 遷移（見 3.5 節）延續同樣的單向依賴慣例，只在最外層新增 `services/`／`api/`／`frontend/`。原本的 `app.py`／`ui/*.py`（Tkinter）已於 Phase 4 移除，見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
+單向依賴、無循環依賴：`db/` 不 import 任何 `pipeline/`／`services/`／`api/`；`pipeline/*` 不 import `services/`／`api/`。這個結構經過四輪重構驗證仍然健康（見 [`02-technical-decisions.md`](02-technical-decisions.md#重構)），Web UI 遷移（見 3.5 節）延續同樣的單向依賴慣例，只在最外層新增 `services/`／`api/`／`frontend/`。原本的 `app.py`／`ui/*.py`（Tkinter）已於 Phase 4 移除，見 [`archive/09-web-ui-migration-plan.md`](archive/09-web-ui-migration-plan.md)。
 
 ### 3.3 整體資料流
 
@@ -147,15 +147,15 @@ flowchart TD
 
 ### 3.5 Web UI 遷移進度
 
-專案原本是純 Tkinter 桌面應用，已完成 Web UI 遷移（React 前端 + FastAPI 後端）並移除 Tkinter，現在是純 Web 應用。共用同一套 `pipeline/`／`db/` 邏輯，遷移過程沒有重寫這兩層。詳細架構決策、Job Manager 設計、分階段執行紀錄見 [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md)。
+專案原本是純 Tkinter 桌面應用，已完成 Web UI 遷移（React 前端 + FastAPI 後端）並移除 Tkinter，現在是純 Web 應用。共用同一套 `pipeline/`／`db/` 邏輯，遷移過程沒有重寫這兩層。詳細架構決策、Job Manager 設計、分階段執行紀錄見 [`archive/09-web-ui-migration-plan.md`](archive/09-web-ui-migration-plan.md)。
 
-**目前進度**：Phase 0～Phase 4 全部完成。`uv run ai-video-search-web` 啟動 FastAPI／uvicorn 後端；`cd frontend && npm run dev` 啟動 React 前端。`ui/`／`app.py`／`theme.py`（Tkinter）已刪除，`07-ui-structure-and-features.md` 保留其設計記錄作為歷史參考。
+**目前進度**：Phase 0～Phase 4 全部完成。`uv run ai-video-search-web` 啟動 FastAPI／uvicorn 後端；`cd frontend && npm run dev` 啟動 React 前端。`ui/`／`app.py`／`theme.py`（Tkinter）已刪除，`archive/07-ui-structure-and-features.md` 保留其設計記錄作為歷史參考。
 
-**~~已知限制~~（2026-08-26 應已解決、待實測確認）**：原本分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，分析中途切去別的頁籤進度顯示就會遺失。`App.tsx` 改用 keep-alive（造訪過的頁籤留在 DOM 裡不卸載，只是隱藏）之後，五個頁籤切走再切回來狀態都不變，這個限制的根因已經移除；但沒有實跑一輪真實分析確認過，詳見 `11-web-ui-warm-redesign-plan.md` §8.3 與 `09-web-ui-migration-plan.md` 第 9 節。
+**~~已知限制~~（2026-08-26 應已解決、待實測確認）**：原本分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，分析中途切去別的頁籤進度顯示就會遺失。`App.tsx` 改用 keep-alive（造訪過的頁籤留在 DOM 裡不卸載，只是隱藏）之後，五個頁籤切走再切回來狀態都不變，這個限制的根因已經移除；但沒有實跑一輪真實分析確認過，詳見 `11-web-ui-warm-redesign-plan.md` §8.3 與 `archive/09-web-ui-migration-plan.md` 第 9 節。
 
 ### 3.6 UI 暖色改版（已完成）
 
-Web UI 遷移穩定後，依 `10-web-ui-ux-warm-responsive-design.md` 的暖色響應式設計規格，對同一套四頁面
+Web UI 遷移穩定後，依 `prompts/10-web-ui-ux-warm-responsive-design.md` 的暖色響應式設計規格，對同一套四頁面
 進行純視覺／互動層美化（不動 API、資料庫、搜尋邏輯）。分階段執行、技術選型決策、逐項驗收結果見
 `11-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1～Phase 4 全部完成——Design Token＋共用
 元件庫＋響應式外殼、影片與分析／影片庫頁面重構、`VideoPlayer`／`SearchResultCard` 共用元件、搜尋

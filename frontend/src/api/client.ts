@@ -14,7 +14,7 @@ import { ApiError } from './types'
 
 // 開發時走 vite.config.ts 的 proxy（/api -> 127.0.0.1:8000），瀏覽器端看到的
 // 是相對路徑、同源，不需要 CORS；後端的 CORSMiddleware 是給非 proxy 場景
-// （例如未來獨立部署）用的保險，見 docs/09-web-ui-migration-plan.md。
+// （例如未來獨立部署）用的保險，見 docs/archive/09-web-ui-migration-plan.md。
 const BASE = '/api/v1'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -104,7 +104,7 @@ export function getThumbnailUrl(videoId: number): string {
  *
  * history 是**同一格畫面**先前的問答，由呼叫端保管、時間點一變就清空——帶著
  * 別格畫面的問答會讓模型答錯格。端點掛在 videos 而不是 conversations 底下：
- * 它不讀也不寫對話狀態，見 docs/19-停格畫面問答功能計畫.md。 */
+ * 它不讀也不寫對話狀態，見 docs/archive/19-停格畫面問答功能計畫.md。 */
 export function askAboutFrame(
   videoId: number,
   atSec: number,

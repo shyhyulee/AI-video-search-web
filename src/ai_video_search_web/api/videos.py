@@ -1,5 +1,5 @@
 """影片相關 API：CRUD、上傳、YouTube 下載觸發、分析／重新分析／摘要觸發、
-串流與縮圖。見 docs/09-web-ui-migration-plan.md 4.3 節。
+串流與縮圖。見 docs/archive/09-web-ui-migration-plan.md 4.3 節。
 
 /upload 只接受瀏覽器上傳的檔案內容，不接受使用者本機路徑字串——瀏覽器本來
 就只能這樣做。注意前端已經沒有呼叫這個端點（本機上傳在 docs/11 §8.5 移除），
@@ -120,7 +120,7 @@ def generate_document(video_id: int) -> VideoDocumentOut:
     由模型自己依內容判斷），見 pipeline/document.py。
 
     跟 /reanalyze 不同，這是**同步**端點、不進 jobs 表：單次 LLM 呼叫符合
-    docs/09-web-ui-migration-plan.md 的 Category B 判準。代價是回應時間比其他
+    docs/archive/09-web-ui-migration-plan.md 的 Category B 判準。代價是回應時間比其他
     同步端點長（輸出 token 比摘要多一個量級），前端要有明確的等待狀態。
 
     先查影片再查片段，順序跟 /summary 相反是刻意的：那支對不存在的 video_id
@@ -159,7 +159,7 @@ def ask_about_frame(video_id: int, payload: FrameQARequest) -> FrameQAOut:
 
     放在 videos 而不是 conversations 底下：它不讀也不寫任何對話狀態，之後要在
     片段搜尋頁或影片庫的觀看模式加同一個功能，直接呼叫這支就好。計畫見
-    docs/19-停格畫面問答功能計畫.md。
+    docs/archive/19-停格畫面問答功能計畫.md。
     """
     video = _get_video_or_raise(video_id)
     result = video_service.answer_about_frame(

@@ -73,7 +73,7 @@ class NormalizedScene:
     而且幾乎零成本（`_split_long_scenes()` 本來就算得出來，只是順手保留）。之後
     如果要回答「哪些內容值得抽超過三幀」，這是現成而且已經校準過的訊號——當初
     比較過的替代方案（pixel/HSV 差異）已經實測放棄，見
-    docs/03-excluded-approaches.md。
+    docs/02-technical-decisions.md#已排除方案。
     """
     start_sec: float
     end_sec: float

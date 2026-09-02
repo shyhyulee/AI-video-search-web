@@ -1,7 +1,7 @@
 # SQLite → PostgreSQL 遷移計畫（v2 · 已完成）
 
 > **類型**：執行紀錄｜**狀態**：任務已完成，唯讀
-> 分類說明與完整索引見 [`README.md`](README.md)。
+> 分類說明與完整索引見 [`../README.md`](../README.md)。
 
 ## 1. 文件目的
 
@@ -272,7 +272,7 @@ P0-5 是整案最重要的一步：**沒有 baseline 就沒辦法證明遷移後
 | **P4 資料搬遷** | `scripts/migrate_sqlite_to_pg.py`：讀 `app.db` 逐表搬（**保留原 id**），最後 `setval` 修正 identity sequence | 六張表筆數相符；抽 3 支影片比對 segment 內容；embedding bytes 逐位元組相符 |
 | **P5 測試** | 6 處 `temp_db` fixture 改成「連測試資料庫 + `TRUNCATE ... RESTART IDENTITY CASCADE`」；`test_db.py` 裡查 `sqlite_master`／`segments_fts` 的斷言改寫 | `uv run pytest` 全綠 |
 | **P6 驗收** | 跑 golden set 比對 baseline；實跑 app 走完：下載 YouTube → 分析 → 搜尋 → 多輪對話 → 重新分析 → 刪除 | §5.3 通過條件 + 六個流程都正常 |
-| **P7 收尾** | 更新 `README.md`（Docker 啟動步驟、`DATABASE_URL`）、`docs/00`／`docs/02`／`docs/01` 時間軸；新增 `.env.example` | — |
+| **P7 收尾** | 更新 `../README.md`（Docker 啟動步驟、`DATABASE_URL`）、`docs/00`／`docs/02`／`docs/01` 時間軸；新增 `.env.example` | — |
 
 **估時**：P0 看你什麼時候方便點 Docker Desktop；P1–P3 約半天，P4–P5 約半天，P6 視 golden set 結果，
 總計 1–2 個工作天。

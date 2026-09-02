@@ -1,5 +1,5 @@
 """影片相關的 Application Service：包裝 db.videos／downloader／analyzer 的呼叫，
-讓 api/ 不必直接依賴 pipeline/ 與 db/，見 docs/09-web-ui-migration-plan.md。
+讓 api/ 不必直接依賴 pipeline/ 與 db/，見 docs/archive/09-web-ui-migration-plan.md。
 
 多數函式是一行委派，刻意保留：它們標記的是「api 只能經過這裡」這條邊界。
 下載／分析的實際觸發（downloader.start_download／analyzer.start_analysis）
@@ -73,7 +73,7 @@ def store_upload(source: BinaryIO, suffix: str) -> Path:
     """把上傳的檔案內容存進上傳目錄，回傳落檔路徑。
 
     檔名用系統產生的 uuid4、不沿用使用者上傳的檔名，避免 Path Traversal 與
-    覆蓋既有檔案，見 docs/08-web-ui-migration-design.md 第 11 節；副檔名由呼叫
+    覆蓋既有檔案，見 docs/prompts/08-web-ui-migration-design.md 第 11 節；副檔名由呼叫
     端驗證後傳入（那是 HTTP 層的輸入驗證，422 屬於 api/）。
 
     「檔案放在哪、叫什麼名字」是這一層的事，不是 api/ 的事：刪除影片時把檔案
@@ -252,7 +252,7 @@ def answer_about_frame(
 
 def generate_thumbnail(video: VideoRecord, size: tuple[int, int] = _THUMBNAIL_SIZE) -> bytes | None:
     """在影片時間中點用 ffmpeg 擷取一張縮圖，回傳 PNG bytes；擷取失敗回傳
-    None。每次呼叫都重新產生，尚未做 docs/09-web-ui-migration-plan.md Phase 3
+    None。每次呼叫都重新產生，尚未做 docs/archive/09-web-ui-migration-plan.md Phase 3
     規劃的「分析完成時就產生並保存」。
     """
     if not video.file_path or not Path(video.file_path).exists():

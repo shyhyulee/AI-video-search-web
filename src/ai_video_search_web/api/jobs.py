@@ -1,4 +1,4 @@
-"""工作狀態 API：查詢與重試背景工作，見 docs/09-web-ui-migration-plan.md
+"""工作狀態 API：查詢與重試背景工作，見 docs/archive/09-web-ui-migration-plan.md
 3.2 節。"""
 from __future__ import annotations
 

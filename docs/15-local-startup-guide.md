@@ -68,7 +68,7 @@ The command 'docker' could not be found in this WSL 2 distro.
 We recommend to activate the WSL integration in Docker Desktop settings.
 ```
 
-背景見 `docs/14-postgresql-migration-plan.md` §2.3——Windows 端另外裝的 PostgreSQL 17
+背景見 `docs/archive/14-postgresql-migration-plan.md` §2.3——Windows 端另外裝的 PostgreSQL 17
 服務是 Manual 啟動且本專案不使用，`postgresql-x64-17` 不需要開。
 
 ### Step 1：啟動 PostgreSQL
@@ -183,7 +183,7 @@ ss -ltnp | grep -E '8000|5173'
 
 pgAdmin 4 已經隨 Windows 端的 PostgreSQL 17 裝好
 （`C:\Program Files\PostgreSQL\17\pgAdmin 4\runtime\pgAdmin4.exe`），直接拿來連 Docker 容器即可，
-不需要另外安裝——兩邊都是 PG 17，版本對得上。這也是 `docs/14-postgresql-migration-plan.md` D1
+不需要另外安裝——兩邊都是 PG 17，版本對得上。這也是 `docs/archive/14-postgresql-migration-plan.md` D1
 決策裡選 pg17 的理由之一。
 
 前提是 §4 Step 1 的容器在跑（`docker compose ps` 顯示 `(healthy)`）。
@@ -254,7 +254,7 @@ from videos order by cost_usd desc nulls last;
 
 `created_at`／`analyzed_at` 這類欄位的型別是 **text**，內容是 ISO 字串
 （例如 `2026-08-18T21:36:37`）——從 SQLite 搬過來時保留原型別，見
-`docs/14-postgresql-migration-plan.md`。
+`docs/archive/14-postgresql-migration-plan.md`。
 
 字串排序剛好等於時間排序，所以 `order by created_at` 可以直接用；
 但要做日期運算或比較區間，得先轉型：
@@ -314,5 +314,5 @@ uv run python scripts/run_golden_set_eval.py
       ⋯⋯不需要申請與保管 API 金鑰」。這個變數看起來已經沒有作用，待確認是否要從
       `.env.example` 移除。
 - [ ] 專案根目錄的 `app.db`／`app.db-shm`／`app.db-wal` 是遷移前的 SQLite 舊檔，
-      遷移完成後已無程式讀取（見 `docs/14-postgresql-migration-plan.md`）。
+      遷移完成後已無程式讀取（見 `docs/archive/14-postgresql-migration-plan.md`）。
       待確認保留為備份到什麼時候。

@@ -1,7 +1,7 @@
 # Web UI 遷移設計與開發規格
 
 > **類型**：原始需求 prompt｜**狀態**：使用者交付的規格原文，唯讀不改
-> 分類說明與完整索引見 [`README.md`](README.md)。
+> 分類說明與完整索引見 [`../README.md`](../README.md)。
 
 > 本文件供 Claude Code 閱讀與執行。請先完成 Phase 0 架構盤點並輸出分析報告，取得確認後再修改程式碼。
 
@@ -9,7 +9,7 @@
 
 將目前 Tkinter UI 遷移為 Web UI，同時保留既有影片處理、搜尋、對話搜尋、資料庫與成本統計功能。
 
-來源文件：`07-ui-structure-and-features.md`。
+來源文件：`../archive/07-ui-structure-and-features.md`。
 
 主要目標：
 
@@ -255,7 +255,7 @@ GET    /api/v1/logs/export
 
 > **這是遷移設計階段的規劃清單，不是現況。** 實際出貨與這份清單的差異：
 > `POST /api/v1/search/export`（CSV 匯出）曾經實作、之後隨前端功能一起移除
-> （見 `11-web-ui-warm-redesign-plan.md` §8.13）；`GET /api/v1/search/recent`
+> （見 `../11-web-ui-warm-redesign-plan.md` §8.13）；`GET /api/v1/search/recent`
 > 與 `GET /api/v1/logs`、`GET /api/v1/logs/export` 從未實作。另外實際多了
 > `GET /api/v1/youtube/search`（YouTube 搜尋頁）。現況以程式碼與
 > `http://127.0.0.1:8000/docs` 的 OpenAPI 為準。
@@ -381,7 +381,7 @@ Header 統計
 - Web UI 穩定前保留 Tkinter。
 - 確認不再需要回滾後，才移除 Tkinter 專用程式。
 - 最後再處理 `ai_video_search_web` 命名問題。
-- 同步更新 `00-overview.md`，補上已存在的對話搜尋。
+- 同步更新 `../00-overview.md`，補上已存在的對話搜尋。
 
 ## 10. 驗收標準
 
@@ -414,7 +414,7 @@ Header 統計
 
 請先閱讀：
 
-- `07-ui-structure-and-features.md`。
+- `../archive/07-ui-structure-and-features.md`。
 - `src/ai_video_search_web/app.py`。
 - `src/ai_video_search_web/theme.py`。
 - `src/ai_video_search_web/ui/`。

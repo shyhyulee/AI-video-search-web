@@ -4,7 +4,7 @@ conversations 六個子模組。這個檔案負責連線管理、跨表的 init_
 各子模組的公開函式／型別重新匯出成原本的扁平介面。
 
 原本是 SQLite，2026-08 遷移到 PostgreSQL，見
-docs/14-postgresql-migration-plan.md。呼叫端（services／pipeline／api）的
+docs/archive/14-postgresql-migration-plan.md。呼叫端（services／pipeline／api）的
 程式碼一行都沒有因此改動——這層的函式介面就是為了這種抽換而存在的。
 
 DSN／get_connection() 刻意只定義在這裡（不是某個子模組）：Python
@@ -165,7 +165,7 @@ def init_db() -> None:
       - segments.prune_orphan_fts()：清掉 FTS 裡對不到片段的殘留列。
     後兩者是因為 FTS5 虛擬表的 rowid 得靠呼叫端自己同步才需要存在；改用
     generated column 之後由資料庫自己維護，那類殘留在結構上不可能發生。
-    見 docs/14-postgresql-migration-plan.md §5.2。
+    見 docs/archive/14-postgresql-migration-plan.md §5.2。
     """
     with get_connection() as conn:
         # segments 的中文關鍵字索引需要 pg_trgm。放在這裡而不是只寫在文件裡，

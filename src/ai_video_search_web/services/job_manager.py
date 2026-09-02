@@ -2,7 +2,7 @@
 `analyzer.start_analysis()`）既有的「背景 thread ＋ queue.Queue 進度事件」
 機制接上 `db.jobs` 表，讓 Web 版能在多個 HTTP request 之間查詢工作狀態，
 並把 `docs/02-technical-decisions.md`（Tier 3）「同時只分析一支影片」的
-隱性約束變成顯式機制。詳見 docs/09-web-ui-migration-plan.md 3.2 節。
+隱性約束變成顯式機制。詳見 docs/archive/09-web-ui-migration-plan.md 3.2 節。
 
 不改動 `analyzer`／`downloader.py` 任何一行既有 threading／併發邏輯：
 這裡只是起一條 pump thread，把「原本會被 Tk widget 讀走的 queue 事件」
@@ -217,7 +217,7 @@ def _pump_download(job_id: int, url: str, internal_queue: "queue.Queue[object]")
 
 # ----------------------------------------------------------------------
 # Retry（Cancel 沒有實作：pipeline 沒有 checkpoint／取消 token，
-# 無法安全中途停止，見模組說明與 docs/09-web-ui-migration-plan.md）
+# 無法安全中途停止，見模組說明與 docs/archive/09-web-ui-migration-plan.md）
 # ----------------------------------------------------------------------
 def retry_job(job_id: int) -> int:
     """對失敗的工作建立全新一筆重新 submit（舊列保留當歷史紀錄），回傳新
@@ -243,7 +243,7 @@ def retry_job(job_id: int) -> int:
 # ----------------------------------------------------------------------
 def reconcile_stale_jobs() -> int:
     """把上次異常中止（process 被砍掉）、卡在 running 的工作全部標記失敗，
-    回傳受影響筆數。見 docs/09-web-ui-migration-plan.md 3.2 節「Zombie job」。
+    回傳受影響筆數。見 docs/archive/09-web-ui-migration-plan.md 3.2 節「Zombie job」。
     """
     count = db.fail_all_running_jobs("伺服器重新啟動，任務中斷")
     if count:

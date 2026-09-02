@@ -8,7 +8,7 @@ YouTube 網頁，官方改版時可能失效——這個風險下載功能本來
 
 分類上屬於 Category B（同步回應、不寫 DB、不進 jobs 表、不呼叫 OpenAI），
 跟 search_service 同類，不經過 job_manager，見
-docs/09-web-ui-migration-plan.md 2.1 節。
+docs/archive/09-web-ui-migration-plan.md 2.1 節。
 """
 from __future__ import annotations
 

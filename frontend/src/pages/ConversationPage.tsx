@@ -96,7 +96,7 @@ export function ConversationPage() {
   // 輸入框是不是對著畫面問。**刻意用明確模式而不是讓 intent LLM 自己判斷**：
   // 那要多一次分類呼叫，而且現有 intent 會改寫使用者原句（docs/05 記過否定詞
   // 被改掉的 bug）。把「畫面中有幾個人」誤判成新搜尋，使用者只會拿到一堆
-  // 不相干的片段。見 docs/19-停格畫面問答功能計畫.md。
+  // 不相干的片段。見 docs/archive/19-停格畫面問答功能計畫.md。
   const [frameMode, setFrameMode] = useState(false)
   const [frameThread, setFrameThread] = useState<FrameThread | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)

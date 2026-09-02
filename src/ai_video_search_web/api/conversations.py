@@ -1,5 +1,5 @@
 """對話搜尋 API：以 conversations 表持久化 ConversationState，見
-docs/09-web-ui-migration-plan.md 3.2 節。"""
+docs/archive/09-web-ui-migration-plan.md 3.2 節。"""
 from __future__ import annotations
 
 from fastapi import APIRouter

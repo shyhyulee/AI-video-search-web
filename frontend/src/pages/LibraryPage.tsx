@@ -41,7 +41,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 /** 「影片庫」頁面，對齊 ui/library_tab.py：篩選／排序列表 + 詳細資訊面板，
- * 見 docs/07-ui-structure-and-features.md 6.2 節。排序改用明確的下拉＋方向切換，
+ * 見 docs/archive/07-ui-structure-and-features.md 6.2 節。排序改用明確的下拉＋方向切換，
  * 取代原本表格可點擊欄位標題的排序方式（改成 list-item 後不再有欄位標題）。 */
 export function LibraryPage() {
   // 清單、篩選、排序、勾選全部住在 useLibraryList；這裡只剩排版與動作。

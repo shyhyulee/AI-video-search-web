@@ -5,15 +5,15 @@
 
 ## 1. 文件目的
 
-`docs/10-web-ui-ux-warm-responsive-design.md` 是暖色響應式設計規格（含互動原型連結），要求「先分析現有
-Frontend、API 與 UI 元件，再提出最小變更方案」。本文件的關係跟 `docs/08-web-ui-migration-design.md` 之於
-`docs/09-web-ui-migration-plan.md` 一樣：`10` 是規格草稿，本文件才是**依現有程式碼實際盤點後推導、持續
+`docs/prompts/10-web-ui-ux-warm-responsive-design.md` 是暖色響應式設計規格（含互動原型連結），要求「先分析現有
+Frontend、API 與 UI 元件，再提出最小變更方案」。本文件的關係跟 `docs/prompts/08-web-ui-migration-design.md` 之於
+`docs/archive/09-web-ui-migration-plan.md` 一樣：`10` 是規格草稿，本文件才是**依現有程式碼實際盤點後推導、持續
 更新**的執行計畫與進度紀錄。技術方向大致沿用 `10`（暖色 Token、響應式斷點、共用元件化這些主流選擇沒有
 爭議），但元件拆分方式、套件選型、階段順序等細節多處依實測與專案既有慣例調整。
 
 ## 2. 背景與範圍
 
-- Web UI 遷移（Tkinter → React + FastAPI，見 `docs/09-web-ui-migration-plan.md`）已完成並穩定，四個頁面
+- Web UI 遷移（Tkinter → React + FastAPI，見 `docs/archive/09-web-ui-migration-plan.md`）已完成並穩定，四個頁面
   （影片與分析／影片庫／搜尋結果／對話搜尋）功能與資料流完整。
 - 這次是**純視覺／互動層美化**，明確不改動 `api/client.ts`／`api/types.ts`、後端、資料庫、搜尋或分析
   pipeline 邏輯。
@@ -207,7 +207,7 @@ Tab 到 `VideoListItem`、按 Enter 觸發選取，確認可行。對比度修�
 
 ## 6. 驗收結果
 
-對照 `docs/10-web-ui-ux-warm-responsive-design.md` §11 的驗收標準逐項回報，區分「已用工具實測確認」
+對照 `docs/prompts/10-web-ui-ux-warm-responsive-design.md` §11 的驗收標準逐項回報，區分「已用工具實測確認」
 與「設計上已處理、但沒有做窮舉式量測」，不把後者寫成前者：
 
 **已實測確認**：
@@ -1164,7 +1164,7 @@ console error、零水平溢位。
 
 ### 8.19 對話搜尋：對停格畫面提問（2026-09-01）
 
-**需求**：使用者停在影片某個時間點時，在同一個對話框裡針對那一格畫面提問（「畫面中有幾個人」「出現的食物有哪些」）。功能的完整計畫、動手前的可行性實測與後端設計見 [`19-停格畫面問答功能計畫.md`](19-停格畫面問答功能計畫.md)，這裡只記 UI 的部分。
+**需求**：使用者停在影片某個時間點時，在同一個對話框裡針對那一格畫面提問（「畫面中有幾個人」「出現的食物有哪些」）。功能的完整計畫、動手前的可行性實測與後端設計見 [`archive/19-停格畫面問答功能計畫.md`](archive/19-停格畫面問答功能計畫.md)，這裡只記 UI 的部分。
 
 **動到三個檔案**：
 

@@ -58,7 +58,7 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 
 ### 場景切分改用多 Detector 聯集
 
-`ContentDetector` 單獨會漏掉漸進式轉場（溶接／crossfade）。改用 `ContentDetector`＋`AdaptiveDetector`（PySceneDetect 的多 detector 是聯集關係：任一個判定切就切）能正確抓出中間漏掉的切點。曾評估加 `ThresholdDetector`，因誤切率偏高而不採用（見 [`03-excluded-approaches.md`](03-excluded-approaches.md)）。602 秒測試影片場景數從 19 增加到 33，耗時幾乎沒差（88.5s vs 校準值約 85s）。
+`ContentDetector` 單獨會漏掉漸進式轉場（溶接／crossfade）。改用 `ContentDetector`＋`AdaptiveDetector`（PySceneDetect 的多 detector 是聯集關係：任一個判定切就切）能正確抓出中間漏掉的切點。曾評估加 `ThresholdDetector`，因誤切率偏高而不採用（見 [`02-technical-decisions.md`](02-technical-decisions.md#已排除方案)）。602 秒測試影片場景數從 19 增加到 33，耗時幾乎沒差（88.5s vs 校準值約 85s）。
 
 ### 場景長度正規化（merge/split）
 
@@ -96,7 +96,7 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 
 ### 影片下載平行化實驗（aria2c）—已放棄
 
-嘗試用 aria2c 多連線加速下載，實測反而比原生單連線下載器慢 4～7 倍（15.8s vs 65.6s/109.1s）。已回滾，詳見 [`03-excluded-approaches.md`](03-excluded-approaches.md)。
+嘗試用 aria2c 多連線加速下載，實測反而比原生單連線下載器慢 4～7 倍（15.8s vs 65.6s/109.1s）。已回滾，詳見 [`02-technical-decisions.md`](02-technical-decisions.md#已排除方案)。
 
 ### 分析流程平行化（Tier 1 + Tier 2）
 
@@ -116,7 +116,7 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 ## 2026-08-26：第三輪重構
 
 > 2026-08-21～25 的 Web 化（Tkinter → FastAPI + React）與 UI 暖色改版記錄在
-> [`09-web-ui-migration-plan.md`](09-web-ui-migration-plan.md) 與
+> [`archive/09-web-ui-migration-plan.md`](archive/09-web-ui-migration-plan.md) 與
 > [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md)，本檔未逐項收錄。
 
 ### 重構（第三輪）
@@ -137,7 +137,7 @@ Whisper API／PySceneDetect 都不提供伺服器端進度，改用背景執行�
 
 ## 2026-08-27：資料庫從 SQLite 遷移到 PostgreSQL
 
-完整計畫、決定理由與執行紀錄見 [`14-postgresql-migration-plan.md`](14-postgresql-migration-plan.md)，
+完整計畫、決定理由與執行紀錄見 [`archive/14-postgresql-migration-plan.md`](archive/14-postgresql-migration-plan.md)，
 逐階段進度看板見 [`pg-migration-board.html`](pg-migration-board.html)。這裡只記時間軸摘要。
 
 **動機不是效能**：22 支影片／931 個片段，SQLite 完全夠用。真正的理由有兩個——專題發表需要
@@ -382,7 +382,12 @@ prompt 沒有回歸測試可擋。幻覺步驟的風險只是被緩解（時間�
 
 完整看板（含每張卡的驗證方式與被推翻的假設）見 [`refactor-board.html`](refactor-board.html)。
 
-## 2026-08-30：點文件的時間戳直接播放該段影片
+## 2026-08-30：點文件的時間戳直接播放，並一路追到文件素材的格式問題
+
+> 這一條原本跟下面那條合在同一個標題底下（288 行）。內容一字未改，只依 [`18-畫面分析精細化計畫.md`](18-畫面分析精細化計畫.md)
+> 記載的日期（原始需求與拍板都是 2026-08-31）拆成兩天。這一條的線索是連著的：**點時間戳播放 → 發現時間戳對不上 →
+> 追出成因不是模型幻覺而是素材格式 → 連帶修掉幻覺字幕 → Phase F 改成分析完就有文件**。
+
 
 「整理成文件」產出的每個步驟都帶 `timestamp_sec`，但它一直只是個純文字標籤。這次讓它可以點——點下去影片就從那一秒開始播。
 
@@ -521,6 +526,11 @@ prompt 沒有回歸測試可擋。幻覺步驟的風險只是被緩解（時間�
 **驗收**：426 個單元測試通過（新增 8 支：Phase F 的四條分支——成功／文件失敗退回摘要／兩條都失敗／超支跳過——加上 `mark_video_analyzed()` 的文件欄位與 `reset_to_pending()` 的清除）；`tsc -b`／`oxlint` 乾淨。整合測試（`-m integration`，真的花錢跑一支合成影片）加了「分析完 `document_json` 要有值」的斷言，空的代表走了退路，會轉紅而不是默默通過。
 
 **沒做、也講清楚為什麼**：文件成本仍然併進 `videos.cost_usd`，沒有獨立欄位——這一條本來就在待辦清單上，而且自動整理之後那個數字更難拆了。存量影片也不會自動補文件，只影響之後才分析的影片。
+
+## 2026-08-31：畫面分析精細化（`18-畫面分析精細化計畫.md` 的 P0–P4）
+
+> 承上，同一批調查往下追到「畫面描述本身夠不夠細」。完整的量測、五個根因與四個拍板決定見
+> [`18-畫面分析精細化計畫.md`](18-畫面分析精細化計畫.md)；這裡記的是當天實際做了什麼、推翻了什麼。
 
 ### 把畫面描述量化，然後發現多幀 prompt 一直在丟掉自己買到的東西
 
@@ -917,7 +927,7 @@ Playwright 量到三頁左欄完全對齊（1920 x=214／1366 x=24／900 x=16）
 
 ### 先量再做，而且量出來的東西改變了設計
 
-三件事在寫任何功能程式碼之前就量完了（總花費 US$0.037），完整數字在 [`19-停格畫面問答功能計畫.md`](19-停格畫面問答功能計畫.md)：
+三件事在寫任何功能程式碼之前就量完了（總花費 US$0.037），完整數字在 [`archive/19-停格畫面問答功能計畫.md`](archive/19-停格畫面問答功能計畫.md)：
 
 1. **抽幀是逐格準確的**。`extract_frame()` 的 `-ss` 放在 `-i` 之前是快速 seek，所以要驗。同一支影片抽 409.0／409.4／409.8／410.5／412.0／414.0 得到六張不同的畫面，沒有吸附到關鍵幀——「使用者停在哪就問哪一格」這個前提成立。
 2. **`detail=high` 貴 12.6 倍**（2,880 → 36,882 prompt tokens，US$0.00045 → US$0.00554）。一題 high 比產一整份 SOP 還貴。

@@ -1,6 +1,6 @@
 """統一錯誤處理：把 services 層丟出的例外轉成穩定的 Error Schema，不直接把
-Python traceback 回傳給前端，見 docs/09-web-ui-migration-plan.md（沿用
-docs/08-web-ui-migration-design.md 第 6 節的 Error Schema 格式）。
+Python traceback 回傳給前端，見 docs/archive/09-web-ui-migration-plan.md（沿用
+docs/prompts/08-web-ui-migration-design.md 第 6 節的 Error Schema 格式）。
 """
 from __future__ import annotations
 

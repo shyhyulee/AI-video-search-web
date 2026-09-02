@@ -1,5 +1,5 @@
 // 對齊 src/ai_video_search_web/schemas/*.py 的 Pydantic model 欄位，
-// 見 docs/09-web-ui-migration-plan.md。改後端 schema 時要同步改這裡。
+// 見 docs/archive/09-web-ui-migration-plan.md。改後端 schema 時要同步改這裡。
 
 export interface HeaderStats {
   pending_count: number
@@ -149,7 +149,7 @@ export interface FrameQAResponse {
   cost_usd: number
 }
 
-// 沿用 docs/08-web-ui-migration-design.md 第 6 節的 Error Schema，
+// 沿用 docs/prompts/08-web-ui-migration-design.md 第 6 節的 Error Schema，
 // api/errors.py 實作。
 export interface ApiErrorBody {
   error: {

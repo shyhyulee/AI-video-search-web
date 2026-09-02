@@ -1,6 +1,6 @@
 """對話搜尋 Application Service：以 conversations 表持久化 ConversationState，
 讓多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續，見
-docs/09-web-ui-migration-plan.md 2.2／3.2 節。
+docs/archive/09-web-ui-migration-plan.md 2.2／3.2 節。
 
 `handle_turn()` 本身是純函式（永遠回傳全新 state，不原地修改），且
 ConversationState／SearchResult 全部欄位是 str/int/float/None/list，可直接

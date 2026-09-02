@@ -79,7 +79,7 @@ def create_table(conn: psycopg.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_video_id ON segments(video_id)")
     # 中文關鍵字檢索索引，見 docs/02-technical-decisions.md#搜尋 與
-    # docs/14-postgresql-migration-plan.md §5。
+    # docs/archive/14-postgresql-migration-plan.md §5。
     #
     # 為什麼是 trigram 而不是 PostgreSQL 內建的 to_tsvector 全文檢索：中文沒有
     # 空白斷詞，tsvector 的 'simple' parser 會把整句當成一個 token，子字串完全
@@ -333,7 +333,7 @@ def fts_bm25_search(
     呼叫端（sparse.py）只送 >=3 字元的詞進來。那個限制在 SQLite 是硬性的
     （trigram tokenizer 對更短的詞產不出 token、完全查不到），在 PostgreSQL
     只影響能不能吃到 GIN 索引——更短的詞一樣查得到，只是走 seq scan。
-    這個差異刻意沒有拿來改搜尋行為，見 docs/14-postgresql-migration-plan.md §5.2.1。
+    這個差異刻意沒有拿來改搜尋行為，見 docs/archive/14-postgresql-migration-plan.md §5.2.1。
     """
     if not terms:
         return []

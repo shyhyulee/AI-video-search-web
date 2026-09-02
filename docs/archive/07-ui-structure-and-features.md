@@ -1,11 +1,11 @@
 # Tkinter UI — 功能與結構設計
 
 > **類型**：歷史存檔｜**狀態**：所描述的 Tkinter 程式碼已移除，唯讀
-> 分類說明與完整索引見 [`README.md`](README.md)。
+> 分類說明與完整索引見 [`../README.md`](../README.md)。
 
 ## 1. 文件目的
 
-整理 `src/ai_video_search_web/app.py`、`src/ai_video_search_web/theme.py` 與 `src/ai_video_search_web/ui/` 底下目前實作的 Tkinter UI，記錄各頁籤的功能、版面結構、共用元件與跨頁籤互動方式，供之後維護或擴充 UI 時查閱。內容依實際程式碼整理，不包含尚未實作的規劃項目（規劃項目見 [`00-overview.md`](00-overview.md) 與 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)）。
+整理 `src/ai_video_search_web/app.py`、`src/ai_video_search_web/theme.py` 與 `src/ai_video_search_web/ui/` 底下目前實作的 Tkinter UI，記錄各頁籤的功能、版面結構、共用元件與跨頁籤互動方式，供之後維護或擴充 UI 時查閱。內容依實際程式碼整理，不包含尚未實作的規劃項目（規劃項目見 [`../00-overview.md`](../00-overview.md) 與 [`../05-known-limitations-and-open-items.md`](../05-known-limitations-and-open-items.md)）。
 
 ## 2. 整體架構
 
@@ -35,7 +35,7 @@ search_tab → library_tab → video_tab → conversation_tab → logs_tab
 | 4 | 對話搜尋 | `ConversationTab` | `ui/conversation_tab.py` |
 | 5 | 處理紀錄 | `ProcessingLogTab` | `ui/logs_tab.py` |
 
-> 待確認：`00-overview.md` 描述產品需求時只列出四個頁籤（無「對話搜尋」），實際程式碼已有五個頁籤，「對話搜尋」為之後新增的獨立入口（見 `conversation_tab.py` 模組註解），`00-overview.md` 尚未同步更新。
+> 待確認：`../00-overview.md` 描述產品需求時只列出四個頁籤（無「對話搜尋」），實際程式碼已有五個頁籤，「對話搜尋」為之後新增的獨立入口（見 `conversation_tab.py` 模組註解），`../00-overview.md` 尚未同步更新。
 
 ### 2.2 共用基礎設施
 
@@ -233,4 +233,4 @@ search_tab → library_tab → video_tab → conversation_tab → logs_tab
 - 縮圖產生（`library_tab`）、本機影片長度探測（`video_tab`）、片段播放（`playback.py`）都依賴外部指令 `ffmpeg`／`ffprobe`／`ffplay`，需存在於系統 `PATH`；三處都已用 `try/except` 包住失敗情境，不會讓程式崩潰，但功能會退化（無法產生縮圖／長度顯示 `--:--`／播放失敗跳警告）。
 - `App._on_tab_changed` 用字串比較 `self.notebook.select() == str(self.library_tab)` 判斷目前分頁，依賴 Tkinter 內部的 widget path 字串表示法。
 - `library_tab` 重新分析期間會忽略外部觸發的 `refresh()`（見 6.2 節「重新分析」），這是刻意設計，避免列表項目在分析中途因狀態變成 pending 而暫時消失。
-- 「對話搜尋」頁籤已存在於程式碼但未反映在 `00-overview.md` 的產品需求描述中（待確認：是否需要回頭更新該文件）。
+- 「對話搜尋」頁籤已存在於程式碼但未反映在 `../00-overview.md` 的產品需求描述中（待確認：是否需要回頭更新該文件）。

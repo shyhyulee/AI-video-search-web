@@ -1,6 +1,6 @@
 """對話式搜尋的 Conversation Orchestrator：串起 intent.py（意圖判斷／改寫）
 與既有 search.py（Hybrid Search，原封不動、不修改排序邏輯），組出這一輪要
-顯示給使用者的回覆與結果。見 docs/Claude_Code_Conversational_Video_Search_Prompt.md
+顯示給使用者的回覆與結果。見 docs/prompts/Claude_Code_Conversational_Video_Search_Prompt.md
 的責任區分——LLM 只負責判斷意圖與改寫查詢，實際搜尋一律經過 search.search()，
 不允許 LLM 直接產生影片 ID、時間點或搜尋分數。
 

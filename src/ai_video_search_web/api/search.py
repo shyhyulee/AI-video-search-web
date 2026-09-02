@@ -1,4 +1,4 @@
-"""搜尋 API，見 docs/09-web-ui-migration-plan.md。"""
+"""搜尋 API，見 docs/archive/09-web-ui-migration-plan.md。"""
 from __future__ import annotations
 
 from fastapi import APIRouter

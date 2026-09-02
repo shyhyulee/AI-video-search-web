@@ -47,8 +47,8 @@ function jobStatusInfo(
 }
 
 /** 「影片分析」頁面：待分析影片列表、開始分析、移除，見
- * docs/07-ui-structure-and-features.md 6.1 節與
- * docs/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
+ * docs/archive/07-ui-structure-and-features.md 6.1 節與
+ * docs/archive/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
  *
  * **這頁不再有「新增影片」區塊**：影片一律從「新增影片」頁的卡片按
  * 「加入待分析」收進來，本機上傳也一併移除（見 docs/11 §8.5）。這頁的職責

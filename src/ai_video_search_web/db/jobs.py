@@ -1,7 +1,7 @@
 """jobs 表：Category A（downloader／analyzer）背景工作的持久化進度紀錄，讓
 多個 HTTP request 之間、甚至伺服器重啟後都能查詢工作狀態——事件本身走的是
 記憶體 queue.Queue，跨不了 request，所以進度要落地到這張表。見
-docs/09-web-ui-migration-plan.md 3.2 節。
+docs/archive/09-web-ui-migration-plan.md 3.2 節。
 
 狀態集合刻意只有 queued/running/completed/failed 四種：pipeline 完全沒有
 checkpoint／取消 token，做「真取消」要把訊號貫穿進每個 phase 函式，超出這次
@@ -197,7 +197,7 @@ def mark_job_failed(job_id: int, error_message: str) -> None:
 
 def fail_all_running_jobs(error_message: str) -> int:
     """伺服器啟動時的 reconciliation：把上次異常中止、卡在 running 的 job
-    全部標記失敗，回傳受影響筆數。見 docs/09-web-ui-migration-plan.md 3.2 節
+    全部標記失敗，回傳受影響筆數。見 docs/archive/09-web-ui-migration-plan.md 3.2 節
     「Zombie job」。
     """
     completed_at = datetime.now().isoformat(timespec="seconds")

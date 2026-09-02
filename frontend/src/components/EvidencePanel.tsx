@@ -7,7 +7,7 @@ interface EvidencePanelProps {
 }
 
 /** 搜尋結果的證據面板：最終相似度、三模態分數、片段描述與字幕。
- * 對齊 docs/10-web-ui-ux-warm-responsive-design.md §6.3「Evidence Panel」。 */
+ * 對齊 docs/prompts/10-web-ui-ux-warm-responsive-design.md §6.3「Evidence Panel」。 */
 export function EvidencePanel({ result }: EvidencePanelProps) {
   return (
     <div className="flex flex-col gap-3">

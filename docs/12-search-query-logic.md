@@ -5,7 +5,7 @@
 
 ## 1. 這份文件的範圍
 
-記錄「使用者在『片段搜尋』頁按下搜尋之後，一句查詢字串到底被怎麼處理」的**完整順序與行為**，以及最常被問到的「支不支援複合搜尋／輸入多個關鍵字會怎樣」。
+記錄「使用者在『片段搜尋』頁按下搜尋之後，一句查詢字串到底被怎麼處理」的**完整順序與行為**，以及最常被問到的「支不支援複合搜尋／輸入多個關鍵字會怎樣」。第 7 章接著講「AI對話」頁在同一條檢索之上多做了什麼——**兩頁共用同一個 `search()`，沒有第二套搜尋**。
 
 跟既有文件的分工：
 
@@ -168,3 +168,131 @@ fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
 判斷投報率最高的最小改動：在 `sparse_scores()` 加「同時命中越多候選詞、分數越好」的權重，而**不是**把 FTS5 查詢改成 `AND`——後者會讓召回率大幅下降，也違背 RRF「沒命中不懲罰」的設計前提。
 
 更根本的解法是 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md) 待辦裡的 **Top 20-50 Reranker**：用 LLM 對完整查詢語意重新判斷相關性，能一次處理否定句、多條件查詢、hard negative 這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫一套規則。
+
+## 7. 多輪對話（「AI對話」頁）在這之上多做了什麼
+
+> 這一章原本是獨立的 `06-conversational-search-flow.md`。併進來的理由：對話搜尋**沒有自己的檢索邏輯**——它只是在上面第 3 章那條完全相同的 `search()` 前面，多加一層「這句話想做什麼」的意圖判斷。分成兩份文件會讓讀者以為有兩套搜尋。
+
+### 7.1 一句話總覽
+
+使用者在「AI對話」頁打字 → LLM 只負責判斷「這句話想做什麼、要用什麼查詢字串去搜」→ **真正的搜尋動作 100% 交給第 3 章那條 `search()`**（Hybrid RRF，邏輯完全沒改）→ 結果與回覆文字顯示回前端，這一輪的狀態存進 `conversations` 表供下一輪使用。
+
+```text
+前端送出（POST /conversations/{id}/messages，前端每輪重送畫面上勾選的 video_ids）
+        ▼
+services/conversation_service.py  讀出 ConversationState → 交給 pipeline
+        ▼
+pipeline/conversation.py :: handle_turn(state, user_message)
+        │
+        ├─ 1) pipeline/intent.py :: classify_intent()
+        │     → LLM（gpt-4o-mini，structured output）判斷四種意圖之一，
+        │       並改寫成一句「不靠上下文也看得懂」的 standalone_query
+        │
+        ├─ 2) 依 action 分派三條路徑（見 7.3）
+        │
+        └─ 3) 組回覆文字＋結果清單＋花費＋新的 ConversationState
+        ▼
+services/conversation_service.py  把新狀態寫回 conversations 表
+```
+
+**跟 Tkinter 時期的差異**（`06` 舊版寫的是那時的行為）：狀態不再只活在頁籤實例的記憶體裡，而是**落地 `conversations` 表**（`db/conversations.py`、`services/conversation_service.py`），所以有 `conversation_id`、重新整理頁面接得回來。`ConversationState` 的欄位本身沒變。
+
+### 7.2 意圖判斷（`pipeline/intent.py :: classify_intent()`）
+
+把「歷史摘要」「上一輪結果清單（含編號、影片名、時間、描述）」「使用者這句話」一起塞進一個 prompt，用 `chat.completions.parse` 拿結構化輸出（跟 `translation.py` 同一套機制）。LLM 只回傳五類欄位：
+
+- `action`：`new_search`／`refine_search`／`select_result`／`clarify` 四選一
+- `standalone_query`：改寫後的獨立查詢句
+- `filters_video_ids`：使用者有沒有明講要限定在哪支影片
+- `selected_result_index`：選第幾個結果（1-based，對應清單上顯示的編號）
+- `requires_clarification`／`clarification_question`：看不懂時的反問
+
+LLM 完全碰不到資料庫、不會自己編影片 ID 或時間點——這是規劃時的責任區分限制，見原始 prompt 文件「LLM：判斷意圖、改寫 Query；Search Service：執行搜尋」。
+
+### 7.3 三條分派路徑（`pipeline/conversation.py`）
+
+| action | 邏輯 | 會不會呼叫 `search()` |
+|---|---|---|
+| `clarify` 或 `requires_clarification=True` | 直接把 `clarification_question` 當回覆，結果清單維持顯示上一輪的（不清空） | 不會 |
+| `select_result` | 檢查 index 是否落在 `1..len(last_results)`；有效就取 `last_results[index-1]` 當 `selected_result`，回傳只有這一筆的結果清單；index 無效或根本沒有上一輪結果，就退回反問「不確定指的是哪一個」 | 不會 |
+| `new_search`／`refine_search` | 解析要不要帶影片篩選（見下），呼叫 `search.search(standalone_query, video_ids=...)`，用規則模板組回覆文字 | 會 |
+
+### 7.4 篩選條件沿用邏輯（`_resolve_video_ids()`）
+
+先照舊決定「LLM 這輪想要的範圍」：
+
+- LLM 這輪明講了 `filters_video_ids` → 直接用（覆蓋）
+- 沒明講，但 action 是 `refine_search` → 沿用上一輪 `state.active_filters["video_ids"]`
+- 沒明講，且 action 是 `new_search` → 清空，視為換題目
+
+再套上**使用者在畫面上勾選的範圍（`ui_video_ids`）當硬邊界**：
+
+- 沒有勾選任何影片 → 上面的結果原封不動（行為跟加這層之前完全相同）
+- 有勾選 → LLM 的範圍只能在其中**再收窄**（取交集），不能擴張出去
+- 交集為空（LLM 指的影片一支都不在勾選範圍內，通常是它認錯了）→ 整個忽略這次收窄，退回使用者勾選的範圍，而不是回零筆
+
+為什麼硬邊界方向是這樣：勾選是明確的使用者操作，模型不該默默推翻它——畫面上勾著 3 支、實際卻搜了第 4 支，使用者沒有任何線索可以除錯。
+
+`ui_video_ids` 由前端**每輪重送**，刻意**不存進 `conversations` 表**：範圍屬於「使用者現在正在看的畫面」，不是對話內容的一部分；存起來的話，使用者在影片庫改了勾選、回到對話卻還沿用舊範圍。
+
+`ConversationTurnOut.video_ids` 回傳**這一輪實際生效**的範圍，前端拿它跟畫面上勾選的比對，收窄了就在狀態列標示「這一輪只搜了：…」。
+
+> 之前的落差（`search.search()` 只吃單一 `video_id`、`_handle_search()` 只取 `video_ids[0]`）**已經解決**：`search()` 的簽名改成 `video_ids: list[int] | None`，多個 id 全部生效。`intent.py` 的 `filters_video_ids` 本來就是清單型別，之前只是在最後一哩被丟掉。
+
+### 7.5 回覆文字（`_build_reply_text()`）
+
+純規則模板，不是 LLM 生成：沒結果就明講「沒有找到足夠相關的片段」；有結果但 `is_confident=False`（沒有被 BM25/LIKE 印證）就加「把握度較低」前綴；否則只回「找到 N 個相關片段」。**這是 Phase 1 刻意簡化的地方**——原始需求要的「Grounded Answer（LLM 摘要＋引用）」還沒做，現在只列清單不生成摘要文字。
+
+### 7.6 歷史摘要（`_append_history()`）
+
+不額外呼叫 LLM 摘要（省成本），純字串規則：每輪把「使用者說了什麼→做了什麼」append 成一行，超過 `_HISTORY_MAX_CHARS`（800 字元）就從最舊的一行開始砍掉，餵給下一輪 `classify_intent()` 當 `history_summary`。
+
+### 7.7 每輪實際的 API 呼叫量（跟成本有關）
+
+- `clarify` / `select_result`：只有 1 次 LLM 呼叫（意圖判斷）。
+- `new_search` / `refine_search`：意圖判斷 1 次 ＋ `search.search()` 內部（查詢翻譯 1 次＋中英文最多 3 次 embedding，全域搜尋還可能疊加影片層級篩選的 embedding，但標題／摘要有記憶體快取，見 `search.py::_embed_cached()`）。
+
+這個成本疊加**沒有上限或警示**——延續既有搜尋本來就有的缺口（見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)），對話模式會讓每輪呼叫次數更多，是規劃時已經跟使用者確認過、刻意列為已知風險、Phase 1 沒有處理的部分。
+
+### 7.8 目前範圍內 vs 範圍外
+
+**已做（Phase 1）：** 四種意圖分派、獨立查詢改寫、指代解析（選上一輪第 N 個結果）、條件沿用/覆蓋、無結果／低把握度的明確提示。
+
+**還沒做（規劃時就標記給 Phase 2／3，非實作遺漏）：**
+
+- `expand_time_range`（「前後延長十秒」）、`summarize_results`（片段摘要問答）
+- 真正的 LLM Grounded Answer（現在只有規則模板組回覆文字）
+- 多影片同時篩選、依 modalities 動態選擇搜尋方式（Query Router）
+- 對話成本護欄、對話狀態落地資料庫
+
+### 7.9 資料模型
+
+```python
+# pipeline/conversation.py
+@dataclass
+class ConversationState:
+    active_query: str | None = None
+    active_filters: dict = field(default_factory=dict)   # 目前只用 {"video_ids": list[int]}
+    last_results: list[SearchResult] = field(default_factory=list)
+    selected_result: SearchResult | None = None
+    history_summary: str = ""
+```
+
+欄位跟 Tkinter 時期一樣，**存放位置變了**：當時是頁籤實例的記憶體（App 關掉就重置、也不需要
+`conversation_id`），現在整包序列化進 `conversations` 表的 `state_json`（`db/conversations.py`、
+`services/conversation_service.py`），所以有 `conversation_id`、重新整理頁面接得回來。
+
+`SearchResult` 為了讓對話能跨輪次穩定引用同一個片段，帶有 `segment_id: int`（對應
+`db.SegmentRecord.id`）——這是當初導入對話搜尋時唯一動到既有搜尋核心 dataclass 的地方，
+排序／融合邏輯本身沒有變動。
+
+### 7.10 相關檔案
+
+| 檔案 | 角色 |
+|---|---|
+| `frontend/src/pages/ConversationPage.tsx` | 「AI對話」頁：訊息串、輸入框、結果清單與播放器、停格提問 |
+| `api/conversations.py`／`services/conversation_service.py` | 端點與狀態持久化（`conversations` 表） |
+| `pipeline/conversation.py` | Conversation Orchestrator：`ConversationState`／`handle_turn()` |
+| `pipeline/intent.py` | 意圖判斷與 Query Rewriter：`classify_intent()` |
+| `pipeline/search/` | 既有 Hybrid Search（未改動排序邏輯，只加 `segment_id` 欄位） |
+| `tests/test_conversation.py`／`tests/test_intent.py` | 對應的純邏輯測試（mock LLM／搜尋，不呼叫真實 API） |

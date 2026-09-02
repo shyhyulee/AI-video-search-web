@@ -1,7 +1,7 @@
 """對話式搜尋的意圖判斷與 Query Rewriter：把使用者這一輪的自然語言輸入，
 結合對話歷史摘要與上一輪結果，轉成 pipeline/conversation.py 可以直接
 執行的結構化意圖。LLM 只負責「判斷意圖、改寫成獨立查詢字串」，不直接
-呼叫搜尋、不接觸資料庫，符合 docs/Claude_Code_Conversational_Video_Search_Prompt.md
+呼叫搜尋、不接觸資料庫，符合 docs/prompts/Claude_Code_Conversational_Video_Search_Prompt.md
 「LLM：判斷意圖、改寫 Query...；Search Service：執行搜尋」的責任區分。
 
 Phase 1 只支援四種 action（new_search／refine_search／select_result／

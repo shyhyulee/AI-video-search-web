@@ -15,8 +15,8 @@ import { useSearchScope } from '../lib/useSearchScope'
 
 /** 「片段搜尋」頁面（頁籤原名「搜尋結果」，改名以反映它是**執行**搜尋的地方
  * 而不只是看結果的地方），對齊 ui/search_tab.py：搜尋列、結果列表、詳細分數
- * 面板、HTML5 Video 播放器，見 docs/07-ui-structure-and-features.md 6.3
- * 節與 docs/10-web-ui-ux-warm-responsive-design.md §6.3。
+ * 面板、HTML5 Video 播放器，見 docs/archive/07-ui-structure-and-features.md 6.3
+ * 節與 docs/prompts/10-web-ui-ux-warm-responsive-design.md §6.3。
  *
  * 全站**只有這一頁能輸入自由文字搜尋**：影片庫頁上方原本也有一條搜尋列，會
  * 帶著 `?q=` 跳過來，已移除（見 docs/11 §8.6）。影片庫剩下的入口是「在此影片

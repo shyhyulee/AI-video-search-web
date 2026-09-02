@@ -1,5 +1,5 @@
 """FastAPI 應用程式進入點：組裝路由、CORS、統一錯誤處理，以及伺服器啟動時
-的 job reconciliation（見 docs/09-web-ui-migration-plan.md 3.2 節「Zombie
+的 job reconciliation（見 docs/archive/09-web-ui-migration-plan.md 3.2 節「Zombie
 job」）與 logging 設定。
 
 部署約束（刻意的簡化，見計畫文件 3.2 節）：只跑單一 worker process。這讓

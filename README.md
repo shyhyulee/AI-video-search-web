@@ -13,7 +13,7 @@ Web 應用：從 YouTube 搜尋並下載影片後自動分析（場景切分、�
 
 > 頁籤之間切換不會清空狀態：搜尋關鍵字與結果、搜尋範圍、展開中的卡片、對話記錄、進行中的分析進度都會保留（切走的頁籤留在 DOM 裡不卸載，只是隱藏，並會自動暫停背景播放中的影片）。
 
-> 桌面版 Tkinter UI 已於 Web 版上線後移除；`docs/07-ui-structure-and-features.md` 保留其設計記錄供參考，`docs/09-web-ui-migration-plan.md` 記錄完整遷移過程。
+> 桌面版 Tkinter UI 已於 Web 版上線後移除；`docs/archive/07-ui-structure-and-features.md` 保留其設計記錄供參考，`docs/archive/09-web-ui-migration-plan.md` 記錄完整遷移過程。
 
 ## 系統需求
 
