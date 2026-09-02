@@ -153,10 +153,6 @@ export function startConversation(): Promise<{ id: number }> {
   return request<{ id: number }>('/conversations', { method: 'POST' })
 }
 
-export function getConversation(conversationId: number): Promise<ConversationTurn> {
-  return request<ConversationTurn>(`/conversations/${conversationId}`)
-}
-
 /** videoIds 是畫面上勾選的搜尋範圍，每輪都要重送——後端刻意不把它存進
  * conversations 表（範圍屬於「使用者現在看的畫面」，不是對話內容的一部分）。 */
 export function sendConversationMessage(
