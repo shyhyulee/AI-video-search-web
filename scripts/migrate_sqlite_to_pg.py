@@ -1,4 +1,4 @@
-"""把既有 SQLite 資料庫的內容搬進 PostgreSQL，見 docs/14-postgresql-migration-plan.md P4。
+"""把既有 SQLite 資料庫的內容搬進 PostgreSQL，見 docs/archive/14-postgresql-migration-plan.md P4。
 
 一次性腳本，但寫成可重複執行（--truncate）方便驗證與重跑。
 

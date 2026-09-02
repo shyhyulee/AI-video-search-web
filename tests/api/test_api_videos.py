@@ -1,5 +1,5 @@
 """videos API：關鍵驗收條件——分析超長影片回 422、YouTube 重複網址回 409，
-見 docs/09-web-ui-migration-plan.md 4.3 節。
+見 docs/archive/09-web-ui-migration-plan.md 4.3 節。
 """
 from __future__ import annotations
 

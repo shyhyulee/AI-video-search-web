@@ -576,7 +576,7 @@ def test_fts_bm25_search_short_query_now_finds_results(temp_db):
     當時的註解就預告了「如果哪天這個限制消失，代表那層 fallback 可以評估要不要
     簡化」——遷移到 PostgreSQL 正是那一天：`ILIKE '%汽車%'` 本來就找得到，
     只是 2 字元的 pattern 抽不出完整 trigram、用不到 GIN 索引而已（實測見
-    docs/14-postgresql-migration-plan.md §5.2.1、§10 的 EXPLAIN 結果）。
+    docs/archive/14-postgresql-migration-plan.md §5.2.1、§10 的 EXPLAIN 結果）。
 
     **但 sparse.py 這次刻意沒有跟著簡化**：讓短詞從「哨兵分數」變成「真實 IDF
     分數」是搜尋排名的行為變更，會讓 golden set 的差異無法歸因於遷移本身。

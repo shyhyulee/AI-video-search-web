@@ -1,6 +1,6 @@
 """jobs API：關鍵驗收條件——同一 video_id 連發兩次 /analyze 第二次回 409、
 兩個不同 video_id 連發時第二個停在 queued 直到第一個變終態、伺服器啟動時
-的 zombie job reconciliation，見 docs/09-web-ui-migration-plan.md 4.3 節。
+的 zombie job reconciliation，見 docs/archive/09-web-ui-migration-plan.md 4.3 節。
 
 分析／下載本身用假的 analyzer.start_analysis／downloader.start_download
 取代，不觸發真的 pipeline／yt-dlp／OpenAI 呼叫；這兩個函式的真實邏輯已經
