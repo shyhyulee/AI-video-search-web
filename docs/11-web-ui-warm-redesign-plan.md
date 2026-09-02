@@ -1214,3 +1214,32 @@ console error、零水平溢位。
 **驗證**：`npm run lint`（oxlint ＋ query key 檢查）、`npm run build`（`tsc -b` ＋ vite）通過；Playwright `smoke.spec.ts` 19 passed、`youtube-card.spec.ts` ＋ `analysis-tracking.spec.ts` 6 passed。
 
 **文件的處理方式**：依 `README.md` 的維護規則，只同步「現況參考」那一類（`00`／`02`／`05`／`06`／`12`／`16` 與四份投影片 HTML），**§8.1～§8.19 與 `08`～`10`、`01` 既有條目維持當時的名稱不回頭改寫**；換算表放在 `00-overview.md` §3.6 與本節上方的表格。兩份備份檔（`專題發表投影片_Rock_BAK.html`、`專題發表投影片_精簡版.warm-backup.html`）與 `.pptx` 也沒動。
+
+### 8.21 AI對話：一輪回完自動選第一名、先定格不自動播放（2026-09-02）
+
+**需求**：使用者要求「AI對話的搜尋影片跟片段搜尋相同，搜尋完影片後先定格，不要直接播放」。
+
+**這是 §8.9 只做了一半的那一件事**。§8.9（2026-08-26）給搜尋頁加了「搜完自動選第一名、但不播」，當時的紀錄寫著「對話搜尋頁沒傳這個 prop，行為維持原樣」——`VideoPlayer` 的 `autoPlay` 預設是 `true`，所以對話頁一直是「不自動選，點了就播」。兩頁現在共用同一套規則。
+
+**四處改動，全在 `ConversationPage.tsx`**：
+
+1. 新增 `playOnSelect` state，語意跟 `SearchPage.tsx` 完全一樣——**這次的選取是使用者點的，還是程式自動帶出來的**。
+2. `sendMutation.onSuccess` 從 `setSelectedIndex(null)` 改成 `setSelectedIndex(turn.results.length > 0 ? 0 : null)` 並 `setPlayOnSelect(false)`。
+3. `<VideoPlayer autoPlay={playOnSelect} />`。
+4. 結果卡的 `onSelect` 補上 `setPlayOnSelect(true)`。
+
+**為什麼 `autoPlay={false}` 就等於「定格」**：`VideoPlayer` 不論播不播都會 seek 到 `startSec`，只是不呼叫 `play()`；`onLoadedMetadata`／`onSeeked` 照樣回報秒數，所以「問這一格（MM:SS）」按鈕在使用者還沒碰播放器時就顯示正確的時間、可以直接按。停格問答（§8.19）因此變得更好按——原本要先讓它播、再暫停。
+
+**`select_result` 也跟著定格，這是已知的取捨**：使用者說「播放第二段」時後端回的是那一筆單獨的結果（`conversation.py::_handle_select_result`），前端走的是同一條 `onSuccess`，所以**連「播放」都只會定格帶出來**。要讓這一種例外自動播，後端得多回一個 action 欄位（`reply_text` 是自然語言，不該拿來判斷），不是一行的事；使用者要求的是「不要直接播放」，就先照字面做。
+
+**驗證是實跑，不是只有測試綠燈**。對話送出會呼叫 OpenAI，所以用 Playwright 攔下 `conversations` 兩支端點回假結果（**零 OpenAI 花費**），但影片串流走真的後端（video 38 有本機檔案），播放器行為是真的：
+
+| 檢查 | 結果 |
+| --- | --- |
+| 一輪回完自動選第一名 | 播放器直接出現，不用手動點 |
+| `video.currentTime` | 670（第一名起點 669.89） |
+| `video.paused` | **true**（定格） |
+| 「問這一格」按鈕 | `問這一格（11:09）` |
+| 點第二筆結果 | `paused` → **false**、`currentTime` > 679 |
+
+`npm run lint`／`npm run build` 通過，既有 smoke 19 passed。

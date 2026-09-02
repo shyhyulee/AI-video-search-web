@@ -967,3 +967,15 @@ Playwright 量到三頁左欄完全對齊（1920 x=214／1366 x=24／900 x=16）
 **e2e 是照頁籤文字點的**，所以 `smoke.spec.ts`（五頁籤逐一開、keep-alive 用頁籤名點擊）與 `youtube-card.spec.ts`（斷言那句加入成功的字串）跟著改。驗證：`npm run lint`／`npm run build` 通過，Playwright smoke 19 passed、youtube-card ＋ analysis-tracking 6 passed。
 
 **文件只改「現況參考」那一類**（`README.md` 的維護規則）：`00`／`02`／`05`／`06`／`12`／`16` 與四份投影片換成新名，`08`～`11` 的執行紀錄、原始需求 prompt、本文件既有條目**維持當時的名稱**，換算表放在 `00-overview.md` §3.6 與 `docs/11` §8.20。
+
+## 2026-09-02（下午）：AI對話搜完先定格
+
+使用者要求 AI對話的結果呈現跟片段搜尋一致：**搜完自動帶出第一名，但畫面停在那一格、不要直接播放**。
+
+這是 §8.9 沒做完的一半。那次（2026-08-26）給搜尋頁加了「自動選第一名、不自動播放」，紀錄裡明寫「對話搜尋頁沒傳這個 prop」——`VideoPlayer.autoPlay` 預設 `true`，所以對話頁一直是「不自動選、點了就播」。現在兩頁共用同一份規則：程式自動帶出來的選取不播，使用者自己點結果才播。
+
+**順帶讓停格問答更好按**：`autoPlay={false}` 時播放器仍然 seek 到片段起點、只是不 play，`onSeeked` 照樣回報秒數，所以「問這一格（MM:SS）」一開始就顯示正確時間。原本要先讓它播、再暫停才問得到那一格。
+
+**已知取捨**：「播放第二段」這種 `select_result` 走同一條 `onSuccess`，所以連它也只會定格。要讓這一種例外自動播，後端得多回一個 action 欄位（`reply_text` 是自然語言，不能拿來判斷）。
+
+驗證用 Playwright 跑真的畫面，只攔 `conversations` 兩支端點（零 OpenAI 花費），影片串流走真後端：自動選第一名、`currentTime` 670、`paused` true、按鈕顯示 `問這一格（11:09）`，點第二筆之後 `paused` 轉 false。細節見 `docs/11` §8.21。

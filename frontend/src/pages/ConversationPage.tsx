@@ -89,6 +89,9 @@ export function ConversationPage() {
   const [input, setInput] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  // 這次的選取是使用者點的（true，點了就想看）還是這一輪回完自動帶出來的預設
+  // （false，只把畫面停在該時間點）。跟 SearchPage 同一份邏輯，見 docs/11 §8.9。
+  const [playOnSelect, setPlayOnSelect] = useState(false)
   const [statusText, setStatusText] = useState('')
   // 播放器現在停在第幾秒（整數）。停格問答問的就是這一格。
   const [playerSec, setPlayerSec] = useState(0)
@@ -130,7 +133,12 @@ export function ConversationPage() {
     onSuccess: (turn, variables) => {
       setMessages((prev) => [...prev, { speaker: 'assistant', text: turn.reply_text }])
       setResults(turn.results)
-      setSelectedIndex(null)
+      // 這一輪有結果就自動選第一名、右側直接把畫面停在那個時間點，跟「片段搜尋」
+      // 頁一樣（docs/11 §8.9）。**不播**：搜尋結果是程式帶出來的，不是使用者
+      // 點的，未經指示不該出聲——`select_result`（「播放第二段」）也走這裡，
+      // 後端回的是那一筆單獨的結果，同樣先定格。
+      setSelectedIndex(turn.results.length > 0 ? 0 : null)
+      setPlayOnSelect(false)
       const modalities = summarizeModalities(turn.results)
       setStatusText(
         `花費 $${turn.cost_usd.toFixed(4)}` +
@@ -311,6 +319,7 @@ export function ConversationPage() {
                 videoId={selected.video_id}
                 startSec={selected.start_sec}
                 title={selected.video_title}
+                autoPlay={playOnSelect}
                 onTimeChange={(sec) => setPlayerSec(Math.floor(sec))}
               />
               {/* 停在想問的那一格再按。按鈕留在播放器旁邊而不是輸入框旁邊：
@@ -343,7 +352,10 @@ export function ConversationPage() {
                   rank={index + 1}
                   featured={index === 0}
                   selected={index === selectedIndex}
-                  onSelect={() => setSelectedIndex(index)}
+                  onSelect={() => {
+                    setSelectedIndex(index)
+                    setPlayOnSelect(true)
+                  }}
                 />
               ))
             )}
