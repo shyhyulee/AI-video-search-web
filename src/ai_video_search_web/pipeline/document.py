@@ -21,7 +21,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from . import segment_material
-from .openai_client import chat_completion_cost
+from .openai_client import chat_completion_cost, chat_prices
 
 if TYPE_CHECKING:
     from ..db import SegmentRecord
@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "gpt-4o-mini"
-PRICE_INPUT_PER_TOKEN_USD = 0.15 / 1_000_000
-PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
+# 單價跟著 MODEL_NAME 走，不再各自寫死一份，見 openai_client._CHAT_PRICES_USD_PER_TOKEN。
+PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD = chat_prices(MODEL_NAME)
 
 # 不是截斷用的，是「這批資料明顯不對勁」的防呆上限。實測片段密度是 5.5～6.2
 # 個/分鐘（場景正規化到 8～12 秒），分析的長度上限 1 小時 → 最多約 360 段，

@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING
 from openai import OpenAI
 
 from . import segment_material
-from .openai_client import chat_completion_cost
+from .openai_client import chat_completion_cost, chat_prices
 
 if TYPE_CHECKING:
     from ..db import SegmentRecord
 
 MODEL_NAME = "gpt-4o-mini"
-PRICE_INPUT_PER_TOKEN_USD = 0.15 / 1_000_000
-PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
+# 單價跟著 MODEL_NAME 走，不再各自寫死一份，見 openai_client._CHAT_PRICES_USD_PER_TOKEN。
+PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD = chat_prices(MODEL_NAME)
 
 _MAX_SEGMENTS_IN_PROMPT = 200  # 避免片段數極多時 prompt 過長
 

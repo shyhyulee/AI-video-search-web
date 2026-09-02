@@ -21,12 +21,12 @@ from typing import Literal
 from openai import OpenAI
 from pydantic import BaseModel
 
-from .openai_client import chat_completion_cost
+from .openai_client import chat_completion_cost, chat_prices
 from .search import SearchResult
 
 MODEL_NAME = "gpt-4o-mini"
-PRICE_INPUT_PER_TOKEN_USD = 0.15 / 1_000_000
-PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
+# 單價跟著 MODEL_NAME 走，不再各自寫死一份，見 openai_client._CHAT_PRICES_USD_PER_TOKEN。
+PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD = chat_prices(MODEL_NAME)
 
 ACTIONS = ("new_search", "refine_search", "select_result", "clarify")
 

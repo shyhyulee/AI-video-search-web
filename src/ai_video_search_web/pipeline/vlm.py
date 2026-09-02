@@ -11,11 +11,11 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from . import frames
-from .openai_client import chat_completion_cost
+from .openai_client import chat_completion_cost, chat_prices
 
 MODEL_NAME = "gpt-4o-mini"
-PRICE_INPUT_PER_TOKEN_USD = 0.15 / 1_000_000
-PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
+# 單價跟著 MODEL_NAME 走，不再各自寫死一份，見 openai_client._CHAT_PRICES_USD_PER_TOKEN。
+PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD = chat_prices(MODEL_NAME)
 
 # 沒有指定時取片段中點一張。**正式流程不會走到這個預設**——Phase B 一律傳
 # analyzer.FRAME_FRACTIONS（三幀），見那裡的說明。留著是因為這個模組對外的

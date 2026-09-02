@@ -15,11 +15,11 @@ from dataclasses import dataclass
 from openai import OpenAI
 from pydantic import BaseModel
 
-from .openai_client import chat_completion_cost
+from .openai_client import chat_completion_cost, chat_prices
 
 MODEL_NAME = "gpt-4o-mini"
-PRICE_INPUT_PER_TOKEN_USD = 0.15 / 1_000_000
-PRICE_OUTPUT_PER_TOKEN_USD = 0.60 / 1_000_000
+# 單價跟著 MODEL_NAME 走，不再各自寫死一份，見 openai_client._CHAT_PRICES_USD_PER_TOKEN。
+PRICE_INPUT_PER_TOKEN_USD, PRICE_OUTPUT_PER_TOKEN_USD = chat_prices(MODEL_NAME)
 
 _PROMPT_TEMPLATE = (
     "請把以下搜尋查詢分別轉換成繁體中文版本與英文版本：如果原文已經是繁體"
