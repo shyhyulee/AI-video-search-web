@@ -85,7 +85,7 @@ def build_material(segments: "list[SegmentRecord]", *, include_ocr: bool = False
     只改這個格式：BMW 的步驟時間戳從「全部塌在 00:56 以內」變成散佈到 08:42、
     Intel 超出影片長度的步驟從 1 個變 0 個、Python 的步驟順序從章節間倒退變成
     單調遞增，步驟數也分別多了 38%／33%／100%。詳見
-    docs/05-known-limitations-and-open-items.md。
+    docs/04-known-limitations-and-open-items.md。
 
     **整欄都是幻覺的欄位會被丟掉**。純環境音／純配樂的影片，Whisper 會整支輸出
     同一句罐頭台詞（BMW 那支 97 句字幕裡 70 句是 `Thank you for watching.`，

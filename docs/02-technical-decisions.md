@@ -9,7 +9,7 @@
 
 - **Provider 只用 OpenAI（V0 起）**：ASR＝Whisper、VLM＝GPT-4o-mini、Embedding＝`text-embedding-3-small`。三個模組（`asr.py`／`vlm.py`／`embedding.py`）對外只暴露跟供應商無關的函式簽名，orchestrator（`analyzer.py`）不直接呼叫 OpenAI SDK，之後要加 Gemini 只需要在模組內部加分支。`segments` 表記錄每筆資料用哪個模型版本產生。
 - **每支影片分析預算 US$0.20，只分析 20 分鐘以內的影片**：時長限制在 UI 層擋（`video_tab.py`），超過的影片不會呼叫 `start_analysis()`；預算是「跑到哪累加到哪」的即時金額，每處理完一個片段才檢查一次，超過就 `break`，已處理的片段不浪費。
-  - **現況（原始決策的兩處已變更）**：預算目前是 **US$0.80**，經過兩次調整——先因 VLM 條件式多幀取樣上線由 US$0.20 調到 US$0.30（見本文件「VLM 條件式多幀取樣」），再因長度上限放寬而補調到 US$0.80（見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12）；長度上限 2026-08-26 放寬到 **1 小時**（`analyzer.MAX_DURATION_SEC`，見同文件 §8.11）。強制執行點也已從 UI 層搬到 API 層（`job_manager.submit_analysis()`，Tkinter 的 `video_tab.py` 已刪除）。**「跑到哪累加到哪」的預算機制本身沒變**——60 分鐘影片對 US$0.80 的餘裕只有 4.6%，仍有先撞上限變成部分完成的可能。
+  - **現況（原始決策的兩處已變更）**：預算目前是 **US$0.80**，經過兩次調整——先因 VLM 條件式多幀取樣上線由 US$0.20 調到 US$0.30（見本文件「VLM 條件式多幀取樣」），再因長度上限放寬而補調到 US$0.80（見 [`05-web-ui-warm-redesign-plan.md`](05-web-ui-warm-redesign-plan.md) §8.12）；長度上限 2026-08-26 放寬到 **1 小時**（`analyzer.MAX_DURATION_SEC`，見同文件 §8.11）。強制執行點也已從 UI 層搬到 API 層（`job_manager.submit_analysis()`，Tkinter 的 `video_tab.py` 已刪除）。**「跑到哪累加到哪」的預算機制本身沒變**——60 分鐘影片對 US$0.80 的餘裕只有 4.6%，仍有先撞上限變成部分完成的可能。
 - **場景切分選 PySceneDetect，不用固定間隔抽幀**：本機運算免費，且技術評估認為是低風險選項。
 - **字幕／畫面描述／OCR 文字分開存、分開建 embedding**：不合併成一段文字只建一個向量——這是搜尋準確率提升需求（見 [`00-overview.md`](00-overview.md#23-搜尋準確率提升需求)）明確要求的原則，V0 開始就遵守，之後所有搜尋相關改動都維持這個設計。
 
@@ -47,7 +47,7 @@
 - **解決方案**：`piece_count` 改成從 `round(length/target)` 開始，用 while 迴圈往下修正到每段都 `≥ MERGE_BELOW_SEC` 為止，辦不到就保留單一超長片段——**寧可片段偶爾超過上限，也不要低於下限**（下限存在的目的是避免 VLM／OCR 只看到一小段畫面，比片段稍微超長更傷）。同時把目標帶改成 **8～12 秒**（`MERGE_BELOW_SEC=8.0`／`SPLIT_ABOVE_SEC=12.0`／`SPLIT_TARGET_SEC=10.0`，`8 = 12/1.5`，死區縮小到 12～16 秒）。
 - **驗證結果**：兩支測試影片命中率回升到 78.8%（82/104）與 91.4%（53/58），下限保證兩支都是 100% 沒違反（min 8.01／8.64 秒），最長片段也縮短（14.95／15.95 秒）。
 - **目前狀態**：**已定案 `MERGE_BELOW_SEC=8.0`／`SPLIT_ABOVE_SEC=12.0`／`SPLIT_TARGET_SEC=10.0`**，這是目前程式碼（`scene_detect.py`）的實際常數。還沒到 6～12 秒的 96% 水準（那是死區完全消失的特例），但比 9～12 秒版本更接近目標、且完整保留下限保證。
-- **下一步**：`app.db` 既有影片要重新分析才會套用新切分（會產生 API 費用，待決定）；`golden-set.csv` 的 `expected_start`／`expected_end` 需要重新產生，舊的搜尋準確率 baseline 在片段邊界改變後可能已經失去比較基準，詳見 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md#5-評測-baseline-的時效性警示)。
+- **下一步**：`app.db` 既有影片要重新分析才會套用新切分（會產生 API 費用，待決定）；`golden-set.csv` 的 `expected_start`／`expected_end` 需要重新產生，舊的搜尋準確率 baseline 在片段邊界改變後可能已經失去比較基準，詳見 [`03-testing-and-evaluation.md`](03-testing-and-evaluation.md#5-評測-baseline-的時效性警示)。
 
 **已知限制**：「死區」（`SPLIT_ABOVE_SEC` ~ `2×MERGE_BELOW_SEC` 之間）造成的超長片段沒有絕對上限保證——理論上一個原始場景剛好落在死區內、且前後都無法被 merge pass 吸收，會直接保留原始長度。只在 2 支影片（BMW 工廠、Faces 2019）驗證過，命中率落差顯示強烈依賴內容剪輯節奏，沒測過球賽轉播、教學影片等其他類型的分佈。
 
@@ -101,7 +101,7 @@
 
 **已實測並放棄同一輪內用執行緒平行處理抽幀＋辨識**，見 [下面的「已排除方案」](#已排除方案)。
 
-**目前狀態**：Phase 1（EasyOCR MVP）已完成。Phase 2（Tesseract 條件式複核）、Phase 3（獨立 exact/BM25 OCR 檢索通道）尚未開始，詳見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+**目前狀態**：Phase 1（EasyOCR MVP）已完成。Phase 2（Tesseract 條件式複核）、Phase 3（獨立 exact/BM25 OCR 檢索通道）尚未開始，詳見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)。
 
 ### VLM 條件式多幀取樣
 
@@ -124,13 +124,13 @@
 
 **決策**：門檻定案 20 秒；觸發後取 **2 幀**（片段 30%／70% 時間點，不是中點單幀）；`BUDGET_USD` 調高到 **$0.30**；`VLM_BATCH_SIZE` 從 5 降到 **3**（見下方「實作」）。
 
-> **後續變更**：這裡的 $0.30 是當下的決策值。長度上限放寬到 1 小時之後又補調到 **$0.80**（目前值），見 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.12。
+> **後續變更**：這裡的 $0.30 是當下的決策值。長度上限放寬到 1 小時之後又補調到 **$0.80**（目前值），見 [`05-web-ui-warm-redesign-plan.md`](05-web-ui-warm-redesign-plan.md) §8.12。
 
 **實作**：`scene_detect.NormalizedScene`（取代原本的 `tuple[float, float]`）帶上 `source_raw_duration`；`pipeline/analyzer.py` 新增 `MULTI_FRAME_TRIGGER_SEC=20.0`／`MULTI_FRAME_FRACTIONS=(0.3, 0.7)`／`_frame_fractions_for()`，Phase B 依此決定每個場景要傳給 `vlm.describe_segment()` 幾個時間點；`vlm.describe_segment()` 新增 `frame_fractions` 參數（預設 `(0.5,)`，向後相容），多幀時用獨立的 prompt 模板（要求 VLM 綜合所有畫面、不要逐張重複描述）；`segments` 表新增 `vlm_frame_count` 欄位記錄每個片段實際用了幾張畫面。
 
 `VLM_BATCH_SIZE` 從 5 降到 3：回頭用 `tiktoken` 驗證原本 5 的推導依據時發現，原始估算假設「low」解析度圖片固定 85 tokens（一般 gpt-4o 的公式），但實測 gpt-4o-mini 單幀呼叫真實 prompt tokens 是 2960（圖片本身就佔約 2880 tokens），比原估計高了一個數量級；這個落差過去沒有造成實際問題（0 次撞 rate limit），研判是真實 API 呼叫延遲本身就有節流效果，不是 token 預算公式在把關。條件式多幀上線後觸發場景的 call 用量再乘上約 1.9 倍，沒有足夠把握重新推導精確數字，保守把批次大小降到 3，見下方驗證結果。
 
-**驗證結果**（只重新分析 video 1，真實 API 呼叫，見 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md#6-vlm-條件式多幀取樣上線後的驗證只重跑-video-1)）：費用從 $0.0907 漲到 $0.1126（+24.2%，比校準時抓的 +20.6%~57.9% 估計區間更低，因為實際採用 2 幀不是校準時參照的 3 幀，倍率更小）；58 個場景全部處理完、沒有觸發預算截斷、0 個 VLM 失敗。
+**驗證結果**（只重新分析 video 1，真實 API 呼叫，見 [`03-testing-and-evaluation.md`](03-testing-and-evaluation.md#6-vlm-條件式多幀取樣上線後的驗證只重跑-video-1)）：費用從 $0.0907 漲到 $0.1126（+24.2%，比校準時抓的 +20.6%~57.9% 估計區間更低，因為實際採用 2 幀不是校準時參照的 3 幀，倍率更小）；58 個場景全部處理完、沒有觸發預算截斷、0 個 VLM 失敗。
 
 **已知限制（更新）**：
 - **多幀取樣不是單純疊加涵蓋率，是「轉移」涵蓋範圍，可能讓原本矇對的案例變成沒矇到**：gs-001（獨立評審名單 2019）原本每次都命中 recall@1，這次退步成 recall@1=False（仍在 recall@5 內，reciprocal_rank 0.5）。根因：video 1 開頭 0～44.8 秒也是同一種快速疊圖轉場（`source_raw_duration=44.8` 觸發多幀），舊版單幀中點（5.6 秒）剛好拍到「30th ANNUAL INDEPENDENT CRITICS LIST」字樣，新版兩幀（3.36s／7.84s）拍到的是另外兩段不同文字（「TC Candler Presents」「100 Most Beautiful Faces of 2019」），這段文字這次完全沒被任何一幀拍到，直到影片結尾重複出現同樣品牌畫面的片段才被找到（排名因此退到第 2 名）。
@@ -139,7 +139,7 @@
 - 2.81 倍（多幀費用倍率，3 幀時測的）／32%（VLM 佔總花費比例）這兩個假設只在 video 1 單一場景測過，全 corpus 的費用估計是推算值；2 幀的真實倍率比 3 幀低，實測 video 1 是 +24.2%。
 - `VLM_BATCH_SIZE=3` 降到目前這個值是保守調整，不是精確推導出的數字，實際會不會撞 429 只驗證過 video 1 這次重新分析（0 次撞 rate limit，但只有 58 個場景、其中約 85% 觸發多幀，跟其他影片的觸發率分布不同）。
 - 這個訊號只解決「場景切分完全沒偵測到切點」這一種漏拍模式，不處理「有偵測到切點但單幀畫面描述本身品質不夠」這類其他可能的漏拍原因。
-- 其餘 6 支影片還沒用新邏輯重新分析（會產生 API 費用，也會讓現有 golden set baseline 失去比較基準，見 [`04-testing-and-evaluation.md`](04-testing-and-evaluation.md#5-評測-baseline-的時效性警示)）。
+- 其餘 6 支影片還沒用新邏輯重新分析（會產生 API 費用，也會讓現有 golden set baseline 失去比較基準，見 [`03-testing-and-evaluation.md`](03-testing-and-evaluation.md#5-評測-baseline-的時效性警示)）。
 
 ### 多幀 prompt 改寫：三步缺一不可
 
@@ -194,7 +194,7 @@
 
 **這一輪最重要的結論不是 prompt 本身**：多幀 prompt 改對能拿 +21.4pt，單幀 prompt 怎麼改都只有個位數。**單幀片段的瓶頸是那張畫面本身，不是 prompt。** 想讓單幀片段的描述再細下去，該投資的是「多給幾張畫面」（無聲影片跳過 ASR 換多幀、多幀觸發條件擴大），不是繼續改字。
 
-**已知副作用**：描述平均長度 52.2 → 74.8 字（+43%）。`segments.content` 是 generated column、BM25 會做文件長度正規化，所以重新分析過的影片跟舊影片的搜尋分數分佈會不一致，見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+**已知副作用**：描述平均長度 52.2 → 74.8 字（+43%）。`segments.content` 是 generated column、BM25 會做文件長度正規化，所以重新分析過的影片跟舊影片的搜尋分數分佈會不一致，見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)。
 
 ### 純畫面影片：跳過 ASR，把預算換成畫面
 
@@ -427,7 +427,7 @@ v31 的具體動作 **+21.2pt** 遠超 ±7.6pt 雜訊。樣本差異很直接—
 1. `relevant_video_ids()`（影片層級篩選）判定 `video_id=4`（BMW 工廠）跟這句查詢相關，納入候選——因為整句查詢（含「機器人」）embed 出來的向量跟 BMW 摘要（「機器人運用於生產線」）語意接近，這個篩選完全沒有否定感知，是拿完整原始查詢字串去 embed。
 2. 結果的 `fusion_score` 都偏低（0.07～0.17，代表 BM25 貢獻很小），`similarity`（dense）0.5～0.57 才是主要排序依據——dense 相似度計算同樣是拿完整原始查詢去 embed，語意上仍然貼近機器人內容，不管句子裡有沒有「不要」。
 
-**目前狀態**：只記錄現象與根因，還沒有修正。可能的修法是讓影片層級篩選與 dense 相似度計算都改用 `split_negated_query()` 已經算出來的 `positive_text`（去掉否定範圍後的查詢文字）去 embed，而不是完整原始查詢——這是對「否定句偵測」範圍的擴大，之前設計時明確決定「不修改 dense embedding」，這次證實這個範圍對這類案例不夠用；另一個方向是直接做 Reranker（見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md) 待辦事項），用 LLM 對完整查詢語意重新判斷相關性，同時解決否定句、多條件查詢、hard negative 精準率這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫規則。兩個方向都還沒決定要不要做、先做哪個。
+**目前狀態**：只記錄現象與根因，還沒有修正。可能的修法是讓影片層級篩選與 dense 相似度計算都改用 `split_negated_query()` 已經算出來的 `positive_text`（去掉否定範圍後的查詢文字）去 embed，而不是完整原始查詢——這是對「否定句偵測」範圍的擴大，之前設計時明確決定「不修改 dense embedding」，這次證實這個範圍對這類案例不夠用；另一個方向是直接做 Reranker（見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md) 待辦事項），用 LLM 對完整查詢語意重新判斷相關性，同時解決否定句、多條件查詢、hard negative 精準率這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫規則。兩個方向都還沒決定要不要做、先做哪個。
 
 ## 影片內容整理成文件
 
@@ -454,12 +454,12 @@ v31 的具體動作 **+21.2pt** 遠超 ±7.6pt 雜訊。樣本差異很直接—
 
 1. **每個步驟必須對得上時間戳**，素材裡沒有的不准寫；判斷得出「應該還有一步但素材沒交代」的寫進 `uncovered`。這是防幻覺的主要手段。
 
-   曾經以為它「擋得比想像少」——2026-08-30 量過 8 支文件，3 支有超出影片長度的時間戳（18:33 的影片寫出 22:56 的步驟）。**追下去發現不是模型幻覺，是我們自己的素材格式**：素材給 `[MM:SS]`，schema 要的欄位卻叫 `timestamp_sec`（秒），等於逼模型換算，而它常常直接抄 `[03:18]` 的 `18`。素材改成同時給總秒數之後重跑 9 支，超出影片長度的步驟 **4 → 0**。細節見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+   曾經以為它「擋得比想像少」——2026-08-30 量過 8 支文件，3 支有超出影片長度的時間戳（18:33 的影片寫出 22:56 的步驟）。**追下去發現不是模型幻覺，是我們自己的素材格式**：素材給 `[MM:SS]`，schema 要的欄位卻叫 `timestamp_sec`（秒），等於逼模型換算，而它常常直接抄 `[03:18]` 的 `18`。素材改成同時給總秒數之後重跑 9 支，超出影片長度的步驟 **4 → 0**。細節見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)。
 
    **後續變更（2026-09-01）：那個修法大幅改善但沒有根除。** v37 出現整份 7 步全塌在 32 秒內（`[05:10｜310 秒]` 寫成 10），重跑三次證明是單次抽樣、不是程式壞掉，但殘留仍在——形態從「整份塌陷」變成「逐步驟偶發」。同一輪還發現**這條規則管不到「寫到哪裡為止」**：現行 prompt 對同一份素材跑三次，時間戳涵蓋率是 101.6%／31.6%／97.8%。兩件事的數據與已驗證的第四條規則見 `05` 同一節。
 2. **字幕與畫面描述矛盾時以畫面為準**，看不懂的片段直接略過（因為畫面是覆蓋率 99.9% 的骨幹，字幕才是會整段壞掉的那個）。
 3. **不適合就選 `content_log`**，不要硬掰步驟。
-4. **步驟要橫跨整段素材**（2026-09-01 上線）：prompt 直接講出素材的時間範圍與「最後一個步驟應落在第 N 秒之後」，N 取素材長度的九成。同時保留「真的沒有就寫進 `uncovered`，不要為了填滿而發明步驟」——這句不是客套話，`docs/18` §6.2 的教訓是代理指標擋得住退步、擋不住幻覺，逼覆蓋率一定要同時留退路。
+4. **步驟要橫跨整段素材**（2026-09-01 上線）：prompt 直接講出素材的時間範圍與「最後一個步驟應落在第 N 秒之後」，N 取素材長度的九成。同時保留「真的沒有就寫進 `uncovered`，不要為了填滿而發明步驟」——這句不是客套話，`docs/09` §6.2 的教訓是代理指標擋得住退步、擋不住幻覺，逼覆蓋率一定要同時留退路。
 
    **這條規則改得動分布、保證不了每一次**：v37 的涵蓋率平均從 32.5% 拉到 88.0%，但 12 次裡仍有 3 次落在 38.6%～70.3%，而使用者拿到的就是「這一次」。
 
@@ -629,7 +629,7 @@ keep-alive 的，少了網址只影響「可分享」與「上一頁退出」，
 
 **前端唯一要動的地方**：文件那支 query 是 `staleTime: Infinity`（文件只有按按鈕才會變，按鈕自己 `setQueryData`）。重新分析現在也會換掉文件，所以 `VideoDetailPanel` 的 `useJobSettlement` 要多失效一個 `videoDocumentKey`，否則畫面會繼續顯示上一輪的文件。
 
-**已知取捨**：Phase F 的耗時從幾秒變成數十秒（輸出 token 比摘要多一個量級），但它與本地 OCR 平行跑，多出來的時間多半被吸收掉；成本每支多約 US$0.002，相對 `BUDGET_USD = 0.80` 可忽略，沒有調整預算。文件的成本仍然併進 `videos.cost_usd`、沒有獨立欄位（見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)）。
+**已知取捨**：Phase F 的耗時從幾秒變成數十秒（輸出 token 比摘要多一個量級），但它與本地 OCR 平行跑，多出來的時間多半被吸收掉；成本每支多約 US$0.002，相對 `BUDGET_USD = 0.80` 可忽略，沒有調整預算。文件的成本仍然併進 `videos.cost_usd`、沒有獨立欄位（見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)）。
 
 ## 對停格畫面提問
 
@@ -660,7 +660,7 @@ keep-alive 的，少了網址只影響「可分享」與「上一頁退出」，
 
 - 要多一次分類呼叫（延遲與成本）。
 - **誤判的代價不對稱**：把「畫面中有幾個人」判成新搜尋，使用者會拿到一整頁不相干的片段，而且不會知道發生了什麼事。
-- 現有 intent 分類**已知會改寫使用者原句**——[`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md) 記過 `standalone_query` 把否定詞改掉、讓否定排除整個失效的 bug。
+- 現有 intent 分類**已知會改寫使用者原句**——[`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md) 記過 `standalone_query` 把否定詞改掉、讓否定排除整個失效的 bug。
 
 所以寧可多一顆按鈕。
 

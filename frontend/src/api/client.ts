@@ -95,7 +95,7 @@ export function getThumbnailUrl(videoId: number): string {
 }
 
 // 本機上傳（`uploadVideo()`，XHR + onProgress）在移除「影片與分析」頁的新增
-// 影片區塊時一併刪掉，見 docs/11 §8.5。後端 `POST /videos/upload` 仍在、測試
+// 影片區塊時一併刪掉，見 docs/05 §8.5。後端 `POST /videos/upload` 仍在、測試
 // 也還在，之後要恢復的話是加回一個前端函式的事。
 
 /** 還沒到終態（queued／running）的工作。「影片與分析」頁靠它在重新整理後把

@@ -7,7 +7,7 @@
 
 這份文件是專案的**總覽層**：系統現在長什麼樣、資料怎麼流、成本與限制在哪裡。想知道「這個資料夾其他文件各自負責什麼」請看 [`README.md`](README.md)，那裡有完整的分類索引。
 
-其餘文件依性質分成三類，而且**分類就寫在目錄結構上**：頂層是**現況參考**（會跟著程式碼持續維護）與開發歷程，`archive/` 是**已結束的執行紀錄**（唯讀），`prompts/` 是**原始需求 prompt**（使用者當初交付的規格原文，唯讀）。仍在追加的執行紀錄（`11 §8`、`18`）留在頂層。逐份說明見 `README.md`。
+其餘文件依性質分成三類，而且**分類就寫在目錄結構上**：頂層是**現況參考**（會跟著程式碼持續維護）與開發歷程，`archive/` 是**已結束的執行紀錄**（唯讀），`prompts/` 是**原始需求 prompt**（使用者當初交付的規格原文，唯讀）。仍在追加的執行紀錄（`05 §8`、`09`）留在頂層。逐份說明見 `README.md`。
 
 ## 2. 背景與需求
 
@@ -26,7 +26,7 @@
 
 全域 Header 顯示待分析／已分析／影片片段／累計成本四張統計卡。要求風格統一（集中管理顏色／間距／字型）、Responsive（1366×768 與 1920×1080 皆可用）。
 
-> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`12-search-query-logic.md`](12-search-query-logic.md#7-多輪對話ai對話頁在這之上多做了什麼) §7（流程）與 [`archive/07-ui-structure-and-features.md`](archive/07-ui-structure-and-features.md)（Tkinter UI 完整盤點，含此落差的記錄）。**這份 Tkinter 實作後來整個被 Web UI（React + FastAPI）取代並移除**，`archive/07-ui-structure-and-features.md` 保留下來作為歷史設計記錄，實際程式碼已經不存在，見 3.5 節與 [`archive/09-web-ui-migration-plan.md`](archive/09-web-ui-migration-plan.md)。
+> **後續更新**：實際開發過程中新增了第五個頁籤「對話搜尋」（多輪對話式搜尋），不在這份原始需求範圍內，是後來才加上的獨立入口。詳見 [`06-search-query-logic.md`](06-search-query-logic.md#7-多輪對話ai對話頁在這之上多做了什麼) §7（流程）與 [`archive/07-ui-structure-and-features.md`](archive/07-ui-structure-and-features.md)（Tkinter UI 完整盤點，含此落差的記錄）。**這份 Tkinter 實作後來整個被 Web UI（React + FastAPI）取代並移除**，`archive/07-ui-structure-and-features.md` 保留下來作為歷史設計記錄，實際程式碼已經不存在，見 3.5 節與 [`archive/09-web-ui-migration-plan.md`](archive/09-web-ui-migration-plan.md)。
 
 ### 2.2 OCR 功能需求
 
@@ -140,7 +140,7 @@ flowchart TD
 
 ### 3.4 成本與限制現況
 
-- 每支影片分析硬上限 **US$0.80**（`analyzer.BUDGET_USD`），只分析 **1 小時以內**的影片（`analyzer.MAX_DURATION_SEC`，超過會被 API 擋下回 422，不會嘗試分析後才中止）。兩個數字的演進：預算 US$0.20 →（VLM 條件式多幀取樣上線）US$0.30 →（長度上限放寬後補調）**US$0.80**；長度上限 20 分鐘 →（2026-08-26）**1 小時**。見 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣) 與 [`11-web-ui-warm-redesign-plan.md`](11-web-ui-warm-redesign-plan.md) §8.11、§8.12。
+- 每支影片分析硬上限 **US$0.80**（`analyzer.BUDGET_USD`），只分析 **1 小時以內**的影片（`analyzer.MAX_DURATION_SEC`，超過會被 API 擋下回 422，不會嘗試分析後才中止）。兩個數字的演進：預算 US$0.20 →（VLM 條件式多幀取樣上線）US$0.30 →（長度上限放寬後補調）**US$0.80**；長度上限 20 分鐘 →（2026-08-26）**1 小時**。見 [`02-technical-decisions.md`](02-technical-decisions.md#vlm-條件式多幀取樣) 與 [`05-web-ui-warm-redesign-plan.md`](05-web-ui-warm-redesign-plan.md) §8.11、§8.12。
 - **預算與長度上限仍可能衝突**：`BUDGET_USD` 是「跑到哪累加到哪、超過就停」的即時金額，60 分鐘影片的餘裕只有 4.6%（最壞情況外推 $0.765，未實測），撞到上限就變成部分完成——前面的片段仍可搜尋，後半段沒有索引。
 - 實測 4～7 支已分析影片（69～160 個場景）的實際花費落在 **US$0.0965～US$0.1885**，都在預算內，沒有觸發過部分完成。
 - 搜尋每次呼叫（翻譯＋embedding）都會寫入 `search_log` 表並在 UI 顯示花費，但目前沒有上限或警示機制。
@@ -151,13 +151,13 @@ flowchart TD
 
 **目前進度**：Phase 0～Phase 4 全部完成。`uv run ai-video-search-web` 啟動 FastAPI／uvicorn 後端；`cd frontend && npm run dev` 啟動 React 前端。`ui/`／`app.py`／`theme.py`（Tkinter）已刪除，`archive/07-ui-structure-and-features.md` 保留其設計記錄作為歷史參考。
 
-**~~已知限制~~（2026-08-26 應已解決、待實測確認）**：原本分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，分析中途切去別的頁籤進度顯示就會遺失。`App.tsx` 改用 keep-alive（造訪過的頁籤留在 DOM 裡不卸載，只是隱藏）之後，五個頁籤切走再切回來狀態都不變，這個限制的根因已經移除；但沒有實跑一輪真實分析確認過，詳見 `11-web-ui-warm-redesign-plan.md` §8.3 與 `archive/09-web-ui-migration-plan.md` 第 9 節。
+**~~已知限制~~（2026-08-26 應已解決、待實測確認）**：原本分析工作的進度追蹤是「影片與分析」頁面自己的區域狀態，分析中途切去別的頁籤進度顯示就會遺失。`App.tsx` 改用 keep-alive（造訪過的頁籤留在 DOM 裡不卸載，只是隱藏）之後，五個頁籤切走再切回來狀態都不變，這個限制的根因已經移除；但沒有實跑一輪真實分析確認過，詳見 `05-web-ui-warm-redesign-plan.md` §8.3 與 `archive/09-web-ui-migration-plan.md` 第 9 節。
 
 ### 3.6 UI 暖色改版（已完成）
 
 Web UI 遷移穩定後，依 `prompts/10-web-ui-ux-warm-responsive-design.md` 的暖色響應式設計規格，對同一套四頁面
 進行純視覺／互動層美化（不動 API、資料庫、搜尋邏輯）。分階段執行、技術選型決策、逐項驗收結果見
-`11-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1～Phase 4 全部完成——Design Token＋共用
+`05-web-ui-warm-redesign-plan.md`。**目前進度**：Phase 1～Phase 4 全部完成——Design Token＋共用
 元件庫＋響應式外殼、影片與分析／影片庫頁面重構、`VideoPlayer`／`SearchResultCard` 共用元件、搜尋
 結果／對話搜尋視覺設計、響應式主從版面收合＋鍵盤／對比度品質稽核，四個頁面都已套用新設計並通過
 `tsc`／`oxlint`／`build`與 Playwright 瀏覽器驗證。Phase 1–4 之後使用者陸續提出的調整（對話搜尋改
@@ -181,7 +181,7 @@ Web UI 遷移穩定後，依 `prompts/10-web-ui-ux-warm-responsive-design.md` �
 > | 搜尋影片 | 片段搜尋 | `/search` |
 > | 對話搜尋 | AI對話 | `/conversation` |
 >
-> 本節上方與 `11-web-ui-warm-redesign-plan.md` §8.1～§8.19 的敘述停在當時的名稱，
+> 本節上方與 `05-web-ui-warm-redesign-plan.md` §8.1～§8.19 的敘述停在當時的名稱，
 > 依 `README.md` 的維護規則不回頭改寫；改名本身記在同一份文件的 §8.20。
 
 **搜尋範圍改走共用狀態、不經網址**（原本是 `?video_id=`）：影片庫可以勾選任意一批影片，
@@ -192,7 +192,7 @@ Web UI 遷移穩定後，依 `prompts/10-web-ui-ux-warm-responsive-design.md` �
 內容紀錄）在同一段可捲內容裡。文件在**分析時就一起產生**（Phase F，摘要是它的 `overview` 一稿
 兩用），面板上那顆按鈕是拿來重新整理的。點文件裡步驟的時間戳會切進**觀看模式**——清單收起來，左邊播放器、
 右邊摘要與文件，右欄的時間戳仍可點，邊看邊跳。超出影片長度的時間戳會被停用（實測 8 支文件裡 3 支
-有這種對不上的時間戳，見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)）。
+有這種對不上的時間戳，見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)）。
 
 ## 4. 接下來看哪一份
 

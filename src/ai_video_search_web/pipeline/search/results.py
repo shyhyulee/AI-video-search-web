@@ -5,7 +5,7 @@
 docs/02-technical-decisions.md#搜尋 的「UI 透明度問題」），
 RRF 只決定 `results` 的排列順序，不覆寫這個欄位。`SearchResult.fusion_score`
 額外把 RRF 分數本身也帶出來，讓呼叫端在需要時能解釋排序依據（Web UI 曾經
-顯示過這個數字，見 docs/11 §8.13 已移除，欄位本身保留）。
+顯示過這個數字，見 docs/05 §8.13 已移除，欄位本身保留）。
 """
 from __future__ import annotations
 

@@ -194,7 +194,7 @@ def test_prompt_states_the_material_time_range_and_a_tail_threshold():
 def test_prompt_keeps_the_do_not_invent_guardrail_next_to_the_coverage_rule():
     """涵蓋率規則一定要跟「沒有就寫 uncovered」綁在一起。
 
-    docs/18 §6.2 的教訓：代理指標擋得住退步、擋不住幻覺。單獨要求「寫到片尾」
+    docs/09 §6.2 的教訓：代理指標擋得住退步、擋不住幻覺。單獨要求「寫到片尾」
     會讓涵蓋率全面勝出而尾段是編的——那比停在前半段更糟，因為它看起來是完整的。
     """
     client = MagicMock()

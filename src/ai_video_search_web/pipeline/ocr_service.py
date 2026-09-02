@@ -49,7 +49,7 @@ MAX_FRAMES_PER_SCENE = 5
 MIN_CONFIDENCE = 0.3
 
 # 整支影片本地 OCR 掃描的時間上限（秒）。初始值為保守預估，尚未實測校準，
-# 見 docs/05-known-limitations-and-open-items.md 的本地 OCR 項。超過就跳出、回傳目前已收集的結果。
+# 見 docs/04-known-limitations-and-open-items.md 的本地 OCR 項。超過就跳出、回傳目前已收集的結果。
 TIME_BUDGET_SEC = 60.0
 
 

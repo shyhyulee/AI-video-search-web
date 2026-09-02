@@ -64,7 +64,7 @@ cd frontend && npm run dev
 每次啟動都會跑）；下載的影片檔放在專案根目錄的 `video/`，已加入 `.gitignore`。
 
 > 第一次啟動、或遇到 `docker: command not found`／`address already in use` 之類的卡點，
-> 詳細的前置設定、驗證指令與排查對照見 [`docs/15-local-startup-guide.md`](docs/15-local-startup-guide.md)。
+> 詳細的前置設定、驗證指令與排查對照見 [`docs/08-local-startup-guide.md`](docs/08-local-startup-guide.md)。
 
 > port 用 5433 而不是預設的 5432，是為了避開機器上可能另外裝的 PostgreSQL。
 > 資料存在 Docker named volume `avs_pgdata`，容器砍掉重建資料還在。
@@ -180,7 +180,7 @@ tests/             # pytest 測試（單元測試 + integration marker）
 scripts/           # 手動執行的工具腳本
   run_golden_set_eval.py   #   Golden Set 評測
   seed_smoke_db.py         #   把測試資料庫填成固定假資料，供前端 e2e 使用
-  migrate_sqlite_to_pg.py  #   一次性：把舊的 app.db 搬進 PostgreSQL（見 docs/14）
+  migrate_sqlite_to_pg.py  #   一次性：把舊的 app.db 搬進 PostgreSQL（見 docs/archive/14）
 docs/              # 開發文件、規劃記錄與 Golden Set
   refactor-board.html      #   歷次重構的任務看板（目前記到第四輪）
 ```
@@ -190,7 +190,7 @@ docs/              # 開發文件、規劃記錄與 Golden Set
 - 每支影片分析花費硬上限 **US$0.80**，只分析 **1 小時以內**的影片（超過會被 API 擋下回 422，不會嘗試分析後才中止）。長度限制擋的是「分析」不是「下載」——加入待分析時不檢查長度。注意兩者可能衝突：長影片可能先撞到 US$0.80 的預算上限而變成部分完成（前面的片段仍可搜尋，後半段沒有索引）。
 - 目前只接 OpenAI（Whisper／GPT-4o-mini／`text-embedding-3-small`），供應商邏輯以介面隔離，之後可擴充其他供應商。
 - 搜尋每次呼叫都會記錄花費，但目前沒有上限或警示機制。
-- 「整理成文件」每份 US$0.0004～0.003（實測 5／33／65 個片段的三支影片），跟摘要一樣累加進該支影片的 `cost_usd`，**沒有獨立欄位**，所以看不出一支影片的成本裡有多少是文件整理。文件品質沒有量化評測方式（搜尋有 golden set，這個只能人工看），已知限制見 [`docs/05`](docs/05-known-limitations-and-open-items.md)。
+- 「整理成文件」每份 US$0.0004～0.003（實測 5／33／65 個片段的三支影片），跟摘要一樣累加進該支影片的 `cost_usd`，**沒有獨立欄位**，所以看不出一支影片的成本裡有多少是文件整理。文件品質沒有量化評測方式（搜尋有 golden set，這個只能人工看），已知限制見 [`docs/04`](docs/04-known-limitations-and-open-items.md)。
 - 同一時間只會有一支影片在跑分析（Job Manager 顯式序列化，其餘排隊），避免同時打多個 API；YouTube 下載不受此限制。
 - 伺服器重新啟動時，任何卡在「執行中」的背景工作會被標記失敗，需要手動重試。
 
@@ -204,6 +204,6 @@ docs/              # 開發文件、規劃記錄與 Golden Set
 
 - [`00-overview.md`](docs/00-overview.md) — 專案背景需求、技術棧、模組分層、資料流、成本與限制（建議從這裡開始）
 - [`02-technical-decisions.md`](docs/02-technical-decisions.md) — 每個技術決策的背景、比較與實測數據
-- [`05-known-limitations-and-open-items.md`](docs/05-known-limitations-and-open-items.md) — 已知限制、待辦、待確認事項
-- [`12-search-query-logic.md`](docs/12-search-query-logic.md) — 一次搜尋的完整處理順序、多關鍵字／複合搜尋的實際行為
-- [`15-local-startup-guide.md`](docs/15-local-startup-guide.md) — 本機啟動完整步驟、驗證指令、卡點排查、用 pgAdmin 看資料
+- [`04-known-limitations-and-open-items.md`](docs/04-known-limitations-and-open-items.md) — 已知限制、待辦、待確認事項
+- [`06-search-query-logic.md`](docs/06-search-query-logic.md) — 一次搜尋的完整處理順序、多關鍵字／複合搜尋的實際行為
+- [`08-local-startup-guide.md`](docs/08-local-startup-guide.md) — 本機啟動完整步驟、驗證指令、卡點排查、用 pgAdmin 看資料

@@ -2,7 +2,7 @@
 串流與縮圖。見 docs/archive/09-web-ui-migration-plan.md 4.3 節。
 
 /upload 只接受瀏覽器上傳的檔案內容，不接受使用者本機路徑字串——瀏覽器本來
-就只能這樣做。注意前端已經沒有呼叫這個端點（本機上傳在 docs/11 §8.5 移除），
+就只能這樣做。注意前端已經沒有呼叫這個端點（本機上傳在 docs/05 §8.5 移除），
 端點與測試保留著。
 """
 from __future__ import annotations

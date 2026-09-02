@@ -49,7 +49,7 @@ DEFAULT_FRAME_FRACTIONS = (0.5,)
 #
 # **已知副作用**：描述平均長度 52.2 → 74.8 字（+43%）。`segments.content` 是
 # generated column、BM25 會做文件長度正規化，所以重新分析過的影片在搜尋端的
-# 分數分佈會跟舊影片不同，見 docs/05-known-limitations-and-open-items.md。
+# 分數分佈會跟舊影片不同，見 docs/04-known-limitations-and-open-items.md。
 _PROMPT = (
     "請分析這張畫面，用繁體中文回答兩件事："
     "1. description：一到三句話講出畫面裡看得到什麼（不要加開頭語）。"

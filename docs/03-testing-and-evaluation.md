@@ -69,7 +69,7 @@
 
 ## 2. Golden Set
 
-`docs/golden-set.csv`：**17 題**（13 題 `is_answerable=TRUE`、4 題 `is_answerable=FALSE`），涵蓋人物／物件／動作／語音／OCR／時序／多條件／無答案等查詢類型。曾經有 18 題，`gs-009` 因為資料矛盾已被刪除，定案為 17 題——**注意 `scripts/run_golden_set_eval.py` 的檔案開頭註解目前仍寫「對 18 題全部跑一輪」，是尚未同步的殘留文字**，見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+`docs/golden-set.csv`：**17 題**（13 題 `is_answerable=TRUE`、4 題 `is_answerable=FALSE`），涵蓋人物／物件／動作／語音／OCR／時序／多條件／無答案等查詢類型。曾經有 18 題，`gs-009` 因為資料矛盾已被刪除，定案為 17 題——**注意 `scripts/run_golden_set_eval.py` 的檔案開頭註解目前仍寫「對 18 題全部跑一輪」，是尚未同步的殘留文字**，見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)。
 
 命中判定用「`video_id` 相同 且 時間區間有重疊（IoU > 0）」，不是精確比對單一時間區間，因為部分查詢（如 `gs-003`）同一題有多個正確答案區間。
 
@@ -102,7 +102,7 @@
 - `app.db` 既有已分析影片**還沒有**用新常數重新分析。
 - `golden-set.csv` 的 `expected_start`／`expected_end` 時間戳**還沒有**針對新的片段邊界重新產生。
 
-也就是說，只要 `app.db` 的影片或 golden set 沒有重新產生，上表數字仍然是有效、可重現的（因為片段邊界實際上還是舊的）；但**一旦重新分析影片套用新場景長度，這組數字就會失去比較基準，必須先重新產生 golden set 才能繼續用它評估之後的實驗**。這是目前最重要的一個「待確認事項」，詳見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)。
+也就是說，只要 `app.db` 的影片或 golden set 沒有重新產生，上表數字仍然是有效、可重現的（因為片段邊界實際上還是舊的）；但**一旦重新分析影片套用新場景長度，這組數字就會失去比較基準，必須先重新產生 golden set 才能繼續用它評估之後的實驗**。這是目前最重要的一個「待確認事項」，詳見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)。
 
 ## 6. VLM 條件式多幀取樣上線後的驗證（只重跑 video 1）
 

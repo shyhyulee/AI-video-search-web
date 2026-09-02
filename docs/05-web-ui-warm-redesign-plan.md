@@ -29,7 +29,7 @@ Frontend、API 與 UI 元件，再提出最小變更方案」。本文件的關�
 | ConfirmDialog／Toast | `ConfirmDialog` 用 `@radix-ui/react-dialog`；`Toast` 手刻 | Dialog 的 focus trap／Escape／焦點還原是無障礙最容易做錯的地方，用經過驗證的 headless 套件；Toast 沒有 focus trap、邏輯單純，手刻不多引入依賴。 |
 | 字體 | 不加 Inter，`--font-sans` 開頭維持 `'Noto Sans TC'` | 原本沒有載入任何 Web Font；介面文字約 95% 是繁體中文，加 Inter 只影響數字／英文顯示，效益低於「零外部網路請求、本地優先」的一致性。 |
 | 元件資料夾 | 維持扁平 `components/*.tsx`，不建 `layout/common/video/...` 子資料夾 | 既有 6 個元件檔案依規則不能為了分類而搬移；若只有新檔案分子資料夾會變成「半扁平半分類」，比全扁平更差。元件數量成長到約 24 個仍在合理範圍。 |
-| 待分析清單「取消」 | 不做 | `src/ai_video_search_web/api/jobs.py` 只有 `GET /jobs`、`GET /jobs/{id}`、`POST /jobs/{id}/retry`，沒有 cancel endpoint；`docs/09` §3.2 當初提過 cancel 設計意圖但沒有實作成 API。這次不動後端，所以不做。 |
+| 待分析清單「取消」 | 不做 | `src/ai_video_search_web/api/jobs.py` 只有 `GET /jobs`、`GET /jobs/{id}`、`POST /jobs/{id}/retry`，沒有 cancel endpoint；`docs/archive/09` §3.2 當初提過 cancel 設計意圖但沒有實作成 API。這次不動後端，所以不做。 |
 
 新增 npm 依賴僅兩個：`lucide-react`、`@radix-ui/react-dialog`。
 
@@ -243,7 +243,7 @@ Tab 到 `VideoListItem`、按 Enter 觸發選取，確認可行。對比度修�
 ## 7. 明確排除、不在這次處理
 
 - 待分析清單「取消」（見上，後端無對應 API）。
-- 跨頁籤 job 追蹤狀態遺失（`docs/09` §9 已記錄的已知架構缺口，是狀態管理問題不是視覺問題）。
+- 跨頁籤 job 追蹤狀態遺失（`docs/archive/09` §9 已記錄的已知架構缺口，是狀態管理問題不是視覺問題）。
   ——**後續已在 8.3 用 keep-alive 處理掉根因**（頁籤不再卸載），這裡保留原判斷作為當時的範圍紀錄。
 - 「處理紀錄」頁籤、`GET /search/recent` 前端——原本 Web 遷移就刻意不做，文件 10 也沒要求恢復。
 - 前端自動化測試（Playwright）——這次每個階段都用 Playwright 手動跑過關鍵互動路徑，但沒有把測試腳本
@@ -323,7 +323,7 @@ Phase 1–4（上面章節）完成並驗收後，使用者陸續提出的小幅
 `App.tsx` 用 `<Routes>`／`<Route>`，同一時間只掛載當前路由，切頁籤等於整頁 unmount，所有
 `useState` 全部歸零。這不是 YouTube 頁專屬問題，**五個頁籤都有**，其中「對話搜尋」最嚴重：
 `ConversationPage` 在 mount effect 裡呼叫 `startConversation()`，所以每次切回去都會**重建一筆新的
-conversation、聊天記錄整個清空**。這同時也是 `docs/09` §9、`docs/00` §3.5 記錄多時的「分析中途切換
+conversation、聊天記錄整個清空**。這同時也是 `docs/archive/09` §9、`docs/00` §3.5 記錄多時的「分析中途切換
 頁籤，job 追蹤狀態會遺失」的同一個根因。
 
 **修改**：改用 keep-alive——造訪過的頁籤留在 DOM 裡，只是隱藏起來，不再卸載。
@@ -370,7 +370,7 @@ conversation、聊天記錄整個清空**。這同時也是 `docs/09` §9、`doc
 無橫向溢位、切回 YouTube 頁關鍵字仍在；全程零 console error。
 
 **未驗證（誠實揭露）**：沒有實跑一輪真實分析來確認「分析中途切頁籤，進度顯示不再遺失」。就機制而言
-根因（元件卸載）已經移除、輪詢在隱藏頁面持續進行，但端到端沒有實測過，`docs/09` §9 的那條限制先標記
+根因（元件卸載）已經移除、輪詢在隱藏頁面持續進行，但端到端沒有實測過，`docs/archive/09` §9 的那條限制先標記
 為「應已解決、待實測確認」而不是直接劃掉。
 
 **已知、刻意不處理**：手機版 `<main>` 是所有頁籤共用的捲動容器，**它的**捲動位置不是分頁籤記憶的
@@ -472,7 +472,7 @@ console error。空狀態另外用 `page.route()` 把 `GET /videos?status=pendin
 - **「在此影片內搜尋」刻意保留不動**：它帶的是 `?video_id=`（設定搜尋範圍），不是查詢字串，點下去
   是跳到「搜尋影片」頁再打字，符合「只在搜尋影片頁進行搜尋」。
 - `TopNav.tsx`／`MobileBottomNav.tsx` 的 `/search` 標籤改成「搜尋影片」。**路由本身維持 `/search`
-  不變**——改路由會讓既有書籤失效，而且 `?video_id=` 那條跳轉、`docs/09`／`docs/11` 裡一堆
+  不變**——改路由會讓既有書籤失效，而且 `?video_id=` 那條跳轉、`docs/archive/09`／`docs/05` 裡一堆
   `/search` 引用都得跟著改，純粹是換顯示文字就不值得付這個代價。
 - `SearchPage.tsx` 的檔頭註解補上新頁籤名與「全站只有這一頁能輸入自由文字搜尋」的說明。
 
@@ -721,8 +721,8 @@ overflow 就悄悄跑掉。
    分數取最高（`pipeline/search.py:232`），四條共用同一個尺度，最高的那條必定等於上方「最終相似度」。
    跟它同框的 `fusion_score` **不是**同一個尺度（RRF 融合值，排序依據），所以它被拿掉之後不要再用
    同一種條狀圖把它加回來。
-2. **`docs/08` §API 清單仍列著 `POST /api/v1/search/export`**，那是遷移期的設計文件、保留為歷史紀錄，
-   以本節為準。Tkinter 版的 CSV 匯出（`docs/07` §5）不受影響，這次只動 Web。
+2. **`docs/prompts/08` §API 清單仍列著 `POST /api/v1/search/export`**，那是遷移期的設計文件、保留為歷史紀錄，
+   以本節為準。Tkinter 版的 CSV 匯出（`docs/archive/07` §5）不受影響，這次只動 Web。
 
 **驗證**：後端全套測試 **266 passed**（1 deselected；比 8.11 少的一支就是刪掉的 CSV 測試）。前端
 `tsc --noEmit`／`oxlint` 全過。
@@ -1126,16 +1126,16 @@ PostgreSQL 讀 `title`／`summary` 跑分類，腳本沒有進版控）。結果
 **需求**：使用者要求把對話搜尋的左右兩塊互換，理由是跟影片庫、搜尋影片一致——**那兩頁都是清單在左、
 播放器與詳細在右，對話搜尋原本是全站唯一的例外**（左：對話；右：播放器＋結果）。
 
-**這個方向跟 §8.1 相反，而 §8.1 是照 `docs/10` §6.4 原文做的**（原文寫「左：對話訊息流；右：本輪檢索
+**這個方向跟 §8.1 相反，而 §8.1 是照 `docs/prompts/10` §6.4 原文做的**（原文寫「左：對話訊息流；右：本輪檢索
 結果與播放器」）。使用者的理由是全站一致性，比那份規格更站得住腳，所以照使用者的做，並把這個牴觸寫進
-`ConversationPage.tsx` 的檔案註解，避免之後有人照 `docs/10` 又改回去。
+`ConversationPage.tsx` 的檔案註解，避免之後有人照 `docs/prompts/10` 又改回去。
 
 **修改**：只動 `ConversationPage.tsx` 一個檔案，實際上只有一個 class：頁面根容器
 `md:flex-row` → `md:flex-row-reverse`。
 
 **刻意不把兩塊在 JSX 裡對調**，理由有兩個：
 
-1. **對調會連 ≤900px 的上下順序一起翻過去**，變成結果在上、對話（含輸入框）在下。`docs/10` 的響應式
+1. **對調會連 ≤900px 的上下順序一起翻過去**，變成結果在上、對話（含輸入框）在下。`docs/prompts/10` 的響應式
    規則要的是「對話在上、結果在下」，而使用者這次要的是左右、不是上下。而且結果清單在窄螢幕沒有高度
    上限（對話面板有 `max-h-[70vh]`），排在上面時結果一多就會把輸入框推到很下面。
 2. **DOM 順序維持「對話 → 結果」在語意上是對的**（先輸入、後結果），螢幕閱讀器與 Tab 照這個走。
@@ -1172,7 +1172,7 @@ console error、零水平溢位。
 2. **`ChatBubble` 加 `frameLabel`**，顯示成 `畫面 04:12`。一定要標：同一串對話裡「搜尋整個影片庫」與「問這一格畫面」兩種訊息長得一樣，回頭看時分不出某個答案是根據哪一格講的。
 3. **`ConversationPage` 加畫面模式**：播放器下方一顆「問這一格（MM:SS）」，按下後輸入框上方出現一條標示時間點與影片標題的列（含「取消」），placeholder 改成「問這一格畫面，例如：畫面中有幾個人？」，送出改走 `POST /videos/{id}/frame-qa`。
 
-**用明確模式，不讓 intent LLM 自己判斷**。自動判斷要多一次分類呼叫，而且 `docs/05` 已經記過現有 intent 會改寫使用者原句（否定詞被改掉那個 bug）。把「畫面中有幾個人」誤判成新搜尋，使用者只會拿到一堆不相干的片段——**誤判的代價不對稱**，所以寧可多一顆按鈕。
+**用明確模式，不讓 intent LLM 自己判斷**。自動判斷要多一次分類呼叫，而且 `docs/04` 已經記過現有 intent 會改寫使用者原句（否定詞被改掉那個 bug）。把「畫面中有幾個人」誤判成新搜尋，使用者只會拿到一堆不相干的片段——**誤判的代價不對稱**，所以寧可多一顆按鈕。
 
 **按鈕放在播放器旁邊而不是輸入框旁邊**：使用者的注意力在畫面上，而「這一格」指的就是他正在看的東西。
 
@@ -1213,7 +1213,7 @@ console error、零水平溢位。
 
 **驗證**：`npm run lint`（oxlint ＋ query key 檢查）、`npm run build`（`tsc -b` ＋ vite）通過；Playwright `smoke.spec.ts` 19 passed、`youtube-card.spec.ts` ＋ `analysis-tracking.spec.ts` 6 passed。
 
-**文件的處理方式**：依 `README.md` 的維護規則，只同步「現況參考」那一類（`00`／`02`／`05`／`06`／`12`／`16` 與四份投影片 HTML），**§8.1～§8.19 與 `08`～`10`、`01` 既有條目維持當時的名稱不回頭改寫**；換算表放在 `00-overview.md` §3.6 與本節上方的表格。兩份備份檔（`專題發表投影片_Rock_BAK.html`、`專題發表投影片_精簡版.warm-backup.html`）與 `.pptx` 也沒動。
+**文件的處理方式**：依 `README.md` 的維護規則，只同步「現況參考」那一類（`00`／`02`／`04`／`06`／`10` 與四份投影片 HTML），**§8.1～§8.19 與 `prompts/08`～`prompts/10`、`01` 既有條目維持當時的名稱不回頭改寫**；換算表放在 `00-overview.md` §3.6 與本節上方的表格。兩份備份檔（`專題發表投影片_Rock_BAK.html`、`專題發表投影片_精簡版.warm-backup.html`）與 `.pptx` 也沒動。
 
 ### 8.21 AI對話：一輪回完自動選第一名、先定格不自動播放（2026-09-02）
 

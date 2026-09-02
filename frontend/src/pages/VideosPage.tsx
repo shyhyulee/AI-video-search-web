@@ -23,7 +23,7 @@ const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本�
 
 /** 一次最多勾選幾支送分析。分析是全站唯一會花錢的觸發點，而
  * `analyzer.BUDGET_USD`（US$0.80）是**每支影片各自計算**的，沒有批次層級的
- * 總量上限（見 docs/11 §8.12 的上限對照表），所以在送出前先用勾選數把單批的
+ * 總量上限（見 docs/05 §8.12 的上限對照表），所以在送出前先用勾選數把單批的
  * 成本天花板壓在 5×$0.80 以內。
  *
  * 這是 UI 層的節流，不是強制約束：`POST /api/v1/videos/{id}/analyze` 一次只
@@ -51,7 +51,7 @@ function jobStatusInfo(
  * docs/archive/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
  *
  * **這頁不再有「新增影片」區塊**：影片一律從「新增影片」頁的卡片按
- * 「加入待分析」收進來，本機上傳也一併移除（見 docs/11 §8.5）。這頁的職責
+ * 「加入待分析」收進來，本機上傳也一併移除（見 docs/05 §8.5）。這頁的職責
  * 收斂成「決定哪些收進來的影片要送分析」——也是全站唯一會花錢的觸發點。
  *
  * 清單收的是 pending＋analyzing 兩種狀態（後端 `?status=pending`）。分析中的

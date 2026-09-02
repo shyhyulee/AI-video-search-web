@@ -19,7 +19,7 @@ import { useSearchScope } from '../lib/useSearchScope'
  * 節與 docs/prompts/10-web-ui-ux-warm-responsive-design.md §6.3。
  *
  * 全站**只有這一頁能輸入自由文字搜尋**：影片庫頁上方原本也有一條搜尋列，會
- * 帶著 `?q=` 跳過來，已移除（見 docs/11 §8.6）。影片庫剩下的入口是「在此影片
+ * 帶著 `?q=` 跳過來，已移除（見 docs/05 §8.6）。影片庫剩下的入口是「在此影片
  * 內搜尋」／「在選取影片內搜尋」，它們改用共用的 useSearchScope() 設定範圍再
  * 導過來，不再用 `?video_id=` 帶參數——範圍現在也要給「AI對話」頁用，兩頁
  * 各自從 URL 解析會分岔。 */

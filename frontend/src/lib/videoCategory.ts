@@ -1,7 +1,7 @@
 import type { Video } from '../api/types'
 
 /** 影片主題分類：用關鍵字規則從「標題＋摘要」推導，見
- * docs/11-web-ui-warm-redesign-plan.md §8.17。
+ * docs/05-web-ui-warm-redesign-plan.md §8.17。
  *
  * 刻意**不存進資料庫、也不呼叫 LLM**：分類只吃前端本來就有的兩個欄位
  * （`title`／`summary`），所以整件事就是這一個檔案，加類別或調關鍵字不必動

@@ -367,7 +367,7 @@
         <span class="t">數字的出處</span>
         <p>文件裡的參數值一律從程式碼取，不從投影片抄。行號對應撰寫當下的版本；若對不上，<b>以程式碼為準，並回頭修這份文件</b>（<code>docs/README.md</code> 維護規則第 1 條）。</p>
       </div>
-      <p>相關文件：整體架構看 <code>docs/00-overview.md</code>，設計決策的完整脈絡看 <code>docs/02-technical-decisions.md</code>，搜尋流程細節看 <code>docs/12-search-query-logic.md</code>，怎麼把專案跑起來看 <code>docs/15-local-startup-guide.md</code>。</p>
+      <p>相關文件：整體架構看 <code>docs/00-overview.md</code>，設計決策的完整脈絡看 <code>docs/02-technical-decisions.md</code>，搜尋流程細節看 <code>docs/06-search-query-logic.md</code>，怎麼把專案跑起來看 <code>docs/08-local-startup-guide.md</code>。</p>
     </section>
 
     <!-- ═══════════════ PART A ═══════════════ -->
@@ -478,7 +478,7 @@ root.querySelectorAll(<span class="s">'iframe'</span>).forEach((el) =&gt; {
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
           <li>官方：<a href="https://react.dev/learn">react.dev/learn</a>；render 期間 setState 的說明在 <a href="https://react.dev/reference/react/useState#storing-information-from-previous-renders">useState 參考頁</a></li>
-          <li>本 repo：<code>frontend/src/App.tsx</code>（keep-alive 全貌）、<code>docs/11-web-ui-warm-redesign-plan.md</code> §8（頁籤行為的調整記錄）</li>
+          <li>本 repo：<code>frontend/src/App.tsx</code>（keep-alive 全貌）、<code>docs/05-web-ui-warm-redesign-plan.md</code> §8（頁籤行為的調整記錄）</li>
         </ul>
       </div>
     </article>
@@ -609,7 +609,7 @@ root.querySelectorAll(<span class="s">'iframe'</span>).forEach((el) =&gt; {
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
           <li>官方：<a href="https://vite.dev/config/server-options.html#server-proxy">Vite server.proxy</a></li>
-          <li>本 repo：<code>frontend/vite.config.ts</code>、<code>docs/15-local-startup-guide.md</code>（怎麼同時跑起前後端）</li>
+          <li>本 repo：<code>frontend/vite.config.ts</code>、<code>docs/08-local-startup-guide.md</code>（怎麼同時跑起前後端）</li>
         </ul>
       </div>
     </article>
@@ -699,7 +699,7 @@ root.querySelectorAll(<span class="s">'iframe'</span>).forEach((el) =&gt; {
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
           <li>官方：<a href="https://tailwindcss.com/docs/theme">Tailwind v4 @theme</a></li>
-          <li>本 repo：<code>frontend/src/index.css</code>（完整 token）、<code>docs/10</code> §3（設計規格原文）、<code>docs/11</code> §8（實際執行與後續調整）</li>
+          <li>本 repo：<code>frontend/src/index.css</code>（完整 token）、<code>docs/prompts/10</code> §3（設計規格原文）、<code>docs/05</code> §8（實際執行與後續調整）</li>
         </ul>
       </div>
     </article>
@@ -857,7 +857,7 @@ root.querySelectorAll(<span class="s">'iframe'</span>).forEach((el) =&gt; {
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
           <li>官方：<a href="https://docs.astral.sh/uv/">uv 文件</a></li>
-          <li>本 repo：<code>pyproject.toml</code>（每個設定都有註解說明理由）、<code>docs/15-local-startup-guide.md</code></li>
+          <li>本 repo：<code>pyproject.toml</code>（每個設定都有註解說明理由）、<code>docs/08-local-startup-guide.md</code></li>
         </ul>
       </div>
     </article>
@@ -1669,7 +1669,7 @@ response = client.chat.completions.parse(
         </div>
         <div class="note">
           <span class="t">TIME_BUDGET_SEC 是保守預估，還沒實測校準</span>
-          <p>60 秒這個值<b>沒有校準過</b>，見 <code>docs/05-known-limitations-and-open-items.md</code>。它是 best-effort 而非全有全無：超過就跳出、回傳目前已收集的結果，任何一張畫面抽取或辨識失敗也只跳過那張。</p>
+          <p>60 秒這個值<b>沒有校準過</b>，見 <code>docs/04-known-limitations-and-open-items.md</code>。它是 best-effort 而非全有全無：超過就跳出、回傳目前已收集的結果，任何一張畫面抽取或辨識失敗也只跳過那張。</p>
         </div>
       </div>
 
@@ -1761,7 +1761,7 @@ response = client.chat.completions.parse(
       <div class="f">
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
-          <li>本 repo：<code>src/ai_video_search_web/db/__init__.py</code> 模組 docstring、<code>docs/archive/14-postgresql-migration-plan.md</code>、<code>docs/15-local-startup-guide.md</code>（含 pgAdmin 連法）</li>
+          <li>本 repo：<code>src/ai_video_search_web/db/__init__.py</code> 模組 docstring、<code>docs/archive/14-postgresql-migration-plan.md</code>、<code>docs/08-local-startup-guide.md</code>（含 pgAdmin 連法）</li>
         </ul>
       </div>
     </article>
@@ -1814,7 +1814,7 @@ response = client.chat.completions.parse(
       <div class="f">
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
-          <li>本 repo：<code>docker-compose.yml</code>（每個設定都有註解）、<code>docs/15-local-startup-guide.md</code>（含 WSL 整合的一次性設定步驟）</li>
+          <li>本 repo：<code>docker-compose.yml</code>（每個設定都有註解）、<code>docs/08-local-startup-guide.md</code>（含 WSL 整合的一次性設定步驟）</li>
         </ul>
       </div>
     </article>
@@ -1926,8 +1926,8 @@ CREATE INDEX IF NOT EXISTS idx_segments_content_trgm
       <div class="f">
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
-          <li>官方：<a href="https://www.postgresql.org/docs/17/pgtrgm.html">pg_trgm</a>、<a href="https://www.postgresql.org/docs/17/ddl-generated-columns.html">Generated Columns</a></li>
-          <li>本 repo：<code>db/segments.py</code> 的 <code>create_table()</code> 與 <code>delete_for_video()</code> 註解、<code>docs/14</code> §5</li>
+          <li>官方：<a href="https://www.postgresql.org/docs/11/pgtrgm.html">pg_trgm</a>、<a href="https://www.postgresql.org/docs/11/ddl-generated-columns.html">Generated Columns</a></li>
+          <li>本 repo：<code>db/segments.py</code> 的 <code>create_table()</code> 與 <code>delete_for_video()</code> 註解、<code>docs/archive/14</code> §5</li>
           <li>接續閱讀：<a href="#a-l5-03">L5-03 SQL BM25</a>（這個索引撐起來的東西）</li>
         </ul>
       </div>
@@ -2080,7 +2080,7 @@ DIMENSIONS = 1024
       <div class="f">
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
-          <li>本 repo：<code>pipeline/search/dense.py</code>、<code>pipeline/translation.py</code>、<code>docs/12-search-query-logic.md</code></li>
+          <li>本 repo：<code>pipeline/search/dense.py</code>、<code>pipeline/translation.py</code>、<code>docs/06-search-query-logic.md</code></li>
         </ul>
       </div>
     </article>
@@ -2184,14 +2184,14 @@ LIMIT %s</pre>
         <p>「不要出現機器人」這種查詢，會用<b>同一套取詞規則</b>對否定範圍的文字跑一次比對，命中的片段直接從候選集拿掉（<code>sparse.negated_segment_ids()</code>、<code>service.py:48-53</code>）。重用 <code>sparse_scores()</code> 的好處是連 <code>_SHORT_TERM_MAX_MATCH_RATIO</code> 防呆一起繼承——避免否定詞剛好是「畫面」這種泛用詞時誤刪掉大部分候選。</p>
         <div class="note">
           <span class="t">已知限制</span>
-          <p>否定<b>只在關鍵字比對層有效</b>。「不要出現機器人」能排除字面命中「機器人」的片段，但語意向量看不懂否定，用「機械手臂」描述的畫面仍會被撈進來。見 <code>docs/05</code>。</p>
+          <p>否定<b>只在關鍵字比對層有效</b>。「不要出現機器人」能排除字面命中「機器人」的片段，但語意向量看不懂否定，用「機械手臂」描述的畫面仍會被撈進來。見 <code>docs/04</code>。</p>
         </div>
       </div>
 
       <div class="f">
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
-          <li>本 repo：<code>db/segments.py</code>（<code>_BM25_SQL</code> 與註解）、<code>pipeline/search/sparse.py</code>、<code>docs/12-search-query-logic.md</code></li>
+          <li>本 repo：<code>db/segments.py</code>（<code>_BM25_SQL</code> 與註解）、<code>pipeline/search/sparse.py</code>、<code>docs/06-search-query-logic.md</code></li>
         </ul>
       </div>
     </article>
@@ -2282,7 +2282,7 @@ sparse_order = sorted(sparse.items(), key=<span class="k">lambda</span> kv: kv[1
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
           <li>論文：Cormack et al., <i>Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods</i>（SIGIR 2009）——k=60 的出處</li>
-          <li>本 repo：<code>pipeline/search/fusion.py</code>、<code>pipeline/search/service.py</code>、<code>docs/12-search-query-logic.md</code>、<a href="#b-9">Part B §9</a></li>
+          <li>本 repo：<code>pipeline/search/fusion.py</code>、<code>pipeline/search/service.py</code>、<code>docs/06-search-query-logic.md</code>、<a href="#b-9">Part B §9</a></li>
         </ul>
       </div>
     </article>
@@ -2388,7 +2388,7 @@ sparse_order = sorted(sparse.items(), key=<span class="k">lambda</span> kv: kv[1
             </tbody>
           </table>
         </div>
-        <p>搜尋與對話搜尋<b>完全不進 <code>jobs</code> 表</b>——它們是同步請求，幾秒內回應，不需要工作追蹤（<code>docs/09</code> 的 Category A / B 區分）。</p>
+        <p>搜尋與對話搜尋<b>完全不進 <code>jobs</code> 表</b>——它們是同步請求，幾秒內回應，不需要工作追蹤（<code>docs/archive/09</code> 的 Category A / B 區分）。</p>
       </div>
 
       <div class="f">
@@ -2926,7 +2926,7 @@ repetitive_indices = asr.find_repetitive_transcript_indices(
 
       <div class="f">
         <span class="fl">完整順序</span>
-        <p>這一節只講「分析產出的東西怎麼被消費」，完整的搜尋邏輯見 <code>docs/12-search-query-logic.md</code>。</p>
+        <p>這一節只講「分析產出的東西怎麼被消費」，完整的搜尋邏輯見 <code>docs/06-search-query-logic.md</code>。</p>
         <figure class="code">
           <figcaption>pipeline/search/service.py: search() 的執行順序</figcaption>
 <pre> 1. strip_generic_terms(query)        清掉「畫面」「段落」這類泛用詞
@@ -2979,9 +2979,9 @@ repetitive_indices = asr.find_repetitive_transcript_indices(
       <div class="f">
         <span class="fl">延伸閱讀</span>
         <ul class="refs">
-          <li>本 repo：<code>docs/12-search-query-logic.md</code>（一次搜尋的完整處理順序、多關鍵字複合搜尋的真實行為）</li>
-          <li><code>docs/12-search-query-logic.md</code> §7（對話搜尋在這之上多做了什麼）</li>
-          <li><code>docs/04-testing-and-evaluation.md</code>（Golden Set 怎麼量這些改動）</li>
+          <li>本 repo：<code>docs/06-search-query-logic.md</code>（一次搜尋的完整處理順序、多關鍵字複合搜尋的真實行為）</li>
+          <li><code>docs/06-search-query-logic.md</code> §7（對話搜尋在這之上多做了什麼）</li>
+          <li><code>docs/03-testing-and-evaluation.md</code>（Golden Set 怎麼量這些改動）</li>
         </ul>
       </div>
     </article>

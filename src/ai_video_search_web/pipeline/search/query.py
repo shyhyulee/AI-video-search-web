@@ -18,7 +18,7 @@ _ENGLISH_RE = re.compile(r"[A-Za-z0-9]+")
 
 # 否定詞清單：偵測到這些詞，後面到下一個標點符號（或字串結尾）之前的內容
 # 視為「使用者不想要」的範圍，見 split_negated_query()。只用
-# docs/05-known-limitations-and-open-items.md 待辦事項裡已經列出的四個，
+# docs/04-known-limitations-and-open-items.md 待辦事項裡已經列出的四個，
 # 不預先擴充；之後有真實案例顯示需要更多否定詞，再照這個模式新增。
 _NEGATION_MARKERS = ("不要", "沒有", "不是", "並非")
 _CLAUSE_PUNCTUATION = "，。！？、"

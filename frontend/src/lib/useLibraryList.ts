@@ -18,7 +18,7 @@ import { classifyVideo, matchesLibraryQuery, type VideoCategory } from './videoC
  */
 
 // 篩選只留分析狀態。原本還有「無字幕」（`!has_transcript`）與「純畫面」
-// （`!has_transcript && !has_ocr`）兩個模態篩選，已移除，見 docs/11 §8.7。
+// （`!has_transcript && !has_ocr`）兩個模態篩選，已移除，見 docs/05 §8.7。
 export type FilterKind = 'all' | 'analyzed' | 'failed'
 export type SortColumn = 'title' | 'segment_count' | 'cost' | 'analyzed_at'
 
@@ -30,7 +30,7 @@ export function useLibraryList() {
   const [filter, setFilter] = useState<FilterKind>('all')
   const [category, setCategory] = useState<VideoCategory | 'all'>('all')
   // 庫內搜尋：邊打邊篩，不用送出。它跟「片段搜尋」頁的語意檢索是兩件事——
-  // 只比對已經在手上的標題與摘要，不打 API、不跳頁，見 docs/11 §8.17.5。
+  // 只比對已經在手上的標題與摘要，不打 API、不跳頁，見 docs/05 §8.17.5。
   const [query, setQuery] = useState('')
   const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
   const [sortReverse, setSortReverse] = useState(true)

@@ -18,7 +18,7 @@ import { CATEGORY_ORDER, type VideoCategory } from '../lib/videoCategory'
 
 // 狀態篩選從三顆 chips 改成下拉，是為了把 chips 那一列整條讓給主題分類——
 // 半版寬的卡片（§8.10）塞不下「搜尋列＋主題 chips＋狀態 chips」三列控制項，
-// 見 docs/11 §8.17.4。
+// 見 docs/05 §8.17.4。
 const STATUS_FILTERS: { key: FilterKind; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'analyzed', label: '分析完成' },
@@ -146,7 +146,7 @@ export function LibraryPage() {
           </div>
 
           {/* 主題 chips：只列出庫裡真的有影片的分類（跟 YouTube 一樣是動態的），
-              順序由 CATEGORY_ORDER 決定，見 docs/11 §8.17.4。 */}
+              順序由 CATEGORY_ORDER 決定，見 docs/05 §8.17.4。 */}
           <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
             <FilterChip
               label="全部"

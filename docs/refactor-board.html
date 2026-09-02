@@ -368,7 +368,7 @@
         <details><summary>細節</summary><ul>
           <li>跟 F5 同一個判準：<code>uploadVideo()</code> 那種留了「端點還在、前端為什麼不用」的註解，
               有資訊；這支沒有。後端端點與測試都留著</li>
-          <li><code>ui/</code> 的害處是<strong>看起來還活著</strong>——目錄樹上有它、<code>docs/07</code> 還在描述
+          <li><code>ui/</code> 的害處是<strong>看起來還活著</strong>——目錄樹上有它、<code>docs/archive/07</code> 還在描述
               Tkinter 介面，讀的人得自己打開才知道是空的。它不在版控裡，所以 commit 只看得到 client.ts</li>
         </ul></details>
         <div class="commit"><code>1017849</code></div>
@@ -421,14 +421,14 @@
         <p>五份文件。判準只有一條，而且是專案自己的維護規則（<code>docs/README.md</code>）：
           <strong>描述現況的更新，記錄當時的不動</strong>。</p>
         <details><summary>細節</summary><ul>
-          <li><code>docs/04</code> 的測試清單最離譜：宣稱「截至第二輪重構、15 個檔案 151 個測試」，
+          <li><code>docs/03</code> 的測試清單最離譜：宣稱「截至第二輪重構、15 個檔案 151 個測試」，
               還列著隨 Tkinter 一起移除的 <code>test_widgets.py</code>，也完全不知道前端已經有測試。
               改成 30 個檔案 410 個後端測試 ＋ 32 支 e2e，依領域分組而不是一張長表，
               並加一句「數字會漂，要現況跑 <code>pytest --collect-only -q</code>」</li>
           <li>e2e 那一節明講「刻意不驗什麼、為什麼」，讓那些缺口讀起來是決定而不是疏漏</li>
           <li><code>docs/02</code> 有一處引用 E4 內聯掉的 <code>_build_content()</code>，改指
               <code>segment_material.build_material()</code></li>
-          <li><code>docs/09</code>／<code>docs/11</code> 裡 <code>settledJobIds</code> 等已不存在的名字
+          <li><code>docs/archive/09</code>／<code>docs/05</code> 裡 <code>settledJobIds</code> 等已不存在的名字
               <strong>保持原樣</strong>——那是遷移與改版的階段紀錄，不是現況描述</li>
           <li>README 專案結構補上 media.py／segment_material.py／前端四個 lib 模組／e2e/／
               frontend/scripts/／seed_smoke_db.py；<code>docs/README.md</code> 補上兩份看板
@@ -732,7 +732,7 @@
         <p>前兩輪重構都記在 <code>docs/01-development-timeline.md</code>，這一輪照同樣格式補上。</p>
         <details><summary>細節</summary><ul>
           <li>三波 8 個 commit、C0 缺陷、驗證方式與刻意不做的理由各一段</li>
-          <li>時間軸原本停在 2026-08-20，新章節開頭註明 Web 化與 UI 改版記在 docs/09／docs/11，
+          <li>時間軸原本停在 2026-08-20，新章節開頭註明 Web 化與 UI 改版記在 docs/archive/09／docs/05，
               不留下沒有交代的五天空白</li>
         </ul></details>
         <div class="commit"><code>e176886</code></div>
@@ -748,7 +748,7 @@
           <li>不是刪掉了事：每處改寫成目前實際成立的說明。例如 <code>pipeline/conversation.py</code>
               原本寫「不需要 conversation_id」（早已不成立），改成指向 conversation_service 的實際持久化方式</li>
           <li><strong>README 有一處是實質錯誤</strong>：預算上限仍寫 US$0.30，實際已是 $0.80</li>
-          <li><code>docs/08</code> 的 API 清單改用註記處理（曾實作後移除／從未實作／實際多出的端點），
+          <li><code>docs/prompts/08</code> 的 API 清單改用註記處理（曾實作後移除／從未實作／實際多出的端點），
               而不是直接改動設計階段的歷史紀錄</li>
           <li>移除死碼 <code>cancel_job()</code> 與它的 3 支測試；剩餘 4 個 <code>assert</code> 改成明確 raise</li>
         </ul></details>

@@ -64,7 +64,7 @@ def test_detail_stays_low(fake_frame):
     """detail 不是可有可無的預設值。同一張 1280×720 畫面，low 是 2,880 prompt
     tokens（US$0.00045）、high 是 36,882（US$0.00554，12.6 倍），而實測 high 沒
     有換到正確答案——籃球場那張 low 答「四個人」、high 答「五個人」，真值是 10
-    以上。改成 high 要先有新的實測數據，見 docs/19 §4.2／§4.3。"""
+    以上。改成 high 要先有新的實測數據，見 docs/archive/19 §4.2／§4.3。"""
     client = MagicMock()
     client.chat.completions.create.return_value = _fake_response("好的。")
 
@@ -78,7 +78,7 @@ def test_prompt_does_not_tell_the_model_to_refuse_when_unsure(fake_frame):
     """**這一條是防退步用的。** 第一版探針照抄文件產生器那套防幻覺句子（「看不
     出來就說看不出來，不要推測」），結果六題全部回「看不出來。」，包括一張一望
     即知的籃球場全景。在「整理文件」裡寧可少寫，在「使用者問了一個問題」裡少寫
-    就等於功能壞掉——兩個情境的護欄不能共用。見 docs/19 §4.4。"""
+    就等於功能壞掉——兩個情境的護欄不能共用。見 docs/archive/19 §4.4。"""
     client = MagicMock()
     client.chat.completions.create.return_value = _fake_response("好的。")
 

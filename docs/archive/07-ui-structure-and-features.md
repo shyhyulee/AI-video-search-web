@@ -5,7 +5,7 @@
 
 ## 1. 文件目的
 
-整理 `src/ai_video_search_web/app.py`、`src/ai_video_search_web/theme.py` 與 `src/ai_video_search_web/ui/` 底下目前實作的 Tkinter UI，記錄各頁籤的功能、版面結構、共用元件與跨頁籤互動方式，供之後維護或擴充 UI 時查閱。內容依實際程式碼整理，不包含尚未實作的規劃項目（規劃項目見 [`../00-overview.md`](../00-overview.md) 與 [`../05-known-limitations-and-open-items.md`](../05-known-limitations-and-open-items.md)）。
+整理 `src/ai_video_search_web/app.py`、`src/ai_video_search_web/theme.py` 與 `src/ai_video_search_web/ui/` 底下目前實作的 Tkinter UI，記錄各頁籤的功能、版面結構、共用元件與跨頁籤互動方式，供之後維護或擴充 UI 時查閱。內容依實際程式碼整理，不包含尚未實作的規劃項目（規劃項目見 [`../00-overview.md`](../00-overview.md) 與 [`../04-known-limitations-and-open-items.md`](../04-known-limitations-and-open-items.md)）。
 
 ## 2. 整體架構
 

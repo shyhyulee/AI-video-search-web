@@ -13,7 +13,7 @@
 |---|---|
 | 這份 | **How**：查詢字串經過哪些階段、每個階段做什麼、多關鍵字的實際行為 |
 | [`02-technical-decisions.md`](02-technical-decisions.md#搜尋) | **Why**：每個機制當初為什麼這樣設計、比較過什麼、實測數據 |
-| [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md#搜尋) | **What's broken**：已知限制與待辦 |
+| [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md#搜尋) | **What's broken**：已知限制與待辦 |
 
 以下所有行為都是直接讀 `src/ai_video_search_web/pipeline/search.py` 得到的，標註了對應的函式；沒有實測的推論會明確標示。
 
@@ -51,7 +51,7 @@
 
 這是目前系統裡**唯一真正的複合條件**，語意上相當於 `AND NOT`。沒有否定詞的查詢，這個階段回傳空集合、行為完全不變。
 
-> 只作用在 sparse／字面層級。dense 相似度與階段 1 的影片層級篩選都還是拿含否定內容的完整查詢去 embed，看不懂否定語意——這個缺口的實測影響見 [`05`](05-known-limitations-and-open-items.md#搜尋)。
+> 只作用在 sparse／字面層級。dense 相似度與階段 1 的影片層級篩選都還是拿含否定內容的完整查詢去 embed，看不懂否定語意——這個缺口的實測影響見 [`05`](04-known-limitations-and-open-items.md#搜尋)。
 
 ### 階段 3 — Dense channel（語意向量）
 
@@ -167,7 +167,7 @@ fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
 
 判斷投報率最高的最小改動：在 `sparse_scores()` 加「同時命中越多候選詞、分數越好」的權重，而**不是**把 FTS5 查詢改成 `AND`——後者會讓召回率大幅下降，也違背 RRF「沒命中不懲罰」的設計前提。
 
-更根本的解法是 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md) 待辦裡的 **Top 20-50 Reranker**：用 LLM 對完整查詢語意重新判斷相關性，能一次處理否定句、多條件查詢、hard negative 這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫一套規則。
+更根本的解法是 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md) 待辦裡的 **Top 20-50 Reranker**：用 LLM 對完整查詢語意重新判斷相關性，能一次處理否定句、多條件查詢、hard negative 這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫一套規則。
 
 ## 7. 多輪對話（「AI對話」頁）在這之上多做了什麼
 
@@ -252,7 +252,7 @@ LLM 完全碰不到資料庫、不會自己編影片 ID 或時間點——這是
 - `clarify` / `select_result`：只有 1 次 LLM 呼叫（意圖判斷）。
 - `new_search` / `refine_search`：意圖判斷 1 次 ＋ `search.search()` 內部（查詢翻譯 1 次＋中英文最多 3 次 embedding，全域搜尋還可能疊加影片層級篩選的 embedding，但標題／摘要有記憶體快取，見 `search.py::_embed_cached()`）。
 
-這個成本疊加**沒有上限或警示**——延續既有搜尋本來就有的缺口（見 [`05-known-limitations-and-open-items.md`](05-known-limitations-and-open-items.md)），對話模式會讓每輪呼叫次數更多，是規劃時已經跟使用者確認過、刻意列為已知風險、Phase 1 沒有處理的部分。
+這個成本疊加**沒有上限或警示**——延續既有搜尋本來就有的缺口（見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)），對話模式會讓每輪呼叫次數更多，是規劃時已經跟使用者確認過、刻意列為已知風險、Phase 1 沒有處理的部分。
 
 ### 7.8 目前範圍內 vs 範圍外
 

@@ -89,7 +89,7 @@ def create_table(conn: psycopg.Connection) -> None:
     #
     # 索引只在 pattern 有 3 個以上連續字元時才吃得到（要抽得出完整 trigram）；
     # 2 字元的詞仍然查得到，只是走 seq scan——這點跟 SQLite FTS5「<3 字元完全
-    # 查不到」不同，見 docs/14 §5.2.1，那個差異刻意沒有拿來改搜尋行為。
+    # 查不到」不同，見 docs/archive/14 §5.2.1，那個差異刻意沒有拿來改搜尋行為。
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_segments_content_trgm ON segments USING gin (content gin_trgm_ops)"
     )

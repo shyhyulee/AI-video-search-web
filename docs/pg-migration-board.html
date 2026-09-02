@@ -584,7 +584,7 @@
           <li>意思是：SQLite FTS5 對 &lt;3 字元的詞是<b>真的查不到</b>，PG 這邊<b>本來就找得到</b>，只是用不到索引加速</li>
         </ul></details>
         <div class="gate"><b>因此的決定：</b>P3 仍保留兩支函式與 <code>sparse.py</code> 現有邏輯，一行都不改。合併成單一查詢會讓短詞從哨兵分數變成真實 IDF，那是<b>排名的行為變更</b>，正好是「刻意不做」明訂的事，也會讓 golden set 差異無法歸因。</div>
-        <div class="commit">2026-08-27 · 細節見 docs/14 §5.2.1</div>
+        <div class="commit">2026-08-27 · 細節見 docs/archive/14 §5.2.1</div>
       </article>
 
       <article class="card" data-kind="test">
@@ -629,7 +629,7 @@
 </div><!-- /board -->
 
 <!-- ============ 已拍板的決定 ============ -->
-<h2 class="section-title">已拍板的決定 <span class="hint">2026-08-27 · 詳細理由見 docs/14 §3</span></h2>
+<h2 class="section-title">已拍板的決定 <span class="hint">2026-08-27 · 詳細理由見 docs/archive/14 §3</span></h2>
 <div class="grid3 decisions">
 
   <article class="card">
@@ -684,7 +684,7 @@
 </div>
 
 <!-- ============ 風險 ============ -->
-<h2 class="section-title">風險與對策 <span class="hint">docs/14 §7</span></h2>
+<h2 class="section-title">風險與對策 <span class="hint">docs/archive/14 §7</span></h2>
 <div class="grid3 risks">
 
   <article class="card">
@@ -718,7 +718,7 @@
 </div>
 
 <!-- ============ 可展示的成果 ============ -->
-<h2 class="section-title">可展示的成果 <span class="hint">對應動機 1：專題發表 · docs/14 §9</span></h2>
+<h2 class="section-title">可展示的成果 <span class="hint">對應動機 1：專題發表 · docs/archive/14 §9</span></h2>
 <div class="table-scroll">
 <table>
   <thead><tr><th>產出</th><th>形式</th><th>狀態</th></tr></thead>
@@ -733,7 +733,7 @@
 </div>
 
 <!-- ============ 現況數據 ============ -->
-<h2 class="section-title">現況盤點 <span class="hint">實測數字 · docs/14 §2</span></h2>
+<h2 class="section-title">現況盤點 <span class="hint">實測數字 · docs/archive/14 §2</span></h2>
 <div class="table-scroll">
 <table>
   <thead><tr><th>表</th><th class="num">筆數</th><th>備註</th></tr></thead>
@@ -750,10 +750,10 @@
 </div>
 
 <!-- ============ 刻意不做 ============ -->
-<h2 class="section-title">刻意不做 <span class="hint">寫下來，避免之後被當成疏漏 · docs/14 §10</span></h2>
+<h2 class="section-title">刻意不做 <span class="hint">寫下來，避免之後被當成疏漏 · docs/archive/14 §10</span></h2>
 <div class="grid3 nogo">
   <article class="card"><h3>不引入 ORM／Alembic</h3><p>D2：<code>db/</code> 已是乾淨邊界，改 ORM 是獨立專案。</p></article>
-  <article class="card"><h3>不把 embedding 換成 <code>vector</code> 型別</h3><p>D4：extension 有開但欄位不換，路線見 docs/14 §8。</p></article>
+  <article class="card"><h3>不把 embedding 換成 <code>vector</code> 型別</h3><p>D4：extension 有開但欄位不換，路線見 docs/archive/14 §8。</p></article>
   <article class="card"><h3>不改時間欄位型別</h3><p>D5：維持 ISO-8601 TEXT。</p></article>
   <article class="card"><h3>不改任何 API 介面、schema、前端</h3><p>這次是純資料層抽換。</p></article>
   <article class="card"><h3>不改搜尋演算法本身</h3><p>RRF、門檻、取詞規則全部不動，只換 sparse channel 的底層實作。</p></article>

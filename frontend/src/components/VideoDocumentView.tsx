@@ -132,5 +132,5 @@ const TIMESTAMP_CLASS = 'w-12 shrink-0 pt-0.5 text-right font-mono text-xs'
  * 比它多零點幾秒，嚴格比較會把剛好落在片尾的合法步驟誤判成超出。2 秒足夠吸收
  * 這個誤差，又不會放過真正的問題——實測 8 支文件裡有問題的 3 支，超出的幅度
  * 分別是 4 分 23 秒、2 分 52 秒、5 分 38 秒，全是分鐘級的，見
- * docs/05-known-limitations-and-open-items.md。 */
+ * docs/04-known-limitations-and-open-items.md。 */
 const OUT_OF_RANGE_TOLERANCE_SEC = 2

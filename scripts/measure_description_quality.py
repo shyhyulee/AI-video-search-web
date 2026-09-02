@@ -1,7 +1,7 @@
 """量化 `segments.visual_description` 的「具體程度」，當作改 VLM prompt 的回歸基準。
 
 **為什麼需要這支腳本**：畫面描述的品質原本完全沒有量化方式（跟文件整理一樣，見
-docs/05-known-limitations-and-open-items.md），只能人眼看。這代表改 VLM prompt
+docs/04-known-limitations-and-open-items.md），只能人眼看。這代表改 VLM prompt
 沒有任何東西擋得住退步。這個專案已經因為 n=1 觀察錯誤歸因兩次（見
 docs/01-development-timeline.md 那兩節），所以動 prompt 之前先把「現在有多糟」
 釘成數字。

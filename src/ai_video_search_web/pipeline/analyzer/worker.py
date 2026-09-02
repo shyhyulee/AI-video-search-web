@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # 注意：$0.80 不是 60 分鐘影片真正的瓶頸。asr._extract_audio() 固定輸出 64kbps
 # 單聲道 mp3（實測 7,998 bytes/s），Whisper 的 25MB 上傳上限換算後約 52~55
 # 分鐘，且 ASR 例外會讓整支分析失敗（不是略過字幕）。所以超過約 52 分鐘的影片
-# 會先卡在 ASR，不會走到預算判斷。完整推導與實測資料見 docs/11 §8.12。
+# 會先卡在 ASR，不會走到預算判斷。完整推導與實測資料見 docs/05 §8.12。
 MAX_DURATION_SEC = 60 * 60
 
 
