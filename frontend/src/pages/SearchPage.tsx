@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { search } from '../api/client'
-import type { SearchResult } from '../api/types'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
@@ -11,6 +10,7 @@ import { SearchField } from '../components/SearchField'
 import { SearchResultCard } from '../components/SearchResultCard'
 import { SearchScopeBar } from '../components/SearchScopeBar'
 import { VideoPlayer } from '../components/VideoPlayer'
+import { useResultSelection } from '../lib/useResultSelection'
 import { useSearchScope } from '../lib/useSearchScope'
 
 /** 「片段搜尋」頁面（頁籤原名「搜尋結果」，改名以反映它是**執行**搜尋的地方
@@ -27,11 +27,8 @@ export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [queryText, setQueryText] = useState('')
   const { videoIds: scopeVideoIds } = useSearchScope()
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
-  // 這次的選取是使用者點的（true，點了就想看）還是搜完自動帶出來的預設
-  // （false，只顯示不播）。
-  const [playOnSelect, setPlayOnSelect] = useState(false)
+  // 結果、選中哪一筆、播不播——跟 AI對話 頁共用同一份規則，見 lib/useResultSelection.ts。
+  const { results, selectedIndex, playOnSelect, selected, showResults, pick } = useResultSelection()
   const [statusText, setStatusText] = useState('描述想尋找的事件、人物、動作或教學內容')
   const searchStartedAt = useRef(0)
 
@@ -42,11 +39,9 @@ export function SearchPage() {
     mutationFn: ({ q, videoIds }: { q: string; videoIds: number[] }) =>
       search({ query: q, video_ids: videoIds.length > 0 ? videoIds : null }),
     onSuccess: (resp) => {
-      setResults(resp.results)
-      // 搜完自動選第一名，右側直接帶出播放器與證據面板，不用再手動點一下；
-      // 沒有結果才回到 null，讓右側顯示「沒有找到片段」的提示。
-      setSelectedIndex(resp.results.length > 0 ? 0 : null)
-      setPlayOnSelect(false)
+      // 搜完自動選第一名、但不播；沒有結果就回到未選取，讓右側顯示「沒有找到
+      // 片段」的提示。
+      showResults(resp.results)
       const elapsedSec = ((Date.now() - searchStartedAt.current) / 1000).toFixed(1)
       setStatusText(
         resp.results.length > 0
@@ -98,8 +93,6 @@ export function SearchPage() {
     searchMutation.mutate({ q: queryText.trim(), videoIds: scopeVideoIds })
   }
 
-  const selected = selectedIndex !== null ? results[selectedIndex] : null
-
   return (
     <div className="flex h-full flex-col gap-4">
       <Card>
@@ -136,10 +129,7 @@ export function SearchPage() {
                   result={r}
                   rank={index + 1}
                   selected={index === selectedIndex}
-                  onSelect={() => {
-                    setSelectedIndex(index)
-                    setPlayOnSelect(true)
-                  }}
+                  onSelect={() => pick(index)}
                 />
               ))
             )}

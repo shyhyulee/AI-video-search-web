@@ -17,6 +17,7 @@ import { SearchResultCard } from '../components/SearchResultCard'
 import { SearchScopeBar } from '../components/SearchScopeBar'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { libraryVideosKey, statsKey } from '../lib/queryKeys'
+import { useResultSelection } from '../lib/useResultSelection'
 import { useSearchScope } from '../lib/useSearchScope'
 
 const GREETING =
@@ -87,11 +88,8 @@ export function ConversationPage() {
   const [conversationId, setConversationId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([{ speaker: 'assistant', text: GREETING }])
   const [input, setInput] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
-  // 這次的選取是使用者點的（true，點了就想看）還是這一輪回完自動帶出來的預設
-  // （false，只把畫面停在該時間點）。跟 SearchPage 同一份邏輯，見 docs/11 §8.9。
-  const [playOnSelect, setPlayOnSelect] = useState(false)
+  // 結果、選中哪一筆、播不播——跟片段搜尋頁共用同一份規則，見 lib/useResultSelection.ts。
+  const { results, selectedIndex, playOnSelect, selected, showResults, pick } = useResultSelection()
   const [statusText, setStatusText] = useState('')
   // 播放器現在停在第幾秒（整數）。停格問答問的就是這一格。
   const [playerSec, setPlayerSec] = useState(0)
@@ -132,13 +130,9 @@ export function ConversationPage() {
       ),
     onSuccess: (turn, variables) => {
       setMessages((prev) => [...prev, { speaker: 'assistant', text: turn.reply_text }])
-      setResults(turn.results)
-      // 這一輪有結果就自動選第一名、右側直接把畫面停在那個時間點，跟「片段搜尋」
-      // 頁一樣（docs/11 §8.9）。**不播**：搜尋結果是程式帶出來的，不是使用者
-      // 點的，未經指示不該出聲——`select_result`（「播放第二段」）也走這裡，
-      // 後端回的是那一筆單獨的結果，同樣先定格。
-      setSelectedIndex(turn.results.length > 0 ? 0 : null)
-      setPlayOnSelect(false)
+      // 自動選第一名、先定格不播（`select_result`——「播放第二段」——也走這裡，
+      // 後端回的是那一筆單獨的結果，同樣先定格）。
+      showResults(turn.results)
       const modalities = summarizeModalities(turn.results)
       setStatusText(
         `花費 $${turn.cost_usd.toFixed(4)}` +
@@ -223,7 +217,6 @@ export function ConversationPage() {
     }
   }
 
-  const selected = selectedIndex !== null ? results[selectedIndex] : null
   const showSuggestions = messages.length === 1
   const busy = sendMutation.isPending || frameMutation.isPending
   // 選了片段才有畫面可問；沒選的時候播放器本身也還沒出現。
@@ -352,10 +345,7 @@ export function ConversationPage() {
                   rank={index + 1}
                   featured={index === 0}
                   selected={index === selectedIndex}
-                  onSelect={() => {
-                    setSelectedIndex(index)
-                    setPlayOnSelect(true)
-                  }}
+                  onSelect={() => pick(index)}
                 />
               ))
             )}
