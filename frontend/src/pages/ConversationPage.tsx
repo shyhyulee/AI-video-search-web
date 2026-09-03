@@ -106,6 +106,8 @@ export function ConversationPage() {
   // 被改掉的 bug）。把「畫面中有幾個人」誤判成新搜尋，使用者只會拿到一堆
   // 不相干的片段。見 docs/archive/19-停格畫面問答功能計畫.md。
   const [frameMode, setFrameMode] = useState(false)
+  // 「請暫停一次」的請求識別碼，交給 VideoPlayer（見那裡的 pauseKey）。
+  const [pauseKey, setPauseKey] = useState(0)
   const [frameThread, setFrameThread] = useState<FrameThread | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
 
@@ -180,6 +182,16 @@ export function ConversationPage() {
       setStatusText('發生錯誤')
     },
   })
+
+  /** 切換畫面提問模式。**進入時把影片定格**：不暫停的話畫面繼續跑、`playerSec`
+   * 跟著變，使用者看著某一格按下按鈕、打完字送出時問的已經是別一格了——那正是
+   * 這個功能最不該發生的事。離開模式不自動續播，不替使用者決定要不要繼續看。 */
+  const toggleFrameMode = () => {
+    setFrameMode((prev) => {
+      if (!prev) setPauseKey((k) => k + 1)
+      return !prev
+    })
+  }
 
   const askFrame = (question: string) => {
     if (!selected) return
@@ -355,6 +367,7 @@ export function ConversationPage() {
               videoId={selected.video_id}
               startSec={playerStartSec}
               seekKey={seekKey}
+              pauseKey={pauseKey}
               title={selected.video_title}
               autoPlay={playOnSelect}
               onTimeChange={(sec) => setPlayerSec(Math.floor(sec))}
@@ -366,7 +379,7 @@ export function ConversationPage() {
               <span className="text-xs text-text-muted">目前 {formatTimestamp(playerSec)}</span>
               <Button
                 variant={askingFrame ? 'primary' : 'secondary'}
-                onClick={() => setFrameMode((prev) => !prev)}
+                onClick={toggleFrameMode}
               >
                 {askingFrame ? '結束畫面提問' : `問這一格（${formatTimestamp(playerSec)}）`}
               </Button>

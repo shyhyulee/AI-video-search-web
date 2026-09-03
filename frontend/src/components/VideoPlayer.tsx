@@ -17,6 +17,16 @@ interface VideoPlayerProps {
    * 步驟就回不去了。不傳＝維持原本行為（搜尋頁與對話頁沒有這個需求，它們每次
    * 選的都是不同片段）。 */
   seekKey?: number
+  /** 「請暫停」的請求識別碼，每次要求給一個新值（跟 `seekKey` 同一個慣用法）。
+   *
+   * 為什麼不是 `paused: boolean`：布林值代表「呼叫端持續主張播放狀態」，那會跟
+   * 使用者自己按播放鍵打架——他一按播放，state 沒變、effect 不重跑，看起來沒事，
+   * 但下次任何 re-render 都可能把它再按回暫停。用遞增的 key 表達的是「**這一刻**
+   * 請暫停一次」，之後控制權還給使用者。
+   *
+   * 也不把 ref 交出去（見 onTimeChange 的說明）：呼叫端要的是「停一下」這個動作，
+   * 不是整個 media element。 */
+  pauseKey?: number
   /** 播放位置變動時回報目前秒數（含使用者拖動進度條、暫停時的微調）。
    *
    * 用 callback 而不是把 ref 交出去：呼叫端要的是「現在停在第幾秒」這個值，
@@ -39,6 +49,7 @@ export function VideoPlayer({
   className = '',
   autoPlay = true,
   seekKey,
+  pauseKey,
   onTimeChange,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -54,6 +65,12 @@ export function VideoPlayer({
       if (autoPlay) el.play().catch(() => {})
     }
   }, [videoId, startSec, autoPlay, seekKey])
+
+  useEffect(() => {
+    // undefined＝呼叫端沒有要用這個功能，連第一次掛載都不要動它。
+    if (pauseKey === undefined) return
+    videoRef.current?.pause()
+  }, [pauseKey])
 
   return (
     <video

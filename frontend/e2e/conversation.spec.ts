@@ -218,6 +218,8 @@ test.describe('AI對話：停格問答', () => {
 
 test.describe('AI對話：時間戳可點', () => {
   const at = (page: Page) => page.locator('video').evaluate((el: HTMLVideoElement) => Math.round(el.currentTime))
+  const label = (sec: number) =>
+    `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
   const paused = (page: Page) => page.locator('video').evaluate((el: HTMLVideoElement) => el.paused)
 
   test('點證據面板的時間範圍會跳過去並播放，拖走之後再點同一個仍然跳得回去', async ({ page }) => {
@@ -248,6 +250,28 @@ test.describe('AI對話：時間戳可點', () => {
     await expect.poll(() => at(page)).toBe(27)
     await page.getByRole('button', { name: '從 00:12 開始播放' }).click()
     await expect.poll(() => at(page)).toBe(FIRST_START)
+  })
+
+  test('按「問這一格」會把影片定格，時間點不再跟著跑', async ({ page }) => {
+    await stubBackend(page)
+    await page.goto('/conversation')
+    await send(page, '晶片工廠')
+    await expect(page.locator('video')).toBeVisible()
+
+    // 先讓它真的在播（搜完是定格的，§8.21）
+    await page.getByText('第二個片段的畫面描述').click()
+    await expect.poll(() => paused(page)).toBe(false)
+
+    await page.getByRole('button', { name: /問這一格/ }).click()
+
+    await expect.poll(() => paused(page)).toBe(true)
+    // 定格之後那個秒數要**停住**：使用者看著某一格按下按鈕，打完字送出時問的
+    // 必須還是同一格。連續量兩次，中間留一段真實時間。
+    const first = await at(page)
+    await page.waitForTimeout(1200)
+    expect(await at(page)).toBe(first)
+    // 進入模式後按鈕文字變成「結束畫面提問」，凍結的秒數要看那條提示列
+    await expect(page.getByText(`針對畫面 ${label(first)} 提問`)).toBeVisible()
   })
 
   test('對話泡泡的「畫面 MM:SS」可點，跳回問的那一格', async ({ page }) => {
