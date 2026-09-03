@@ -119,3 +119,24 @@ test.describe('片段搜尋的結果選取', () => {
     expect(sent).toEqual([{ query: '晶片工廠', video_ids: null }])
   })
 })
+
+test('證據面板的時間範圍可點，跳回片段起點並播放', async ({ page }) => {
+  await stubBackend(page)
+  await page.goto('/search')
+  await runSearch(page, '晶片工廠')
+  await expect(player(page)).toBeVisible()
+  await expect
+    .poll(() => player(page).evaluate((el: HTMLVideoElement) => Math.round(el.currentTime)))
+    .toBe(FIRST_START)
+
+  await player(page).evaluate((el: HTMLVideoElement) => {
+    el.currentTime = 25
+    el.pause()
+  })
+  await page.getByRole('button', { name: '從 00:12 開始播放' }).click()
+
+  await expect
+    .poll(() => player(page).evaluate((el: HTMLVideoElement) => Math.round(el.currentTime)))
+    .toBe(FIRST_START)
+  await expect.poll(() => player(page).evaluate((el: HTMLVideoElement) => el.paused)).toBe(false)
+})

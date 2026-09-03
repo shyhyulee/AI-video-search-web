@@ -19,25 +19,46 @@ export function useResultSelection() {
   // 這次的選取是使用者點的（true，點了就想看）還是程式自動帶出來的預設
   // （false，只把畫面停在該時間點）。
   const [playOnSelect, setPlayOnSelect] = useState(false)
+  // 使用者點了某個時間戳（證據面板的片段區間、對話泡泡的「畫面 MM:SS」）之後
+  // 要跳去的秒數。**`key` 每次都要換**：`VideoPlayer` 的 seek effect 靠 deps 觸發，
+  // 只看秒數的話「拖走進度之後再點同一個時間戳」不會有反應（那個 prop 的註解
+  // 記過這個情況）。null＝沒有覆寫，播放器就停在目前片段的起點。
+  const [seek, setSeek] = useState<{ sec: number; key: number } | null>(null)
+
+  const selected = selectedIndex !== null ? results[selectedIndex] : null
 
   return {
     results,
     selectedIndex,
     /** 傳給 `VideoPlayer` 的 `autoPlay`。 */
     playOnSelect,
-    selected: selectedIndex !== null ? results[selectedIndex] : null,
+    selected,
+    /** 傳給 `VideoPlayer` 的 `startSec`：點過時間戳就是那一秒，否則是片段起點。 */
+    playerStartSec: seek ? seek.sec : (selected?.start_sec ?? 0),
+    /** 傳給 `VideoPlayer` 的 `seekKey`。 */
+    seekKey: seek?.key,
+
+    /** 跳到某一秒**並播放**。點時間戳是使用者的明確動作，照「使用者點的才播」
+     * 那條規則（見上面）就該出聲。 */
+    seekTo(sec: number) {
+      setSeek((prev) => ({ sec, key: (prev?.key ?? 0) + 1 }))
+      setPlayOnSelect(true)
+    },
 
     /** 換上一批結果：自動選第一名（沒有結果就回到未選取），而且不播。 */
     showResults(list: SearchResult[]) {
       setResults(list)
       setSelectedIndex(list.length > 0 ? 0 : null)
       setPlayOnSelect(false)
+      setSeek(null)
     },
 
     /** 使用者點了第 index 筆：選它，並且播。 */
     pick(index: number) {
       setSelectedIndex(index)
       setPlayOnSelect(true)
+      // 換片段就丟掉時間戳的覆寫，否則新片段會從上一個片段被點過的秒數開始。
+      setSeek(null)
     },
   }
 }

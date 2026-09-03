@@ -28,7 +28,8 @@ export function SearchPage() {
   const [queryText, setQueryText] = useState('')
   const { videoIds: scopeVideoIds } = useSearchScope()
   // 結果、選中哪一筆、播不播——跟 AI對話 頁共用同一份規則，見 lib/useResultSelection.ts。
-  const { results, selectedIndex, playOnSelect, selected, showResults, pick } = useResultSelection()
+  const { results, selectedIndex, playOnSelect, selected, playerStartSec, seekKey, showResults, pick, seekTo } =
+    useResultSelection()
   const [statusText, setStatusText] = useState('描述想尋找的事件、人物、動作或教學內容')
   const searchStartedAt = useRef(0)
 
@@ -146,11 +147,12 @@ export function SearchPage() {
           <>
             <VideoPlayer
               videoId={selected.video_id}
-              startSec={selected.start_sec}
+              startSec={playerStartSec}
+              seekKey={seekKey}
               title={selected.video_title}
               autoPlay={playOnSelect}
             />
-            <EvidencePanel result={selected} />
+            <EvidencePanel result={selected} onSeek={seekTo} />
           </>
         ) : searchMutation.isSuccess ? (
           <EmptyState

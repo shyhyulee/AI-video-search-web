@@ -215,3 +215,61 @@ test.describe('AI對話：停格問答', () => {
   })
 })
 
+
+test.describe('AI對話：時間戳可點', () => {
+  const at = (page: Page) => page.locator('video').evaluate((el: HTMLVideoElement) => Math.round(el.currentTime))
+  const paused = (page: Page) => page.locator('video').evaluate((el: HTMLVideoElement) => el.paused)
+
+  test('點證據面板的時間範圍會跳過去並播放，拖走之後再點同一個仍然跳得回去', async ({ page }) => {
+    await stubBackend(page)
+    await page.goto('/conversation')
+    await send(page, '晶片工廠')
+    await expect(page.locator('video')).toBeVisible()
+    await expect.poll(() => at(page)).toBe(FIRST_START)
+    expect(await paused(page)).toBe(true)
+
+    await page.locator('video').evaluate((el: HTMLVideoElement) => {
+      el.currentTime = 25
+      el.pause()
+    })
+    await expect.poll(() => at(page)).toBe(25)
+
+    await page.getByRole('button', { name: '從 00:12 開始播放' }).click()
+    await expect.poll(() => at(page)).toBe(FIRST_START)
+    // 點時間戳是使用者的明確動作，照「使用者點的才播」那條規則要出聲
+    await expect.poll(() => paused(page)).toBe(false)
+
+    // **第二次點同一個時間戳**：這一段才是在驗 VideoPlayer 的 seekKey——少了它，
+    // startSec 沒變、effect 不重跑，使用者拖走進度之後就再也跳不回去。
+    await page.locator('video').evaluate((el: HTMLVideoElement) => {
+      el.currentTime = 27
+      el.pause()
+    })
+    await expect.poll(() => at(page)).toBe(27)
+    await page.getByRole('button', { name: '從 00:12 開始播放' }).click()
+    await expect.poll(() => at(page)).toBe(FIRST_START)
+  })
+
+  test('對話泡泡的「畫面 MM:SS」可點，跳回問的那一格', async ({ page }) => {
+    await stubBackend(page)
+    await page.goto('/conversation')
+    await send(page, '晶片工廠')
+    await expect(page.locator('video')).toBeVisible()
+
+    await page.locator('video').evaluate((el: HTMLVideoElement) => {
+      el.currentTime = 18
+    })
+    await expect.poll(() => at(page)).toBe(18)
+    await page.getByRole('button', { name: /問這一格（00:18）/ }).click()
+    await page.getByPlaceholder('問這一格畫面').fill('有幾個人？')
+    await page.getByRole('button', { name: '送出' }).click()
+    await expect(page.getByText('畫面裡有 1 個人')).toBeVisible()
+
+    await page.locator('video').evaluate((el: HTMLVideoElement) => {
+      el.currentTime = 5
+    })
+    await expect.poll(() => at(page)).toBe(5)
+    await page.getByRole('button', { name: '跳到 00:18 的畫面' }).first().click()
+    await expect.poll(() => at(page)).toBe(18)
+  })
+})

@@ -24,7 +24,7 @@ import { useSearchScope } from '../lib/useSearchScope'
 const GREETING =
   '你好，跟我說說想找的影片內容，例如「找出有人進入生產線的畫面」。'
 
-const SUGGESTED_PROMPTS = ['找出工廠中有人出現的片段', '找出工廠中有機器人出現的畫面', '找出工廠中有機器手臂出現的畫面']
+const SUGGESTED_PROMPTS = ['找出工廠中作業員的畫面', '找出工廠中有機器人出現的畫面', '找出工廠中有機器手臂出現的畫面']
 
 const MODALITY_ORDER = ['字幕', '畫面', 'OCR'] as const
 
@@ -46,6 +46,9 @@ interface Message {
   text: string
   /** 這則訊息屬於停格問答時，它是針對哪一秒的畫面。 */
   frameSec?: number
+  /** 那一格屬於哪支影片。點標記跳回去之前要比對它——使用者可能已經選了別的
+   * 片段，直接跳秒數會變成「另一支影片的同一秒」。 */
+  frameVideoId?: number
 }
 
 /** 同一格畫面的問答串。**時間點一變就整串丟掉**——把別格畫面的問答帶進去，
@@ -93,7 +96,8 @@ export function ConversationPage() {
   const [messages, setMessages] = useState<Message[]>([{ speaker: 'assistant', text: GREETING }])
   const [input, setInput] = useState('')
   // 結果、選中哪一筆、播不播——跟片段搜尋頁共用同一份規則，見 lib/useResultSelection.ts。
-  const { results, selectedIndex, playOnSelect, selected, showResults, pick } = useResultSelection()
+  const { results, selectedIndex, playOnSelect, selected, playerStartSec, seekKey, showResults, pick, seekTo } =
+    useResultSelection()
   const [statusText, setStatusText] = useState('')
   // 播放器現在停在第幾秒（整數）。停格問答問的就是這一格。
   const [playerSec, setPlayerSec] = useState(0)
@@ -160,7 +164,7 @@ export function ConversationPage() {
     onSuccess: (data, variables) => {
       setMessages((prev) => [
         ...prev,
-        { speaker: 'assistant', text: data.answer, frameSec: data.at_sec },
+        { speaker: 'assistant', text: data.answer, frameSec: data.at_sec, frameVideoId: variables.videoId },
       ])
       setFrameThread((prev) => ({
         atSec: variables.atSec,
@@ -180,7 +184,10 @@ export function ConversationPage() {
   const askFrame = (question: string) => {
     if (!selected) return
     const atSec = playerSec
-    setMessages((prev) => [...prev, { speaker: 'user', text: question, frameSec: atSec }])
+    setMessages((prev) => [
+      ...prev,
+      { speaker: 'user', text: question, frameSec: atSec, frameVideoId: selected.video_id },
+    ])
     setInput('')
     setStatusText('看畫面中…')
     frameMutation.mutate({
@@ -249,6 +256,13 @@ export function ConversationPage() {
                 speaker={m.speaker}
                 text={m.text}
                 frameLabel={m.frameSec === undefined ? undefined : formatTimestamp(m.frameSec)}
+                // 只有「那一格屬於現在選中的這支影片」才給得起這個 callback，
+                // 否則跳過去會是另一支影片的同一秒（見 Message.frameVideoId）。
+                onFrameClick={
+                  m.frameSec !== undefined && m.frameVideoId === selected?.video_id
+                    ? () => seekTo(m.frameSec as number)
+                    : undefined
+                }
               />
             ))}
             {showSuggestions && (
@@ -339,7 +353,8 @@ export function ConversationPage() {
           <>
             <VideoPlayer
               videoId={selected.video_id}
-              startSec={selected.start_sec}
+              startSec={playerStartSec}
+              seekKey={seekKey}
               title={selected.video_title}
               autoPlay={playOnSelect}
               onTimeChange={(sec) => setPlayerSec(Math.floor(sec))}
@@ -359,7 +374,7 @@ export function ConversationPage() {
             {/* 播放器下方跟「片段搜尋」頁同一塊（影片標題、時間、三個模態分數、
                 片段描述）。原本這頁只有播放器，選了片段之後看不到它為什麼被選上。 */}
             <div className="mt-3">
-              <EvidencePanel result={selected} />
+              <EvidencePanel result={selected} onSeek={seekTo} />
             </div>
           </>
         ) : (
