@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { listActiveJobs, listVideos } from '../api/client'
 import type { Video } from '../api/types'
 import { activeJobsKey, libraryVideosKey } from './queryKeys'
+import { useSearchScope } from './useSearchScope'
 import { classifyVideo, matchesLibraryQuery, type VideoCategory } from './videoCategory'
 
 /** 「影片庫」頁的資料層：清單本身、跑在它上面的重新分析工作，以及使用者在左欄
@@ -35,10 +36,16 @@ export function useLibraryList() {
   const [sortColumn, setSortColumn] = useState<SortColumn>('analyzed_at')
   const [sortReverse, setSortReverse] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  // 勾選成搜尋範圍的影片。用 Set 而不是陣列，跟「影片分析」頁的批次勾選
-  // 一致（見 VideosPage 的 toggleSelected）。刻意不設數量上限——VideosPage
-  // 的上限是分析成本天花板，搜尋範圍沒有這個成本（查詢向量只 embed 一次）。
-  const [picked, setPicked] = useState<Set<number>>(new Set())
+  // **勾選就是搜尋範圍本身**，這頁不另外存一份。以前是本地的 `Set<number>`，
+  // 只有按下「在選取影片內搜尋」時才灌進共用範圍——於是「在片段搜尋頁清除範圍」
+  // 或「移掉一個 chip」都不會反映回這裡的 checkbox，切回影片庫還勾著（頁籤是
+  // keep-alive）。同一件事兩份狀態、單向同步，遲早分岔，見 docs/05 §8.25。
+  //
+  // 代價講明白：勾選當下範圍就生效，不再有「先勾好、按了才算」的暫存語意。
+  // 刻意不設數量上限——VideosPage 的上限是分析成本天花板，搜尋範圍沒有這個
+  // 成本（查詢向量只 embed 一次）。
+  const { videoIds: scopeVideoIds, setScope, clearScope } = useSearchScope()
+  const picked = useMemo(() => new Set(scopeVideoIds), [scopeVideoIds])
 
   const {
     data: videos,
@@ -133,12 +140,7 @@ export function useLibraryList() {
   )
 
   const togglePicked = (id: number) =>
-    setPicked((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+    setScope(picked.has(id) ? scopeVideoIds.filter((v) => v !== id) : [...scopeVideoIds, id])
 
   return {
     // 原始資料與載入狀態
@@ -169,6 +171,6 @@ export function useLibraryList() {
     picked,
     pickedIds,
     togglePicked,
-    clearPicked: () => setPicked(new Set()),
+    clearPicked: clearScope,
   }
 }

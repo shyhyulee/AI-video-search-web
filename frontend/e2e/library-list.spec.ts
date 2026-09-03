@@ -92,3 +92,55 @@ test.describe('影片庫排序', () => {
     expect(await order(page)).toEqual([TITLES.tech])
   })
 })
+
+test.describe('搜尋範圍與勾選是同一份狀態', () => {
+  /** 影片庫的 checkbox 就是共用的搜尋範圍本身（§8.25）。以前是兩份狀態單向同步，
+   * 在片段搜尋頁清除範圍之後，切回影片庫那些勾選還在。
+   *
+   * 一定要**點頁籤**切換而不是 page.goto()：goto 是整頁重載，範圍與勾選都會歸零，
+   * 那樣測不到 keep-alive 下的分岔（smoke 的 tab() 說明記過同一件事）。 */
+  const tab = (page: Page, label: string) =>
+    page.locator('header').getByRole('link', { name: label })
+
+  test('在片段搜尋按「清除範圍」，影片庫的勾選跟著取消', async ({ page }) => {
+    await page.goto('/library')
+    await page.getByRole('checkbox', { disabled: false }).first().check()
+    await expect(page.getByText('已選 1 支')).toBeVisible()
+
+    await tab(page, '片段搜尋').click()
+    await expect(page.getByText(/搜尋範圍：1 支影片/)).toBeVisible()
+    await page.getByRole('button', { name: '清除範圍，改為全部影片' }).click()
+
+    await tab(page, '影片庫').click()
+    await expect(page.getByText('已選 0 支')).toBeVisible()
+    await expect(page.getByRole('checkbox', { checked: true })).toHaveCount(0)
+  })
+
+  test('在片段搜尋移掉 chip，影片庫的那一列也取消勾選', async ({ page }) => {
+    await page.goto('/library')
+    const boxes = page.getByRole('checkbox', { disabled: false })
+    await boxes.nth(0).check()
+    await boxes.nth(1).check()
+    await expect(page.getByText('已選 2 支')).toBeVisible()
+
+    await tab(page, '片段搜尋').click()
+    await page.getByRole('button', { name: /從搜尋範圍移除/ }).first().click()
+
+    await tab(page, '影片庫').click()
+    await expect(page.getByText('已選 1 支')).toBeVisible()
+    await expect(page.getByRole('checkbox', { checked: true })).toHaveCount(1)
+  })
+
+  test('影片庫按「清除選取」，片段搜尋的範圍也跟著清空', async ({ page }) => {
+    await page.goto('/library')
+    await page.getByRole('checkbox', { disabled: false }).first().check()
+    await tab(page, '片段搜尋').click()
+    await expect(page.getByText(/搜尋範圍：1 支影片/)).toBeVisible()
+
+    await tab(page, '影片庫').click()
+    await page.getByRole('button', { name: '清除選取' }).click()
+
+    await tab(page, '片段搜尋').click()
+    await expect(page.getByText(/搜尋範圍：/)).toHaveCount(0)
+  })
+})

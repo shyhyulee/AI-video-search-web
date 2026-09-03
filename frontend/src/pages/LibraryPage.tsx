@@ -66,6 +66,12 @@ export function LibraryPage() {
   const navigate = useNavigate()
   const { setScope } = useSearchScope()
 
+  /** 設定範圍並跳到片段搜尋頁。
+   *
+   * 勾選現在**當下就是範圍**（見 useLibraryList），所以「在選取影片內搜尋」那顆
+   * 按鈕傳進來的 ids 通常已經等於目前範圍，`setScope` 只是把它正規化（濾掉已經
+   * 不能搜的影片）。真正還需要它的是詳細面板的「在此影片內搜尋」——那是**取代**
+   * 目前範圍成只有這一支，連帶讓清單上的勾選也只剩那一列。 */
   const searchInVideos = (ids: number[]) => {
     setScope(ids)
     navigate('/search')
