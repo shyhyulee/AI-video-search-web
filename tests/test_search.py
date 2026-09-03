@@ -85,6 +85,13 @@ def test_strip_generic_terms_removes_multiple_occurrences():
     assert query.strip_generic_terms("畫面裡有畫面") == "裡有"
 
 
+def test_strip_generic_terms_removes_pian_duan():
+    """「片段」跟「畫面」「段落」同一類：使用者講的是影片的單位，不是要找的內容。
+    漏掉它的實測代價見 docs/02-technical-decisions.md 的「排序被『誰先被資料庫回傳』決定」——「找出工廠中人員作業的片段」會讓「片段」
+    當關鍵字，LIKE 命中 12 個不相干片段還拿到短詞哨兵分數。"""
+    assert query.strip_generic_terms("找出工廠中人員作業的片段") == "找出工廠中人員作業的"
+
+
 def test_strip_generic_terms_no_generic_terms_returns_unchanged():
     assert query.strip_generic_terms("大象跟小象在草地上走路") == "大象跟小象在草地上走路"
 
@@ -220,6 +227,42 @@ def test_rrf_scores_sparse_channel_boosts_low_dense_rank(monkeypatch):
     assert sparse_hit_ids == {2, 3}
 
 
+def test_rrf_scores_tied_sparse_scores_share_one_rank(monkeypatch):
+    """短詞哨兵讓多個片段同分時，它們必須拿到**同一個** RRF 貢獻。
+
+    逐一給名次的話，誰排前面由資料庫回傳順序決定——實測 120 個同分片段裡，
+    第一名拿 1/(5+1)=0.167、最後一名拿 1/(5+120)=0.008，差 20 倍全憑運氣
+    （docs/02-technical-decisions.md 的「排序被『誰先被資料庫回傳』決定」）。三個同分片段的共用名次是 (1+2+3)/3 = 2。
+
+    候選集刻意放到 20 個：3 個命中要低於 `_SHORT_TERM_MAX_MATCH_RATIO`（20%）
+    那道泛用詞門檻，否則這個短詞會整個被跳過、根本進不到融合這一步。
+    """
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [7, 8, 9])
+    scored = [(i, _search_result(1.0 - i * 0.01)) for i in range(1, 21)]
+
+    fused, _ = fusion.rrf_scores("汽車", scored)
+
+    sparse_part = [fused[i] - 1.0 / (fusion.RRF_K + i) for i in (7, 8, 9)]
+    assert sparse_part[0] == pytest.approx(sparse_part[1]) == pytest.approx(sparse_part[2])
+    assert sparse_part[0] == pytest.approx(1.0 / (fusion.RRF_K + 2))
+
+
+def test_rrf_scores_selective_term_gets_bigger_bonus_than_generic_one(monkeypatch):
+    """共用平均名次讓 bonus 自動依鑑別力縮放：命中 2 個的詞比命中 6 個的詞
+    拿到更大的 sparse 貢獻。這正是短詞哨兵原本想表達、但被任意順序毀掉的意圖。"""
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [])
+    scored = [(i, _search_result(0.5)) for i in range(1, 41)]
+
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [1, 2])
+    selective, _ = fusion.rrf_scores("汽車", scored)
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [1, 2, 3, 4, 5, 6])
+    generic, _ = fusion.rrf_scores("汽車", scored)
+
+    dense_part = 1.0 / (fusion.RRF_K + 1)
+    assert selective[1] - dense_part > generic[1] - dense_part
+
+
 def test_rrf_scores_ignores_sparse_hits_outside_candidate_set(monkeypatch):
     # fts_bm25_search 回傳的 segment id 不在這次搜尋範圍內（例如已經被
     # video 層級篩選掉），不該汙染融合分數，也不該出現在 sparse_hit_ids
@@ -275,6 +318,35 @@ def test_sparse_scores_unrelated_bm25_and_like_hits_do_not_affect_each_other(mon
     scores = sparse.sparse_scores("全壘打的畫面", _TEN_IDS)
 
     assert scores == {1: -6.0, 2: sparse._SHORT_TERM_SPARSE_SCORE}
+
+
+def test_sparse_scores_splits_long_term_that_matches_nothing(monkeypatch):
+    """規則式取詞會把「人員作業」黏成庫裡不存在的四字詞，BM25 命中 0——
+    退回用 2 字滑動窗再試，「人員」這個訊號才進得了 sparse channel
+    （docs/02-technical-decisions.md 的「排序被『誰先被資料庫回傳』決定」）。"""
+    probed: list[list[str]] = []
+
+    def fake_bm25(terms, video_ids=None):
+        probed.append(list(terms))
+        return []
+
+    monkeypatch.setattr(db, "fts_bm25_search", fake_bm25)
+    monkeypatch.setattr(db, "fts_like_search", lambda term, video_ids=None: [5] if term == "人員" else [])
+
+    scores = sparse.sparse_scores("人員作業", {5, 6, 7, 8, 9, 10, 11, 12, 13, 14})
+
+    assert scores == {5: sparse._SHORT_TERM_SPARSE_SCORE}
+    assert ["人員作業"] in probed  # 先探測過原詞
+
+
+def test_sparse_scores_keeps_long_term_that_does_match(monkeypatch):
+    """長詞查得到就不拆——拆開只會讓比對變鬆。"""
+    monkeypatch.setattr(db, "fts_bm25_search", lambda terms, video_ids=None: [(4, -3.0)])
+    monkeypatch.setattr(
+        db, "fts_like_search", lambda term, video_ids=None: pytest.fail(f"不該退回 LIKE：{term}")
+    )
+
+    assert sparse.sparse_scores("機器人", {4}) == {4: -3.0}
 
 
 def test_sparse_scores_skips_short_term_matching_too_large_a_fraction(monkeypatch):

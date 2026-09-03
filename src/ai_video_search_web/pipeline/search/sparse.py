@@ -52,8 +52,7 @@ def sparse_scores(
     valid_ids 在否定句排除之後會比 video_ids 的範圍更小，是必要的第二道防線。
     """
     terms = extract_terms(query)
-    long_terms = [t for t in terms if len(t) >= 3]
-    short_terms = [t for t in terms if len(t) < 3]
+    long_terms, short_terms = _split_terms(terms, video_ids)
 
     scores: dict[int, float] = {}
     if long_terms:
@@ -71,6 +70,40 @@ def sparse_scores(
         for seg_id in matched_ids:
             scores.setdefault(seg_id, _SHORT_TERM_SPARSE_SCORE)
     return scores
+
+
+def _split_terms(terms: list[str], video_ids: list[int] | None) -> tuple[list[str], list[str]]:
+    """把候選詞分成「長詞（走 BM25）」與「短詞（走 LIKE 哨兵）」，並且**把庫裡
+    完全查不到的長詞拆成 2 字滑動窗**再當短詞試一次。
+
+    為什麼需要這個退路：取詞是規則式的（不引入 jieba，見 docs/02），會把
+    「人員作業」黏成一個庫裡根本不存在的四字詞——實測那一題的 sparse channel
+    因此完全沒有「人」的訊號，排序裡沒有任何東西在乎查詢問的是人還是機器，
+    見 docs/02-technical-decisions.md 的「排序被『誰先被資料庫回傳』決定」。拆成「人員」「員作」「作業」之後，有意義的那兩片會命中，
+    無意義的那片查不到、自然不影響結果。
+
+    只在**完全查不到**時才拆，不是每個長詞都拆：長詞查得到就代表它是庫裡真實
+    存在的詞，拆開只會讓比對變鬆。拆出來的 2 字窗一樣要過短詞那道
+    `_SHORT_TERM_MAX_MATCH_RATIO` 比例門檻，泛用碎片（例如「工廠」拆出來的
+    「工廠」）不會因為這條退路就繞過既有防呆。
+    """
+    long_terms = [t for t in terms if len(t) >= 3]
+    short_terms = [t for t in terms if len(t) < 3]
+
+    kept_long: list[str] = []
+    for term in long_terms:
+        # 存在性探測用 BM25 而不是 LIKE：決定這個詞有沒有用的是它自己那條通道。
+        # 兩者在正式資料上通常一致（BM25 的 df 也是 ILIKE 比對），但拿 A 通道的
+        # 結果去決定 B 通道要不要跑，是把兩件事綁在一起——測試把 LIKE stub 成
+        # 空集合時就會讓 BM25 整條消失。代價是每個長詞多一次索引查詢（長詞通常
+        # 只有 1~3 個），換到的是「誰決定、誰負責」對得起來。
+        if db.fts_bm25_search([term], video_ids=video_ids):
+            kept_long.append(term)
+            continue
+        for piece in dict.fromkeys(term[i : i + 2] for i in range(len(term) - 1)):
+            if piece not in short_terms:
+                short_terms.append(piece)
+    return kept_long, short_terms
 
 
 def negated_segment_ids(

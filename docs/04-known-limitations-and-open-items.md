@@ -147,6 +147,10 @@
 - [ ] 修正 `scripts/run_golden_set_eval.py` 開頭註解的「18 題」為「17 題」
 - [x] ~~補齊 `development-log.md` 的 08-20 條目~~ **不再適用**：`development-log.md` 與 `changelog/` 都已不存在（從未進過版控），[`01-development-timeline.md`](01-development-timeline.md) 就是目前唯一且完整的開發歷程記錄。
 
+- [ ] **無答案判斷：關鍵字碎片會讓它誤判成有答案**（2026-09-03 發現）。gs-016「水底鯊魚攻擊潛水員」庫裡沒有答案，但有「鯊魚」的片段；sparse 命中讓它的 fusion 衝到 0.2576、`is_confident` 變 True，整題被判成有答案。這是 sparse 名次修正（見 [`02-technical-decisions.md`](02-technical-decisions.md) 的「排序被『誰先被資料庫回傳』決定」）的副作用：sparse 命中終於能正常影響排序之後，「有碎片但沒答案」的查詢也跟著更容易被判成有答案。
+  - 要動的是 `is_confident` 的定義（例如要求 top1 同時通過品質門檻）或 `MIN_SIMILARITY`，**兩者都影響全域**，需要自己一輪 Golden Set A/B，刻意沒有在那次改動裡順手處理。
+  - 同一輪的三題翻面方向相反（gs-002／gs-014／gs-018 從誤判「無答案」修正成有答案），所以**這不是單純的退步，是無答案判斷本來就在雜訊帶裡**——18 題裡只有 3～4 題是無答案題，每題佔 ±0.5 recall。
+
 ## 3. 待確認事項
 
 - **場景長度重新校準的優先順序**：`app.db` 重新分析／golden set 重建要不要做、什麼時候做，會影響能不能信任之後任何搜尋實驗的評測結果。

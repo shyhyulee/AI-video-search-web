@@ -3,6 +3,8 @@
 """
 from __future__ import annotations
 
+from itertools import groupby
+
 from .results import SearchResult
 from .sparse import sparse_scores
 
@@ -38,9 +40,23 @@ def rrf_scores(
 
     valid_ids = {seg_id for seg_id, _ in scored}
     sparse = sparse_scores(query, valid_ids, video_ids)
-    sparse_order = sorted(sparse.items(), key=lambda kv: kv[1])
-    for rank, (seg_id, _) in enumerate(sparse_order, start=1):
-        fused[seg_id] = fused.get(seg_id, 0.0) + 1.0 / (RRF_K + rank)
+    # **同分共用平均名次**。短詞的哨兵分數（sparse._SHORT_TERM_SPARSE_SCORE）會讓
+    # 命中同一個詞的片段全部同分，逐一給名次等於讓「資料庫回傳順序」決定誰拿
+    # 1/(K+1)＝0.167、誰拿 1/(K+120)＝0.008——差 20 倍，而那個順序沒有任何意義。
+    # 實測「找出工廠中人員作業的片段」：120 個片段全部同分，排第一的是 dense 名次
+    # 241 的工廠空景，只因為它剛好被資料庫先回傳（見 docs/02-technical-decisions.md 的「排序被『誰先被資料庫回傳』決定」）。
+    #
+    # 改成共用平均名次之後，這個 bonus 會**自動依關鍵字的鑑別力縮放**：命中 3 個
+    # 片段的精確詞平均名次 2、bonus 0.143（仍然很強），命中 120 個的泛用詞平均
+    # 名次 60.5、bonus 0.015（幾乎只剩 tie-break 的作用）。這正是哨兵分數當初想
+    # 表達的「精確關鍵字命中應該最優先」，只是原本的實作把它交給了任意順序。
+    position = 1
+    for _, group in groupby(sorted(sparse.items(), key=lambda kv: kv[1]), key=lambda kv: kv[1]):
+        members = list(group)
+        shared_rank = position + (len(members) - 1) / 2
+        for seg_id, _ in members:
+            fused[seg_id] = fused.get(seg_id, 0.0) + 1.0 / (RRF_K + shared_rank)
+        position += len(members)
     return fused, set(sparse.keys())
 
 

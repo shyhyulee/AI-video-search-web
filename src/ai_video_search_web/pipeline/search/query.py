@@ -34,7 +34,7 @@ _CLAUSE_PUNCTUATION = "，。！？、"
 # 的這兩個詞刪除，不是真正斷詞，跟 _STOPWORDS／_NEGATION_MARKERS 同樣「粗糙
 # 但夠用」的取捨——極端情況（詞組剛好包住這兩個字，例如「壁畫面積」）會被
 # 誤刪，但這個 app 的查詢型態（人物／動作／物件描述）機率很低，先不處理。
-_GENERIC_DESCRIPTIVE_TERMS = ("畫面", "段落")
+_GENERIC_DESCRIPTIVE_TERMS = ("畫面", "段落", "片段")
 
 
 def strip_generic_terms(query: str) -> str:
