@@ -2,7 +2,10 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "target": "es2023",
-    "lib": ["ES2023"],
+    /* 加 DOM 是為了 e2e：`page.evaluate()` 的 callback 在瀏覽器裡執行，
+       會用到 HTMLVideoElement 這類型別。vite.config.ts 不受影響（它只是多了
+       一組用不到的型別宣告）。 */
+    "lib": ["ES2023", "DOM"],
     "types": ["node"],
     "skipLibCheck": true,
 
@@ -19,5 +22,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  /* e2e smoke 與它的設定也要進型別檢查：Playwright 自己是用 esbuild 轉譯、
+     不做型別檢查，不納進來的話 `npm run build` 綠燈但測試檔可能是壞的。 */
+  "include": ["vite.config.ts", "playwright.config.ts", "e2e"]
 }

@@ -62,8 +62,8 @@ def create_table(conn: psycopg.Connection) -> None:
             no_speech_prob DOUBLE PRECISION,
             avg_logprob DOUBLE PRECISION,
             compression_ratio DOUBLE PRECISION,
-            -- 這個片段的畫面描述用了幾張畫面產生（1=單幀，2=條件式多幀觸發），見
-            -- pipeline/analyzer.py MULTI_FRAME_TRIGGER_SEC 旁的說明；NULL 代表這筆
+            -- 這個片段的畫面描述用了幾張畫面產生，見 pipeline/analyzer/phases.py 的
+            -- FRAME_FRACTIONS（現在一律三幀；曾經有過單幀／條件式多幀）；NULL 代表這筆
             -- 資料是欄位新增前的舊資料，語意上等同單幀（當時只有單幀取樣）。
             vlm_frame_count INTEGER,
             created_at TEXT NOT NULL,
@@ -79,7 +79,7 @@ def create_table(conn: psycopg.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_video_id ON segments(video_id)")
     # 中文關鍵字檢索索引，見 docs/02-technical-decisions.md#搜尋 與
-    # docs/14-postgresql-migration-plan.md §5。
+    # docs/archive/14-postgresql-migration-plan.md §5。
     #
     # 為什麼是 trigram 而不是 PostgreSQL 內建的 to_tsvector 全文檢索：中文沒有
     # 空白斷詞，tsvector 的 'simple' parser 會把整句當成一個 token，子字串完全
@@ -89,7 +89,7 @@ def create_table(conn: psycopg.Connection) -> None:
     #
     # 索引只在 pattern 有 3 個以上連續字元時才吃得到（要抽得出完整 trigram）；
     # 2 字元的詞仍然查得到，只是走 seq scan——這點跟 SQLite FTS5「<3 字元完全
-    # 查不到」不同，見 docs/14 §5.2.1，那個差異刻意沒有拿來改搜尋行為。
+    # 查不到」不同，見 docs/archive/14 §5.2.1，那個差異刻意沒有拿來改搜尋行為。
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_segments_content_trgm ON segments USING gin (content gin_trgm_ops)"
     )
@@ -172,6 +172,22 @@ def list_segments_for_video(video_id: int) -> list[SegmentRecord]:
         return [_row_to_segment(row) for row in rows]
 
 
+def list_segments_for_videos(video_ids: list[int]) -> list[SegmentRecord]:
+    """限定在數支影片內的片段，給搜尋的多選範圍用（單支影片走
+    list_segments_for_video()，那個還有 analyzer／video_service 等呼叫端）。
+    空 list 代表「沒有任何影片可搜」而不是「全部」——直接回空，不要讓
+    `= ANY('{}')` 靜靜地掃出零筆，語意上比較清楚。
+    """
+    if not video_ids:
+        return []
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM segments WHERE video_id = ANY(%s) ORDER BY video_id, start_sec",
+            (list(video_ids),),
+        ).fetchall()
+        return [_row_to_segment(row) for row in rows]
+
+
 def list_all_segments() -> list[SegmentRecord]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM segments ORDER BY video_id, start_sec").fetchall()
@@ -239,19 +255,38 @@ _BM25_B = 0.75
 #
 # 分數加負號：呼叫端（sparse.py／fusion.py）沿用 SQLite bm25() 的慣例，
 # 數字越小（越負）代表越相關，這個介面契約不變。
+#
+# scope CTE 是搜尋範圍（`video_ids` 為 NULL 就是全庫，語意跟加這層之前逐字
+# 相同）。範圍一定要在這裡下推、不能只靠呼叫端事後過濾：`LIMIT` 是在**排序
+# 之後**才截斷的，範圍外的片段會先把前 200 個名額佔走，限定範圍搜尋時
+# sparse channel 就整個落空（同一個「名額被佔走」的失敗模式，SQLite 時期
+# 的殘留列已經踩過一次，見 create_table 的說明）。
+#
+# 兩個容易寫錯的點：
+#   1. `NOT MATERIALIZED` 不可省略。scope 被 df／hits 引用兩次，PostgreSQL
+#      預設會物化它，content 上的 pg_trgm GIN 索引就吃不到了；加了提示才會
+#      inline 回原表、保住索引。
+#   2. stats 也要讀 scope，不能只縮 df／hits。IDF 的分母（n_docs）與長度
+#      正規化（avg_len）必須跟 n_hits 算在同一份語料上，否則限定範圍時
+#      IDF 會被全庫的文件數灌水。
 _BM25_SQL = f"""
-WITH stats AS (
+WITH scope AS NOT MATERIALIZED (
+    SELECT id, content
+    FROM segments
+    WHERE %(video_ids)s::int[] IS NULL OR video_id = ANY(%(video_ids)s::int[])
+),
+stats AS (
     SELECT count(*)::float8 AS n_docs,
            GREATEST(COALESCE(avg(length(content)), 1), 1)::float8 AS avg_len
-    FROM segments
+    FROM scope
 ),
 q AS (
-    SELECT term, pattern FROM unnest(%s::text[], %s::text[]) AS t(term, pattern)
+    SELECT term, pattern FROM unnest(%(terms)s::text[], %(patterns)s::text[]) AS t(term, pattern)
 ),
 df AS (
     -- 每個詞命中幾個片段（document frequency），IDF 的分母
     SELECT q.term, q.pattern, count(s.id)::float8 AS n_hits
-    FROM q LEFT JOIN segments s ON s.content ILIKE q.pattern
+    FROM q LEFT JOIN scope s ON s.content ILIKE q.pattern
     GROUP BY q.term, q.pattern
 ),
 hits AS (
@@ -261,7 +296,7 @@ hits AS (
            -- 詞頻：用「把該詞全部抽掉之後少了幾個字元」除以詞長回推出現次數
            (length(s.content) - length(replace(lower(s.content), lower(df.term), '')))::float8
                / GREATEST(length(df.term), 1) AS tf
-    FROM df JOIN segments s ON s.content ILIKE df.pattern
+    FROM df JOIN scope s ON s.content ILIKE df.pattern
     WHERE df.n_hits > 0
 )
 SELECT h.id,
@@ -273,46 +308,72 @@ SELECT h.id,
 FROM hits h CROSS JOIN stats
 GROUP BY h.id
 ORDER BY score
-LIMIT %s
+LIMIT %(limit)s
 """
 
 
 def _like_escape(term: str) -> str:
     """把 LIKE 的萬用字元跳脫掉，讓使用者輸入的 % 或 _ 當成普通字元比對。
-    `_extract_terms()` 不會主動產生這些字元，但使用者直接打進查詢字串就會
+    `extract_terms()` 不會主動產生這些字元，但使用者直接打進查詢字串就會
     留下來，沒跳脫的話 `%` 會變成「比對任意字串」。
     """
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def fts_bm25_search(terms: list[str], limit: int = 200) -> list[tuple[int, float]]:
+def fts_bm25_search(
+    terms: list[str], limit: int = 200, video_ids: list[int] | None = None
+) -> list[tuple[int, float]]:
     """對關鍵字做 OR 檢索，回傳 (segment_id, BM25 分數)——數字越小（越負）
     代表越相關，跟 SQLite 時期的 bm25() 慣例相同。
+
+    video_ids 是搜尋範圍：None 代表全庫，給一組 id 就只在那幾支影片內排名與
+    截斷（理由見 _BM25_SQL 上方的說明——LIMIT 在排序之後才套用，範圍不下推
+    的話名額會被範圍外的片段佔走）。空 list 代表「沒有影片可搜」，直接回空。
 
     呼叫端（sparse.py）只送 >=3 字元的詞進來。那個限制在 SQLite 是硬性的
     （trigram tokenizer 對更短的詞產不出 token、完全查不到），在 PostgreSQL
     只影響能不能吃到 GIN 索引——更短的詞一樣查得到，只是走 seq scan。
-    這個差異刻意沒有拿來改搜尋行為，見 docs/14-postgresql-migration-plan.md §5.2.1。
+    這個差異刻意沒有拿來改搜尋行為，見 docs/archive/14-postgresql-migration-plan.md §5.2.1。
     """
     if not terms:
         return []
+    if video_ids is not None and not video_ids:
+        return []
     patterns = [f"%{_like_escape(t)}%" for t in terms]
+    params = {
+        "terms": list(terms),
+        "patterns": patterns,
+        "limit": limit,
+        "video_ids": list(video_ids) if video_ids is not None else None,
+    }
     with get_connection() as conn:
-        rows = conn.execute(_BM25_SQL, (list(terms), patterns, limit)).fetchall()
+        rows = conn.execute(_BM25_SQL, params).fetchall()
     return [(row["id"], row["score"]) for row in rows]
 
 
-def fts_like_search(term: str, limit: int = 200) -> list[int]:
+def fts_like_search(term: str, limit: int = 200, video_ids: list[int] | None = None) -> list[int]:
     """給 <3 字元的關鍵字用的 fallback：純子字串比對，回傳 segment_id 列表，
-    沒有分數。
+    沒有分數。video_ids 的語意跟 fts_bm25_search() 相同（同樣有 LIMIT 名額被
+    範圍外片段佔走的問題，所以範圍一樣要下推到 SQL）。
 
     多了 ORDER BY id：PostgreSQL 的 LIMIT 沒有 ORDER BY 時回傳哪幾列是不保證的，
     而呼叫端會拿這個結果去算比例門檻，需要每次執行結果一致才好推理。
     """
+    if video_ids is not None and not video_ids:
+        return []
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id FROM segments WHERE content ILIKE %s ORDER BY id LIMIT %s",
-            (f"%{_like_escape(term)}%", limit),
+            """
+            SELECT id FROM segments
+            WHERE content ILIKE %(pattern)s
+              AND (%(video_ids)s::int[] IS NULL OR video_id = ANY(%(video_ids)s::int[]))
+            ORDER BY id LIMIT %(limit)s
+            """,
+            {
+                "pattern": f"%{_like_escape(term)}%",
+                "limit": limit,
+                "video_ids": list(video_ids) if video_ids is not None else None,
+            },
         ).fetchall()
     return [row["id"] for row in rows]
 

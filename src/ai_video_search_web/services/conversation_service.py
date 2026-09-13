@@ -1,6 +1,6 @@
 """對話搜尋 Application Service：以 conversations 表持久化 ConversationState，
 讓多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續，見
-docs/09-web-ui-migration-plan.md 2.2／3.2 節。
+docs/archive/09-web-ui-migration-plan.md 2.2／3.2 節。
 
 `handle_turn()` 本身是純函式（永遠回傳全新 state，不原地修改），且
 ConversationState／SearchResult 全部欄位是 str/int/float/None/list，可直接
@@ -41,15 +41,22 @@ def get_conversation_state(conversation_id: int) -> ConversationState | None:
     return _state_from_json(record.state_json)
 
 
-def send_message_by_id(conversation_id: int, message: str) -> ConversationTurnResult:
+def send_message_by_id(
+    conversation_id: int, message: str, video_ids: list[int] | None = None
+) -> ConversationTurnResult:
     """讀出目前狀態、呼叫 handle_turn()、把新狀態與這輪花費寫回去，供
-    FastAPI 對話 API 使用。"""
+    FastAPI 對話 API 使用。
+
+    video_ids 是使用者在畫面上勾選的搜尋範圍，每輪都由前端重新送過來、不存進
+    conversations 表：範圍屬於「使用者現在正在看的畫面」，跟對話內容不是同一
+    種狀態。存起來的話，使用者在影片庫改了勾選、回到對話卻還沿用舊範圍。
+    """
     record = db.get_conversation(conversation_id)
     if record is None:
         raise ConversationNotFoundError(f"找不到對話 {conversation_id}")
 
     state = _state_from_json(record.state_json)
-    turn_result = conversation_pipeline.handle_turn(state, message)
+    turn_result = conversation_pipeline.handle_turn(state, message, video_ids)
     new_state_json = json.dumps(dataclasses.asdict(turn_result.new_state))
     db.update_conversation(conversation_id, new_state_json, turn_result.cost_usd)
     return turn_result

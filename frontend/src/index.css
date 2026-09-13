@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* 暖色系 Design Token，對齊 docs/10-web-ui-ux-warm-responsive-design.md 第 3 節。
+/* 暖色系 Design Token，對齊 docs/prompts/10-web-ui-ux-warm-responsive-design.md 第 3 節。
    間距沿用 Tailwind 預設 4px 刻度（doc 的 4/8/12/16/20/24/32px 已完整覆蓋），
    不需要另外定義。 */
 @theme {

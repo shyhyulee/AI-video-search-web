@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { MonitorPlay } from 'lucide-react'
-import { analyzeVideo, deleteVideo, listActiveJobs, listVideos, retryJob } from '../api/client'
+import { analyzeVideo, deleteVideo, retryJob } from '../api/client'
 import { ApiError } from '../api/types'
 import type { Job, Video } from '../api/types'
 import { Badge } from '../components/Badge'
@@ -14,35 +14,22 @@ import { ErrorState } from '../components/ErrorState'
 import { LoadingSkeleton } from '../components/LoadingSkeleton'
 import { VideoListItem } from '../components/VideoListItem'
 import { formatDateTime, formatDuration, formatElapsed } from '../lib/format'
-import { useJobsPolling } from '../lib/useJobPolling'
+import { isActive } from '../lib/jobStatus'
+import { libraryVideosKey, pendingVideosKey, statsKey } from '../lib/queryKeys'
+import { useAnalysisQueue } from '../lib/useAnalysisQueue'
 import { useToast } from '../lib/useToast'
 
 const SOURCE_LABEL: Record<string, string> = { youtube: 'YouTube', local: '本機' }
 
 /** 一次最多勾選幾支送分析。分析是全站唯一會花錢的觸發點，而
  * `analyzer.BUDGET_USD`（US$0.80）是**每支影片各自計算**的，沒有批次層級的
- * 總量上限（見 docs/11 §8.12 的上限對照表），所以在送出前先用勾選數把單批的
+ * 總量上限（見 docs/05 §8.12 的上限對照表），所以在送出前先用勾選數把單批的
  * 成本天花板壓在 5×$0.80 以內。
  *
  * 這是 UI 層的節流，不是強制約束：`POST /api/v1/videos/{id}/analyze` 一次只
  * 收一支影片、本身沒有批次概念，job_manager 也不限制排隊數量，所以直接打 API
  * 仍然可以無限送。 */
 const MAX_BATCH_SELECTION = 5
-
-/** 有分析在跑時，清單本身也要跟著重取，不能只靠 job 輪詢。
- *
- * 兩件事只有清單知道：影片的 `status` 什麼時候從 analyzing 變成 analyzed
- * （＝該離開這一頁了），以及 `pipeline_stage` 目前跑到哪。job 輪詢只看得到
- * job 表。3 秒是折衷：比 job 輪詢（1 秒）稀疏，因為清單查詢還要多做一次
- * modality flags 的聚合。 */
-const LIST_POLL_MS = 3000
-
-/** 沒有任何分析在跑時，仍然定期問一次「有沒有進行中的分析」。
- *
- * 這是重新整理後能接回進度的關鍵：追蹤清單只活在 React state，F5 之後是空的，
- * 得靠這支查詢從後端把 job 撈回來。8 秒足夠——它只負責「發現」，發現之後
- * 每秒的進度更新由 useJobsPolling 接手。 */
-const ACTIVE_JOBS_DISCOVERY_MS = 8000
 
 function jobStatusInfo(
   video: Video,
@@ -59,12 +46,12 @@ function jobStatusInfo(
   return { text: '等待分析', kind: 'neutral' }
 }
 
-/** 「影片與分析」頁面：待分析影片列表、開始分析、移除，見
- * docs/07-ui-structure-and-features.md 6.1 節與
- * docs/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
+/** 「影片分析」頁面：待分析影片列表、開始分析、移除，見
+ * docs/archive/07-ui-structure-and-features.md 6.1 節與
+ * docs/archive/09-web-ui-migration-plan.md Phase 3「上傳與分析任務」。
  *
- * **這頁不再有「新增影片」區塊**：影片一律從「YouTube 搜尋」頁的卡片按
- * 「加入待分析」收進來，本機上傳也一併移除（見 docs/11 §8.5）。這頁的職責
+ * **這頁不再有「新增影片」區塊**：影片一律從「新增影片」頁的卡片按
+ * 「加入待分析」收進來，本機上傳也一併移除（見 docs/05 §8.5）。這頁的職責
  * 收斂成「決定哪些收進來的影片要送分析」——也是全站唯一會花錢的觸發點。
  *
  * 清單收的是 pending＋analyzing 兩種狀態（後端 `?status=pending`）。分析中的
@@ -75,95 +62,31 @@ export function VideosPage() {
   const queryClient = useQueryClient()
   const toast = useToast()
 
-  // 追蹤中的分析 job：video_id -> job_id。兩個來源——按下「開始分析」當下的
-  // 回應，以及 activeJobsQuery 從後端撈回來的進行中工作（重新整理後靠它接回
-  // 來）。已完成的 job 不從這裡移除：useJobsPolling 對終態 job 會停止輪詢，
-  // 留著不花成本，而且要留著才顯示得出「✓ 分析完成」與失敗時的重試。
-  const [analysisJobs, setAnalysisJobs] = useState<Record<number, number>>({})
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [rejectedNote, setRejectedNote] = useState('')
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
-  const trackedJobIds = useMemo(() => Object.values(analysisJobs), [analysisJobs])
-  const jobQueries = useJobsPolling(trackedJobIds)
-  const jobByVideoId = new Map<number, Job | undefined>()
-  Object.keys(analysisJobs).forEach((videoId, idx) => {
-    jobByVideoId.set(Number(videoId), jobQueries[idx]?.data)
-  })
-  const anyAnalysisActive = jobQueries.some((q) => q.data?.status === 'queued' || q.data?.status === 'running')
-
-  const {
-    data: pending,
-    isLoading: pendingLoading,
-    isError: pendingError,
-    refetch: refetchPending,
-  } = useQuery({
-    queryKey: ['videos', 'pending'],
-    queryFn: () => listVideos('pending'),
-    refetchInterval: anyAnalysisActive ? LIST_POLL_MS : false,
-  })
-
-  const analyzingRows = useMemo(() => pending?.filter((v) => v.status === 'analyzing') ?? [], [pending])
-  const pendingRows = useMemo(() => pending?.filter((v) => v.status !== 'analyzing') ?? [], [pending])
-
-  // 清單裡還有 analyzing 的影片，就表示一定有工作在跑，即使我們還沒追蹤到它
-  // （剛重新整理過）——這時要用較密的節奏去問，才接得回來。
-  const { data: activeJobs } = useQuery({
-    queryKey: ['jobs', 'active', 'analysis'],
-    queryFn: () => listActiveJobs('analysis'),
-    refetchInterval: analyzingRows.length > 0 && !anyAnalysisActive ? LIST_POLL_MS : ACTIVE_JOBS_DISCOVERY_MS,
-  })
-
-  useEffect(() => {
-    if (!activeJobs) return
-    // 這裡就是 effect 的正當用法：把外部系統（後端 jobs 表）的狀態同步進來。
-    // 不能改成 render 期間推導——job 一到終態就離開 activeJobs，推導的話會連
-    // 帶消失，「✓ 分析完成」與完成通知都跳不出來，所以必須累積在 state 裡。
-    // oxlint-disable-next-line react/set-state-in-effect
-    setAnalysisJobs((prev) => {
-      const next = { ...prev }
-      let changed = false
-      for (const job of activeJobs) {
-        if (job.video_id === null || next[job.video_id] === job.id) continue
-        next[job.video_id] = job.id
-        changed = true
-      }
-      // 沒有新東西就回傳原本的物件，避免每次輪詢都產生新 reference 觸發重繪。
-      return changed ? next : prev
-    })
-  }, [activeJobs])
-
   const invalidateAfterChange = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
-    queryClient.invalidateQueries({ queryKey: ['videos', 'library'] })
-    queryClient.invalidateQueries({ queryKey: ['stats'] })
+    queryClient.invalidateQueries({ queryKey: pendingVideosKey() })
+    queryClient.invalidateQueries({ queryKey: libraryVideosKey() })
+    queryClient.invalidateQueries({ queryKey: statsKey() })
   }, [queryClient])
 
-  // 影片標題快照：job 結束時要跳 toast 說「哪一支好了」，但那一刻清單馬上會
-  // 重取、該影片已經移去影片庫，從 `pending` 裡就查不到標題了。
-  const titleByVideoId = useRef<Record<number, string>>({})
-  useEffect(() => {
-    for (const v of pending ?? []) titleByVideoId.current[v.id] = v.title
-  }, [pending])
-
-  // 每個 job 只通知一次。用 ref 而不是 state：它只是去重用的備忘錄，
-  // 寫進去不需要（也不該）觸發重繪。
-  const notifiedJobIds = useRef<Set<number>>(new Set())
-  useEffect(() => {
-    let settledAny = false
-    for (const query of jobQueries) {
-      const job = query.data
-      if (!job || (job.status !== 'completed' && job.status !== 'failed')) continue
-      if (notifiedJobIds.current.has(job.id)) continue
-      notifiedJobIds.current.add(job.id)
-      settledAny = true
-      const title = (job.video_id !== null && titleByVideoId.current[job.video_id]) || '影片'
+  // 待分析清單與跑在它上面的分析工作，見 lib/useAnalysisQueue.ts——兩者的輪詢
+  // 節奏互為輸入，所以是同一個 hook 管的。
+  //
+  // 每支跑完的影片各跳一則通知，但清單／統計一輪只刷一次，不是每支各刷一次。
+  const queue = useAnalysisQueue((settled) => {
+    for (const { job, title } of settled) {
       if (job.status === 'completed') toast.show(`「${title}」分析完成，已移到影片庫`, 'success')
       else toast.show(`「${title}」分析失敗：${job.error_message ?? '未知錯誤'}`, 'error')
     }
-    // 一輪只刷一次清單／統計，不是每支影片各刷一次。
-    if (settledAny) invalidateAfterChange()
-  }, [jobQueries, invalidateAfterChange, toast])
+    invalidateAfterChange()
+  })
+
+  // 兩段合起來就是這頁的全部影片。只用來由 id 反查標題（送出分析被拒、或
+  // 確認移除時要說出是哪幾支），不決定畫面上的排列。
+  const allRows = [...queue.analyzing, ...queue.pending]
 
   // --- 待分析清單 ---
   const toggleSelected = (id: number) => {
@@ -195,7 +118,7 @@ export function VideosPage() {
         const job = await analyzeMutation.mutateAsync(id)
         newJobs[id] = job.id
       } catch (err) {
-        const title = pending?.find((v) => v.id === id)?.title ?? String(id)
+        const title = allRows.find((v) => v.id === id)?.title ?? String(id)
         if (err instanceof ApiError && err.code === 'DURATION_LIMIT_EXCEEDED') {
           rejected.push(title)
         } else {
@@ -207,7 +130,7 @@ export function VideosPage() {
       setRejectedNote(`「${rejected.join('、')}」無法送出分析，超過長度限制或已在分析中。`)
     }
     if (Object.keys(newJobs).length > 0) {
-      setAnalysisJobs((prev) => ({ ...prev, ...newJobs }))
+      queue.track(newJobs)
       // 送出去的取消勾選，否則它們會一路保持勾選狀態，「移除」按鈕還亮著，
       // 一按就把正在分析的影片連檔案一起刪掉。
       setSelected((prev) => new Set([...prev].filter((id) => !(id in newJobs))))
@@ -220,7 +143,7 @@ export function VideosPage() {
   const retryMutation = useMutation({ mutationFn: (jobId: number) => retryJob(jobId) })
   const onRetryClicked = async (videoId: number, jobId: number) => {
     const newJob = await retryMutation.mutateAsync(jobId)
-    setAnalysisJobs((prev) => ({ ...prev, [videoId]: newJob.id }))
+    queue.track({ [videoId]: newJob.id })
     invalidateAfterChange()
   }
 
@@ -230,7 +153,7 @@ export function VideosPage() {
   })
 
   const atSelectionLimit = selected.size >= MAX_BATCH_SELECTION
-  const selectedTitles = [...selected].map((id) => pending?.find((v) => v.id === id)?.title ?? String(id))
+  const selectedTitles = [...selected].map((id) => allRows.find((v) => v.id === id)?.title ?? String(id))
   const deletePreview = selectedTitles.slice(0, 3).join('、') + (selectedTitles.length > 3 ? '…' : '')
 
   const onConfirmRemove = async () => {
@@ -244,8 +167,8 @@ export function VideosPage() {
   }
 
   const renderRow = (v: Video) => {
-    const job = jobByVideoId.get(v.id)
-    const analyzing = v.status === 'analyzing' || job?.status === 'running' || job?.status === 'queued'
+    const job = queue.jobFor(v.id)
+    const analyzing = v.status === 'analyzing' || isActive(job?.status)
     const status = jobStatusInfo(v, job)
     return (
       <VideoListItem
@@ -302,22 +225,22 @@ export function VideosPage() {
     <div className="flex h-full flex-col gap-4">
       <Card className="flex min-h-0 flex-1 flex-col">
         <h2 className="mb-1 text-base font-bold text-text-primary">
-          待分析影片（{pendingRows.length}）
-          {analyzingRows.length > 0 && (
-            <span className="ml-2 text-sm font-normal text-primary">分析中 {analyzingRows.length}</span>
+          待分析影片（{queue.pending.length}）
+          {queue.analyzing.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-primary">分析中 {queue.analyzing.length}</span>
           )}
         </h2>
-        <div className="min-h-0 flex-1 overflow-auto" aria-busy={pendingLoading}>
-          {pendingLoading ? (
+        <div className="min-h-0 flex-1 overflow-auto" aria-busy={queue.isLoading}>
+          {queue.isLoading ? (
             <LoadingSkeleton variant="list-item" count={3} />
-          ) : pendingError ? (
-            <ErrorState title="載入待分析影片失敗" onRetry={() => refetchPending()} />
-          ) : !pending || pending.length === 0 ? (
+          ) : queue.isError ? (
+            <ErrorState title="載入待分析影片失敗" onRetry={() => queue.refetch()} />
+          ) : queue.isEmpty ? (
             // 這頁已經沒有新增影片的入口，空狀態必須直接把人帶去唯一的入口，
             // 否則會變成無路可走的死路。
             <EmptyState
               title="目前沒有待分析影片"
-              hints={['到「YouTube 搜尋」頁找影片，按卡片上的「加入待分析」就會出現在這裡']}
+              hints={['到「新增影片」頁找影片，按卡片上的「加入待分析」就會出現在這裡']}
               icon={<MonitorPlay className="h-8 w-8" aria-hidden="true" />}
               action={
                 <Link
@@ -334,16 +257,16 @@ export function VideosPage() {
             // 勾選，混在待分析裡會讓人以為是漏勾了。只有兩段都有東西時才需要
             // 標題把它們分開。
             <>
-              {analyzingRows.length > 0 && (
+              {queue.analyzing.length > 0 && (
                 <>
-                  <SectionHeading text={`分析中（${analyzingRows.length}）`} />
-                  {analyzingRows.map(renderRow)}
+                  <SectionHeading text={`分析中（${queue.analyzing.length}）`} />
+                  {queue.analyzing.map(renderRow)}
                 </>
               )}
-              {pendingRows.length > 0 && (
+              {queue.pending.length > 0 && (
                 <>
-                  {analyzingRows.length > 0 && <SectionHeading text={`待分析（${pendingRows.length}）`} />}
-                  {pendingRows.map(renderRow)}
+                  {queue.analyzing.length > 0 && <SectionHeading text={`待分析（${queue.pending.length}）`} />}
+                  {queue.pending.map(renderRow)}
                 </>
               )}
             </>

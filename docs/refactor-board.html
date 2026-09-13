@@ -182,6 +182,13 @@
     background: transparent;
   }
 
+  /* 已完成欄位裡分隔不同輪次的小標 */
+  .round-divider {
+    margin: 1.1rem 0 .2rem; padding-top: .7rem; border-top: 1px solid var(--border);
+    font-size: .78rem; font-weight: 700; letter-spacing: .04em; color: var(--text-muted);
+  }
+  .round-divider:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
   /* ---------- 刻意不做 ---------- */
   .section-title {
     margin: 2.5rem 0 .9rem; font-size: 1.05rem;
@@ -217,13 +224,15 @@
 <header>
   <div class="wrap">
     <h1>重構任務看板</h1>
-    <p class="sub">AI 影片搜尋 · 第三輪重構（Web 化之後）· 依 <code>.claude/skills/refactor/SKILL.md</code> 進行</p>
+    <p class="sub">AI 影片搜尋 · <strong>第五輪重構（已完成）</strong> · 依 <code>.claude/skills/refactor/SKILL.md</code> 進行<br>
+      第三輪的卡片保留在「已完成」欄下半部，未刪除。</p>
     <div class="stats">
-      <div class="stat"><span class="k">已完成 / 全部</span><span class="v">12 <small>/ 16</small></span></div>
-      <div class="stat"><span class="k">提交數</span><span class="v">9 <small>（全部已提交）</small></span></div>
-      <div class="stat"><span class="k">測試</span><span class="v">326 <small>← 266</small></span></div>
-      <div class="stat"><span class="k">新增測試</span><span class="v">+60</span></div>
-      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">1 <small>（C0 缺陷）</small></span></div>
+      <div class="stat"><span class="k">本輪已完成 / 全部</span><span class="v">6 <small>/ 6</small></span></div>
+      <div class="stat"><span class="k">本輪提交數</span><span class="v">6 <small>（另有看板更新）</small></span></div>
+      <div class="stat"><span class="k">最大後端單檔</span><span class="v">538 <small>← 836 行</small></span></div>
+      <div class="stat"><span class="k">後端測試</span><span class="v">471 <small>← 463</small></span></div>
+      <div class="stat"><span class="k">前端 e2e</span><span class="v">57 <small>← 43</small></span></div>
+      <div class="stat"><span class="k">刻意的行為變更</span><span class="v">0</span></div>
     </div>
   </div>
 </header>
@@ -233,53 +242,32 @@
 
   <!-- ============ 有規劃 ============ -->
   <section class="col" data-col="planned">
-    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">4</span></div>
+    <div class="col-head"><span class="dot"></span><h2>有規劃</h2><span class="count">2</span></div>
     <div class="cards">
 
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">D1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>前端字面值常數化</h3>
-        <p>react-query 的 query key 與 job 終態判斷散在 4 個檔案。</p>
-        <span class="metric">query key <b>7 處</b></span>
-        <span class="metric">終態判斷 <b>15 處</b></span>
-        <details><summary>細節</summary><ul>
-          <li>新增 <code>api/queryKeys.ts</code> 與 <code>isTerminalJob()</code> helper</li>
-          <li>涉及 <code>LibraryPage</code>／<code>VideosPage</code>／<code>YoutubeResultCard</code>／<code>useJobPolling</code></li>
-        </ul></details>
-        <div class="commit">波 D · 尚未排程</div>
-      </article>
-
-      <article class="card" data-kind="structure">
-        <div class="card-top"><span class="id">D2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
-        <h3>抽出 <code>useAnalysisJobs</code> hook</h3>
-        <p>VideosPage 的批次分析追蹤（job map ＋ 兩個衍生布林 ＋ 收尾 effect）目前全寫在頁面元件裡。</p>
-        <details><summary>細節</summary><ul>
-          <li>純前端重構，不影響 API</li>
-          <li>前端目前沒有測試，需先確認驗證方式（實際操作或補測試）</li>
-        </ul></details>
-        <div class="commit">波 D · 尚未排程</div>
-      </article>
-
       <article class="card" data-kind="docs">
-        <div class="card-top"><span class="id">Q1</span><span class="tag">待決策</span></div>
+        <div class="card-top"><span class="id">Q1</span><span class="tag">已決策</span></div>
         <h3>三個模態旗標是否保留</h3>
-        <p><code>has_transcript</code>／<code>has_visual</code>／<code>has_ocr</code> 在 §8.7 移除模態篩選後，前端已完全沒有使用。</p>
+        <p><code>has_transcript</code>／<code>has_visual</code>／<code>has_ocr</code> 在 §8.7 移除模態篩選後，前端已完全沒有使用
+          （2026-08-29 重新確認：只剩 <code>api/types.ts</code> 的型別宣告，UI 零使用）。</p>
         <details><summary>細節</summary><ul>
           <li>移除可連 B1 的聚合查詢一起省掉</li>
-          <li>但這是<strong>對外契約變更</strong>，不屬於重構範圍，需要你決定</li>
+          <li>但這是<strong>對外契約變更</strong>，不屬於重構範圍</li>
+          <li><strong>2026-08-29 決定：維持現狀</strong>，第四輪不處理</li>
         </ul></details>
-        <div class="commit">需要決策</div>
+        <div class="commit">維持現狀</div>
       </article>
 
       <article class="card" data-kind="docs">
-        <div class="card-top"><span class="id">Q2</span><span class="tag">待決策</span></div>
+        <div class="card-top"><span class="id">Q2</span><span class="tag">已決策</span></div>
         <h3><code>POST /videos/upload</code> 端點去留</h3>
         <p>前端在 §8.5 移除本機上傳後就不再呼叫，但後端端點與測試都還在。</p>
         <details><summary>細節</summary><ul>
           <li>刪除是行為變更（對外少一個端點），刻意不在重構中處理</li>
-          <li>連帶影響 <code>video_service.register_uploaded_video()</code>／<code>probe_local_duration()</code></li>
+          <li>連帶影響 <code>video_service.register_uploaded_video()</code>／<code>probe_local_duration()</code>／<code>store_upload()</code></li>
+          <li><strong>2026-08-29 決定：維持現狀</strong>；E2 反而幫它把落檔邏輯搬進了 service，之後真要刪也更好刪</li>
         </ul></details>
-        <div class="commit">需要決策</div>
+        <div class="commit">維持現狀</div>
       </article>
 
     </div>
@@ -290,6 +278,8 @@
     <div class="col-head"><span class="dot"></span><h2>待進行</h2><span class="count">0</span></div>
     <div class="cards">
 
+      <div class="empty">全部完成</div>
+
     </div>
   </section>
 
@@ -297,14 +287,444 @@
   <section class="col" data-col="doing">
     <div class="col-head"><span class="dot"></span><h2>進行中</h2><span class="count">0</span></div>
     <div class="cards">
-      <div class="empty">目前沒有進行中的任務<br>波 A + B 已全數完成並提交</div>
+      <div class="empty">第四輪已全數完成<br>E 5 步、F 6 步、G 1 步，共 13 個 commit</div>
     </div>
   </section>
 
   <!-- ============ 已完成 ============ -->
   <section class="col" data-col="done">
-    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">12</span></div>
+    <div class="col-head"><span class="dot"></span><h2>已完成</h2><span class="count">19 <small>+6</small></span></div>
     <div class="cards">
+
+      <p class="round-divider">第五輪（2026-09-02）</p>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R4</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>「選哪一筆、播不播」兩頁收成一份</h3>
+        <p>片段搜尋與 AI對話 各有一份 <code>results</code>／<code>selectedIndex</code>／<code>playOnSelect</code>／<code>selected</code>
+          與它兩端的處理。<code>lib/useResultSelection.ts</code> 43 行收下，兩頁只剩
+          <code>showResults(list)</code> 與 <code>pick(index)</code>。</p>
+        <div class="metrics"><span class="m"><b>e2e</b> 53 → 57</span><span class="m"><b>兩頁各</b> −10 行</span></div>
+        <details><summary>細節</summary><ul>
+          <li>對外只給兩個動詞，因為那兩條規則是<strong>成對的</strong>，分開寫容易只做一半——
+              而那正是實際發生過的事：§8.9 只給了搜尋頁，對話頁到 §8.21 才補上，中間隔了七天</li>
+          <li><strong>抽取時機是第二份出現的當下</strong>：§8.21 就是把搜尋頁那四行複製過去</li>
+          <li>搜尋頁的選取與播放<strong>原本零覆蓋</strong>（送出會呼叫 OpenAI），先用
+              <code>page.route()</code> 補 4 支、在舊實作上跑綠並用三個突變證明它會咬，才動手</li>
+          <li>突變打在 hook 上時<strong>兩頁的測試同時轉紅</strong>（拿掉自動選第一名：10 支裡 6 支紅）
+              ——這是「真的共用同一份規則」而不是「看起來很像」的證據</li>
+        </ul></details>
+        <div class="commit"><code>39aaab1</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R3</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>影片庫的清單資料層搬出頁面</h3>
+        <p>411 行裡約一百行是清單本身：兩個 query、六個 memo（分類計數／狀態篩選／庫內搜尋／排序／勾選）。
+          改排序跟改卡片長相動的是同一個檔案。</p>
+        <div class="metrics"><span class="m"><b>LibraryPage</b> 411 → 295 行</span><span class="m"><b>+4 支 e2e</b></span></div>
+        <details><summary>細節</summary><ul>
+          <li>七段邏輯（含註解）與搬移前<strong>逐字元相同</strong>，四個「用推導不用 useEffect」的決定
+              原樣搬過去，沒有趁機改寫</li>
+          <li>排序原本<strong>零覆蓋</strong>，4 支特徵測試先在舊實作上跑綠；新舊實作跑同一組測試都綠</li>
+          <li><strong>突變抓到我自己的測試太弱</strong>：種子資料 <code>analyzed_at</code> 同一秒寫入、預設排序
+              不保證（F4 記過的坑），排序鍵被改成常數時穩定排序會讓順序原封不動。修法是每個排序斷言
+              都先排出一個確定、而且跟待驗欄位順序不同的起點。補強後六個突變全部穩定轉紅</li>
+        </ul></details>
+        <div class="commit"><code>43d0265</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R2</span><span class="tag structure">結構</span><span class="tag">最高價值</span></div>
+        <h3><code>analyzer.py</code> 836 行拆成套件</h3>
+        <p>一個檔案裝四件事：預算與上限常數、跨每個 phase 的 <code>_AnalysisContext</code>、
+          執行緒入口與事件契約、六個 phase。</p>
+        <div class="metrics"><span class="m"><b>單檔 836 行</b> → 4 模組</span><span class="m"><b>最大</b> 538 行</span><span class="m"><b>對外 import</b> 不變</span></div>
+        <details><summary>細節</summary><ul>
+          <li><code>events</code>（葉）← <code>context</code> ← <code>phases</code> ← <code>worker</code>，單向無環；
+              門面把所有對外名字再匯出，<code>services/</code>／<code>schemas/</code>／<code>scripts/</code> 零改動</li>
+          <li><strong>計畫寫錯了，先停下來回報</strong>：原本寫「測試零改動」，實際有 79 處 monkeypatch。
+              數清楚之後發現其中 50 處 patch 的是<strong>協作者模組本身</strong>（<code>setattr(analyzer.db, …)</code>
+              patch 的是 db 模組，跟拆分無關），真正要重新指向的是 31 處</li>
+          <li>31 處只改 patch 的<strong>地址</strong>、斷言一個字沒改：位址必須指向<strong>讀那個名字的模組</strong>
+              （<code>analyzer.phases</code> 24、<code>analyzer.worker</code> 4、<code>analyzer.context</code> 2），
+              規則寫進套件 docstring</li>
+          <li><strong>機器驗證</strong>：28 個頂層名字的 AST 逐一比對，遺漏 0、多出 0，
+              唯一差異是 <code>_run_analysis</code> 的一行一個 token（<code>BUDGET_USD</code> →
+              <code>context.BUDGET_USD</code>，事先聲明過，為了讓 patch 一個位址同時影響門檻與訊息）</li>
+          <li>四個突變（over_budget 永遠 False／不送終端事件／批次大小失效／略過整理文件）分別讓
+              3、4、5、2 支轉紅——證明重新指向的 patch 沒有變成空轉</li>
+          <li>未做：<code>-m integration</code>（真 ffmpeg ＋ 真 OpenAI）依使用者決定沒跑。
+              <code>phases.py</code> 留在 538 行，六個 phase 互不呼叫、各自可讀，再拆只多五個 import 區</li>
+        </ul></details>
+        <div class="commit"><code>1280804</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R6</span><span class="tag structure">結構</span></div>
+        <h3>清掉兩件看起來還活著的東西</h3>
+        <p><code>getConversation()</code> 零呼叫端；<code>src/ai_video_search_web/ui/</code> 只剩 Tkinter 時代的九個
+          <code>.pyc</code>、沒有原始碼。</p>
+        <details><summary>細節</summary><ul>
+          <li>跟 F5 同一個判準：<code>uploadVideo()</code> 那種留了「端點還在、前端為什麼不用」的註解，
+              有資訊；這支沒有。後端端點與測試都留著</li>
+          <li><code>ui/</code> 的害處是<strong>看起來還活著</strong>——目錄樹上有它、<code>docs/archive/07</code> 還在描述
+              Tkinter 介面，讀的人得自己打開才知道是空的。它不在版控裡，所以 commit 只看得到 client.ts</li>
+        </ul></details>
+        <div class="commit"><code>1017849</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">R1</span><span class="tag structure">結構</span><span class="tag">成本</span></div>
+        <h3>每個模型的單價收成一張表</h3>
+        <p>六個 pipeline 模組各自寫一份 <code>0.15 / 1_000_000</code> 與 <code>0.60 / 1_000_000</code>，
+          十二個一模一樣的常數。改價要改六個檔案，漏一個不會有任何東西提醒。</p>
+        <div class="metrics"><span class="m"><b>12 常數</b> → 1 張表</span><span class="m"><b>+8 支測試</b></span></div>
+        <details><summary>細節</summary><ul>
+          <li>舊 docstring 明講過「不合併各模組定價——之後若分開演進不用被迫綁在一起」。
+              <strong>用模型當 key 正好保住那件事</strong>：<code>MODEL_NAME</code> 仍各自宣告，
+              換模型時價格自己跟著換，而不是要記得同時改兩個常數</li>
+          <li>查不到模型<strong>丟例外不回 0</strong>：0 會讓那條路徑「免費」，而
+              <code>analyzer.BUDGET_USD</code> 的護欄唯一依據就是累加的花費</li>
+          <li><strong>突變揭露一個既有缺口</strong>：把輸入與輸出單價對調，463 支照樣全綠——所有成本測試都拿
+              同一個常數算期望值，價格本身沒有任何測試釘住。新增的 8 支裡有一支把公告價寫死在測試裡</li>
+        </ul></details>
+        <div class="commit"><code>9dc8783</code></div>
+      </article>
+
+      <article class="card" data-kind="tests">
+        <div class="card-top"><span class="id">R0</span><span class="tag">測試</span><span class="tag">安全網</span></div>
+        <h3>對話頁的特徵測試</h3>
+        <p>全站行為最多的一頁（對話生命週期、結果選取與播放、停格問答的模式與上下文），
+          原本只有 smoke 那一支「頁面開得起來」。</p>
+        <div class="metrics"><span class="m"><b>e2e</b> 43 → 49</span><span class="m"><b>src/</b> 零改動</span></div>
+        <details><summary>細節</summary><ul>
+          <li>三支會花錢的端點用 <code>page.route()</code> 攔掉，理由跟 <code>playwright.config.ts</code> 既有原則一致</li>
+          <li><strong>影片串流換成 4KB 的 WebM fixture</strong>：種子資料的 <code>file_path</code> 指向不存在的檔案，
+              <code>&lt;video&gt;</code> 載不進來，那樣「定格」與「播放」兩種狀態都是 <code>paused</code>，等於驗不到</li>
+          <li>fixture 一定要<strong>自己處理 Range</strong>：<code>route.fulfill({ path })</code> 只回 200 整包，
+              Chromium 因此判定不可 seek（<code>video.seekable</code> 是 <code>[0,0]</code>、設 currentTime 被靜靜忽略）。
+              真的後端用 <code>FileResponse</code> 本來就支援 range</li>
+          <li>fixture 路徑用 <code>test.info().project.testDir</code> 而不是 <code>import.meta.url</code>——後者會讓
+              Playwright 改走 ESM loader 載進第二份 <code>@playwright/test</code>，直接噴
+              <code>did not expect test.describe()</code></li>
+          <li>四個突變全部轉紅；未覆蓋的也講明：IME 組字時的 Enter（Playwright 無法模擬 <code>isComposing</code>）</li>
+        </ul></details>
+        <div class="commit"><code>8e6a7b6</code></div>
+      </article>
+
+      <p class="round-divider">第四輪（2026-08-29 ～ 30）</p>
+
+      <article class="card" data-kind="docs">
+        <div class="card-top"><span class="id">G</span><span class="tag">文件</span></div>
+        <h3>文件與程式碼對齊</h3>
+        <p>五份文件。判準只有一條，而且是專案自己的維護規則（<code>docs/README.md</code>）：
+          <strong>描述現況的更新，記錄當時的不動</strong>。</p>
+        <details><summary>細節</summary><ul>
+          <li><code>docs/03</code> 的測試清單最離譜：宣稱「截至第二輪重構、15 個檔案 151 個測試」，
+              還列著隨 Tkinter 一起移除的 <code>test_widgets.py</code>，也完全不知道前端已經有測試。
+              改成 30 個檔案 410 個後端測試 ＋ 32 支 e2e，依領域分組而不是一張長表，
+              並加一句「數字會漂，要現況跑 <code>pytest --collect-only -q</code>」</li>
+          <li>e2e 那一節明講「刻意不驗什麼、為什麼」，讓那些缺口讀起來是決定而不是疏漏</li>
+          <li><code>docs/02</code> 有一處引用 E4 內聯掉的 <code>_build_content()</code>，改指
+              <code>segment_material.build_material()</code></li>
+          <li><code>docs/archive/09</code>／<code>docs/05</code> 裡 <code>settledJobIds</code> 等已不存在的名字
+              <strong>保持原樣</strong>——那是遷移與改版的階段紀錄，不是現況描述</li>
+          <li>README 專案結構補上 media.py／segment_material.py／前端四個 lib 模組／e2e/／
+              frontend/scripts/／seed_smoke_db.py；<code>docs/README.md</code> 補上兩份看板
+              （一直被別的文件連結，卻從來不在索引裡）</li>
+        </ul></details>
+        <div class="commit"><code>ea95366</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F5</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>刪掉沒有人呼叫的兩支 API client 函式</h3>
+        <p><code>getVideo()</code> 與 <code>listJobs()</code> 沒有任何呼叫端。</p>
+        <details><summary>細節</summary><ul>
+          <li>跟 <code>uploadVideo()</code>／<code>regenerateSummary()</code> 不同——那兩支移除時留了註解說明
+              端點還在、前端為什麼不用了；這兩支是單純被留下來的</li>
+          <li>後端端點與測試都還在，要恢復是加回一個函式的事</li>
+        </ul></details>
+        <div class="commit"><code>d8e0c1b</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F4</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3><code>LibraryPage</code> 拆出 <code>VideoDetailPanel</code></h3>
+        <p>176 行的面板（自己的 query、兩個 mutation、job 輪詢、收尾、一個 effect）住在 572 行的頁面檔底部。
+          它是一個元件，現在放在 components/。</p>
+        <span class="metric">LibraryPage <b>572 → 385 行</b></span>
+        <span class="metric">+7 支 e2e</span>
+        <details><summary>細節</summary><ul>
+          <li><strong>純搬移，而且是機器驗證的</strong>：新檔的面板本體跟舊檔逐字元相同（差異只有
+              <code>export</code> 與 import 區），LibraryPage 留下的部分也逐字元相同</li>
+          <li>搬之前先補測試：面板三顆按鈕有兩顆會呼叫 OpenAI，smoke 停在它們前面，
+              等於最複雜的部分幾乎沒有覆蓋。用 <code>page.route()</code> 攔住後端，按下去不花錢</li>
+        </ul></details>
+        <details><summary>突變測試又抓到一個沒覆蓋的路徑</summary><ul>
+          <li>刪掉「重新整理後把進行中的重新分析接回來」那一行 → <strong>6 支全過</strong>。
+              因為我的測試都是自己按按鈕進入那個狀態，靠 <code>GET /jobs?active=true</code>
+              接回來的路徑從沒被走過——跟 F3 為 VideosPage 補的是同一個缺口</li>
+          <li>補上第 7 支之後那個突變會轉紅。另外兩個突變（文件不進快取、按鈕不依狀態停用）本來就抓得到</li>
+          <li>第一版測試賭了「預設會選中我想的那一支」，四支同時紅：影片庫按 <code>analyzed_at</code>
+              排序，而種子資料同一秒寫入，順序不保證。改成明確點選那一列</li>
+        </ul></details>
+        <div class="commit"><code>dddc675</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F3</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>分析佇列搬出 <code>VideosPage</code></h3>
+        <p>頁面裡塞著 job map、memo、輪詢、用索引對應查詢結果的 Map、衍生布林、兩個互相引用重取節奏的查詢、
+          同步後端工作的 effect、標題快照。394 行裡多數跟畫面無關。</p>
+        <span class="metric">VideosPage <b>394 → 315 行</b></span>
+        <span class="metric">+3 支 e2e</span>
+        <details><summary>細節</summary><ul>
+          <li><strong>跟計畫不同</strong>：看板原本叫 <code>useAnalysisJobs</code>、只打算搬 job 追蹤。
+              實際發現待分析清單的查詢**非得一起搬**——清單每 3 秒重取看「有沒有工作在跑」，
+              工作探索加密又看「清單裡有沒有 analyzing 卻還沒追蹤到的」，切在中間是循環不是接縫。
+              所以改名 <code>useAnalysisQueue</code></li>
+          <li>頁面現在完全不碰 react-query，剩下的是排版與動作</li>
+        </ul></details>
+        <details><summary>驗證：同一組測試在新舊實作上都綠</summary><ul>
+          <li>按下「開始分析」是全站唯一會花錢的動作，所以 smoke 停在它前面——
+              而它之後那一整段正好就是這次搬動的全部內容，等於零覆蓋</li>
+          <li>用 <code>page.route()</code> 攔住後端補了 3 支：queued→running→completed 的完整路徑、
+              失敗路徑、以及<strong>重新整理後靠 active jobs 接回進度</strong>（完全不點任何東西）。
+              <code>POST /analyze</code> 根本沒送到後端，沒有分析被啟動</li>
+          <li>把 VideosPage stash 回搬動前、刪掉新 hook，<strong>同一組測試也是 3 passed</strong>——
+              它們描述的是沒有改變的行為，不是我剛寫出來的行為。還原後用備份 patch 做 diff 確認無損</li>
+          <li>突變 3 種（不同步 activeJobs／jobFor 永遠回 undefined／標題快照失效）全部轉紅</li>
+        </ul></details>
+        <div class="commit"><code>8a27855</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F2</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>「每個工作只收尾一次」收成一份</h3>
+        <p>三份各自的實作：<code>settledJobIds</code>／<code>notifiedJobIds</code>／<code>handledDownload</code>，
+          一個用 Set、一個用單一 id。少了它們，輪詢每讀到一次終態就再收尾一輪——對後端連發 invalidate、
+          對使用者疊出一模一樣的通知。</p>
+        <span class="metric">3 份 → 1 份</span>
+        <span class="metric">+3 支 e2e</span>
+        <details><summary>細節</summary><ul>
+          <li>callback 收的是「這一輪<strong>新</strong>到終態的那幾個」而不是單一 job：
+              VideosPage 要每支各跳一則通知、但清單與統計一輪只刷一次</li>
+          <li><code>YoutubeResultCard</code> 順帶拿掉手動重設——重按會建立新 job、新 id 本來就不在集合裡</li>
+          <li>那張卡片<strong>原本零覆蓋</strong>（真搜尋要打 YouTube、真下載要跑 yt-dlp），
+              所以先用 <code>page.route()</code> 補了 3 支特徵測試，在舊實作上跑綠才動它</li>
+        </ul></details>
+        <details><summary>突變推翻了我自己寫的註解</summary><ul>
+          <li>我寫「先記錄再呼叫 callback，否則 callback 裡的 setState 會讓 effect 重跑、同一批收尾兩次」。
+              把兩行調換過來——<strong>22 支全過</strong>。effect 裡的 setState 要等 effect 執行完才重繪，
+              那時記錄早就寫好了</li>
+          <li>順序保留（讓不變式跟 callback 做什麼無關），但註解改成講真話。
+              這正是第三輪 P2 記的教訓：不要宣稱一個不存在的因果</li>
+        </ul></details>
+        <div class="commit"><code>f783695</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">F1</span><span class="tag structure">結構</span><span class="tag">前端</span></div>
+        <h3>query key 具名化，並禁止再手打字面值</h3>
+        <p>22 處字面值散在 8 個檔案，而打錯<strong>不會報錯也不會壞畫面</strong>——F0 實測過，
+          改壞一個 key 之後 19 支 smoke 有 18 支照樣綠燈。</p>
+        <span class="metric">key 字面值 <b>22 → 0</b></span>
+        <span class="metric">狀態比較 <b>19 → 12</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>lib/queryKeys.ts</code> 只是一半；另一半是 <code>scripts/check-query-keys.mjs</code>
+              掛在 <code>npm run lint</code> 上，不准字面值出現在別處。少了它，那個模組只是建議不是唯一來源
+              ——e2e 抓得到「invalidate 的 key 跟讀取的不一致」，但抓不到「兩個元件各用不同卻都能運作的 key」，
+              那只會多打一次 API。實測塞回一個字面值，<code>npm run lint</code> exit 1</li>
+          <li><code>lib/jobStatus.ts</code> 只抽 <code>isTerminal()</code>／<code>isActive()</code>，6 個呼叫端。
+              其餘 12 處<strong>刻意保留</strong>：它們是顯示分支，要分辨的正是這兩個函式抹平的差別</li>
+          <li>兩處保留 <code>!job ||</code> 而不是折進 <code>isActive(job?.status)</code>——它同時是型別 narrowing，
+              拿掉之後 tsc 直接報 8 個 <code>'job' is possibly 'undefined'</code></li>
+        </ul></details>
+        <div class="commit"><code>7d9e926</code></div>
+      </article>
+
+      <article class="card" data-kind="test">
+        <div class="card-top"><span class="id">F0</span><span class="tag test">測試</span><span class="tag">前端</span><span class="tag">安全網</span></div>
+        <h3>前端有了可以拿來重構的 smoke</h3>
+        <p>前端 3,496 行、<strong>零測試檔</strong>。波 F 接下來要搬 query key、抽 hook、拆 574 行的頁面元件，
+          在這之前沒有任何東西會發現那些動作弄壞了什麼。</p>
+        <span class="metric">e2e <b>0 → 19 支</b></span>
+        <span class="metric">執行時間 <b>約 12 秒</b></span>
+        <details><summary>細節</summary><ul>
+          <li>驗的是「頁籤掛得起來、資料載得進來、互動有反應」：五個頁籤無 console error、
+              影片庫清單／分類 chips／庫內搜尋／狀態篩選／勾選搜尋範圍、待分析清單的分頁規則、
+              搜尋頁空狀態、頁籤 keep-alive 保住 state</li>
+          <li>斷言<strong>刻意寫得粗</strong>——比對「列在不在」而不是版面細節。改個 className 就轉紅的測試沒人會留著</li>
+          <li><strong>不碰花錢的路徑</strong>：分析／整理文件／對話送出／語意搜尋都呼叫 OpenAI，
+              常態驗證每跑一次付一次錢是錯的取捨。YouTube 搜尋免費但要打外網、會不穩，也排除</li>
+          <li><strong>不連正式資料庫</strong>：後端另起一個連 <code>avs_test</code> 的 process（port 8100／5273，
+              避開日常開發的 8000／5173），資料由 <code>scripts/seed_smoke_db.py</code> 填成固定 5 支假影片，
+              沿用 pytest 那道「名稱必須以 <code>_test</code> 結尾」的防護</li>
+        </ul></details>
+        <details><summary>突變測試發現了一個洞，補起來了</summary><ul>
+          <li>把 <code>['videos','library']</code> 改成 <code>['videos','libraryX']</code>——
+              <strong>18 支全過</strong>。react-query 換個 key 還是呼叫同一個 queryFn，清單照樣載入</li>
+          <li>key 打錯真正壞的是<strong>快取共用與 invalidation</strong>，而 invalidation 只在 mutation 之後看得出來
+              ——偏偏 mutation 幾乎都要花錢</li>
+          <li>唯一不花錢的 mutation 是<strong>刪除影片</strong>，所以補了一支「移除後清單與統計卡都跟著更新」，
+              種子資料也多了一支專門的犧牲品。補上之後，讀取端與 invalidate 端的 key 打錯都會轉紅</li>
+          <li>另兩個突變（庫內搜尋永遠回 true、主題分類永遠落到「其他」）分別讓 3 支與 1 支轉紅</li>
+          <li><strong>仍抓不到的</strong>：兩個元件各自用了不同但都能運作的 key（只會多打一次 API）。
+              F1 會加靜態檢查從結構上擋掉</li>
+        </ul></details>
+        <details><summary>順帶修掉的兩件事</summary><ul>
+          <li><code>e2e/</code> 與 <code>playwright.config.ts</code> 原本不在任何 tsconfig 的 include 裡——
+              Playwright 用 esbuild 轉譯、不做型別檢查，等於測試檔的 TS 沒人看。納進
+              <code>tsconfig.node.json</code>，並用故意植入的型別錯誤驗證 tsc 真的抓得到</li>
+          <li><code>vite.config.ts</code> 的 proxy 目標改成可用 <code>VITE_API_PROXY_TARGET</code> 覆寫，
+              預設值不變，一般開發不受影響</li>
+        </ul></details>
+        <div class="commit"><code>b0032b7</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E5</span><span class="tag structure">結構</span><span class="tag">命名</span></div>
+        <h3>讓 <code>pipeline/search/</code> 的底線前綴恢復可信</h3>
+        <p>第三輪拆套件時保留了原名，結果是<strong>私有命名、公開用途</strong>：<code>service.py</code> 呼叫
+          <code>dense._get_query_vectors()</code>、<code>fusion.py</code> 呼叫 <code>sparse._sparse_scores()</code>。
+          底線在 Python 是「不要從外面用我」的約定，程式碼幾乎每一行都在違反它。</p>
+        <span class="metric">改名 <b>11 支</b></span>
+        <span class="metric">保留底線 <b>4 支</b></span>
+        <span class="metric">diff <b>144 / 144 行</b></span>
+        <details><summary>細節</summary><ul>
+          <li>原本估「15 支」是錯的——那個數字沒有區分跨模組與同檔私有。用 <strong>AST 分析</strong>而不是 grep
+              重新判定（註解與 docstring 也會提到這些名字，用 grep 數已經錯過一次）：
+              <code>_embed_cached</code>／<code>_video_relevance_score</code>／<code>_select_relevant_ids</code>／
+              <code>_ocr_events_by_segment</code> 只在同檔被呼叫，<strong>保留底線</strong></li>
+          <li><code>_hit_source</code> 改成 <code>hit_source_label</code> 而不是直接去底線：
+              <code>SearchResult</code> 已經有 <code>hit_source</code> 欄位，兩個同名讀 service.py 會分不出誰是誰</li>
+          <li><strong>機器驗證「只有改名」</strong>：144 insertions／144 deletions 完全對稱，而且用程式逐行檢查
+              ——每個被刪的舊行套用改名對照表之後，與新增的行逐字元相同</li>
+          <li><strong>真實資料庫 A/B</strong>：改名前的完整備份樹 vs 現在的程式碼，同一個資料庫跑 9 組查詢
+              （否定句／泛用詞／英文／零結果），62 筆結果逐欄位比對——segment_id、排序、hit_source、
+              is_confident 全部相同</li>
+          <li>分數有 9.5e-05 的差異，但<strong>不是改名造成的</strong>：同一份新程式碼跑兩次也有同樣量級的差異，
+              是 embedding API 對相同輸入不回傳完全相同向量。翻譯已 stub 成 identity 排除 LLM 變異，
+              <code>insert_search_log</code> 也 stub 掉，全程沒寫入正式資料庫</li>
+          <li>描述現況的 6 份文件跟著改名；<code>docs/01-development-timeline.md</code> 與看板第三輪 B4 卡片
+              <strong>不動</strong>——它們記錄的是當時的事實（沿用第三輪 C4 的處理原則）</li>
+        </ul></details>
+        <div class="commit"><code>8334589</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E4</span><span class="tag structure">結構</span></div>
+        <h3>摘要與文件共用同一份素材格式</h3>
+        <p>兩邊各有一份幾乎相同的迴圈，連 <code>_format_timestamp()</code> 都是逐字重複。時間戳只是表面——
+          真正重複的是<strong>素材格式本身</strong>：欄位標籤、分隔符號、哪些片段要略過、行怎麼串。</p>
+        <span class="metric">原始碼 <b>−84 行</b></span>
+        <span class="metric">+11 支測試</span>
+        <details><summary>細節</summary><ul>
+          <li>新增 <code>pipeline/segment_material.py</code>，只留一個開關 <code>include_ocr</code>：
+              文件帶畫面文字、摘要不帶（實測 1,076/1,156 個片段有 OCR 文字，對流程類影片特別有價值）</li>
+          <li>截斷留在各自呼叫端：摘要取前 200 段控制 prompt 長度，文件刻意不截（SOP 少掉尾段
+              ＝默默少掉最後幾個製程步驟）。那是兩邊各自的決定，留在原地才看得見</li>
+          <li><code>document._build_content()</code> 一度變成一行委派，<strong>順手內聯掉</strong>——
+              只為了裝一段註解而存在的轉手層，正是這次重構要移除的東西</li>
+          <li><strong>先驗證「統一是安全的」才動手</strong>：兩邊本來不完全一樣（document 會 strip 並過濾
+              VLM 寫出來的字面 "null"，summary 沒有）。改碼前拿真實資料庫的
+              <strong>23 支影片、1,156 個片段</strong>跑新舊實作逐字元比對，兩側都完全相同</li>
+          <li>理論上的差異留在註解裡：若日後出現字幕正好是「無」的片段，摘要會少那一行——那是更正確的行為</li>
+          <li>測試搬到共用模組，並補上 <code>include_ocr=False</code> 那條路徑（合併前完全沒有覆蓋，
+              因為那側是 summary 的私有迴圈）</li>
+        </ul></details>
+        <div class="commit"><code>1b1e274</code></div>
+      </article>
+
+      <article class="card" data-kind="bug">
+        <div class="card-top"><span class="id">FIX</span><span class="tag bug">缺陷</span><span class="tag">測試</span></div>
+        <h3>整合測試在斷言一個 pipeline 從未承諾的順序</h3>
+        <p><code>test_analyze_worker_full_pipeline</code> 用一條全序斷言鎖住全部階段，但 Phase E（本地 OCR）與
+          Phase F（產生摘要）是<strong>刻意平行</strong>的，誰先送出事件由執行緒排程決定。</p>
+        <span class="metric">失敗率 <b>約 1/3</b></span>
+        <span class="metric">修正後 <b>8/8 通過</b></span>
+        <details><summary>細節</summary><ul>
+          <li>固定失敗訊息：<code>At index 6 diff: '產生摘要中' != '本地 OCR 掃描中'</code></li>
+          <li>沒被發現的原因：這支測試只在 <code>-m integration</code> 手動執行，不在日常迴圈裡。
+              推測從第三輪 B3 平行化上線後就一直存在</li>
+          <li><strong>先證明是既有問題</strong>：把 E3 整包 stash 掉、回到只有 E1+E2 的 HEAD 跑 3 次，
+              2 次以完全相同的訊息失敗</li>
+          <li>前六個循序階段仍逐字鎖順序；後兩個改用<strong>集合相等</strong>（不是 subset），
+              少一個或多一個階段照樣轉紅——用改名 Phase F 的突變驗證過</li>
+          <li>是分析中發現的測試缺陷，照 C0 的先例<strong>獨立提交</strong>，產品程式碼零改動</li>
+        </ul></details>
+        <div class="commit"><code>6116096</code> · 分析中發現，非原計畫項目</div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E3</span><span class="tag structure">結構</span><span class="tag bug">可用性</span></div>
+        <h3>ffmpeg 呼叫收進 <code>pipeline/media.py</code>，並全部補上 timeout</h3>
+        <p>五處各自決定要不要設 timeout，結果<strong>抽幀與抽音訊兩處都沒有</strong>——ffmpeg 卡住時分析執行緒
+          無限期停住、送不出終端事件，分析 slot 就永遠不釋放（跟第三輪 C0 是同一條失敗路徑的另一個入口）。</p>
+        <span class="metric">暫存檔樣板 <b>3 份 → 1 份</b></span>
+        <span class="metric">無 timeout <b>2 → 0</b></span>
+        <span class="metric">+18 支測試</span>
+        <details><summary>細節</summary><ul>
+          <li><code>timeout</code> 是 <code>run_ffmpeg()</code> 的<strong>必填關鍵字參數、沒有預設值</strong>：
+              抽一張畫面（15s）跟讀完一小時影片的音訊（300s）差一個數量級，給預設值只會讓下一個呼叫端不去想</li>
+          <li>失敗語意<strong>刻意不統一</strong>：<code>TimeoutExpired</code> 是 <code>SubprocessError</code> 的子類別，
+              所以本來吞例外的三處照樣吞、本來往外拋的兩處照樣拋</li>
+          <li><code>frames.py</code> 保留成獨立模組（domain：抽一張畫面）而不是併進 media.py（infra：跑一個子行程）</li>
+          <li><strong>驗證</strong>：11 支命令列特徵測試先寫在舊實作上跑綠，重構後原封不動仍綠——五條 argv 逐字未變。
+              測試 patch 的是共用的 <code>subprocess</code> 模組而不是各模組的名稱，所以不綁定模組結構</li>
+          <li>突變測試 3 種（拿掉 timeout／掉了 <code>-y</code>／<code>-ss</code> 移到 <code>-i</code> 之後）全部如預期轉紅</li>
+          <li>另外用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析（<code>-m integration</code>）驗過</li>
+          <li>這是本輪唯一的<strong>刻意行為變更</strong>：原本會無限等待 → 現在會超時失敗</li>
+        </ul></details>
+        <div class="commit"><code>cd25835</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E2</span><span class="tag structure">結構</span></div>
+        <h3>補齊 API → services 的邊界</h3>
+        <p>第三輪 C2 說「API 不再直呼 db」——就<em>呼叫</em>而言是真的，但 <code>api/videos.py</code> 還留著三條 import，
+          <code>db</code>／<code>downloader</code>／<code>pipeline</code> 三層都從端點模組構得到。</p>
+        <span class="metric">跨層 import <b>3 → 0</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>video_service</code> 再匯出 <code>VideoRecord</code>／<code>SegmentRecord</code>／<code>ModalityFlags</code>，
+              跟 <code>search_service</code> 匯出 <code>SearchResult</code> 是同一個作法</li>
+          <li>新增 <code>store_upload()</code>：落檔本來寫在端點裡，但 <code>delete_video()</code> 早就在 service 層
+              unlink 檔案——檔案生命週期的兩端各住一層。收 <code>BinaryIO</code> 而不是 <code>UploadFile</code>，
+              service 不需要認識 HTTP 型別；副檔名驗證（422）留在端點</li>
+          <li><code>document_model_name()</code> 用函式不用常數：常數會在 import 時定死，而測試正是用
+              <code>monkeypatch</code> 改 <code>document_pipeline.MODEL_NAME</code></li>
+          <li>uuid4 檔名（防 Path Traversal／覆蓋）原本只有註解沒有測試，現在有兩支，
+              改成固定檔名或換目錄都會轉紅</li>
+          <li><strong>驗證</strong>：真實 multipart 上傳「我的影片.mp4」→ 落檔為 32 位 hex，未沿用使用者檔名；
+              <code>.txt</code> 仍被擋成 422。跑在測試資料庫上，正式庫全程未寫入</li>
+          <li><code>api/main.py</code> 的 <code>db.init_db()</code> 刻意保留：那是應用組裝，不是端點邏輯</li>
+        </ul></details>
+        <div class="commit"><code>1268eac</code></div>
+      </article>
+
+      <article class="card" data-kind="structure">
+        <div class="card-top"><span class="id">E1</span><span class="tag structure">結構</span></div>
+        <h3>錯誤回應統一走例外對映</h3>
+        <p>兩個端點自己手刻 <code>JSONResponse</code> 產生 404，其餘走 <code>api/errors.py</code> 的對映表。
+          同一個形狀三份 dict 字面值，改格式時漏掉一處不會有任何東西提醒。</p>
+        <span class="metric">手刻錯誤回應 <b>2 → 0</b></span>
+        <span class="metric"><code>type: ignore</code> <b>1 → 0</b></span>
+        <details><summary>細節</summary><ul>
+          <li><code>schemas/common.py</code> 的 <code>ErrorResponse</code>／<code>ErrorDetail</code> 描述了這個形狀，
+              但改動前<strong>全專案零引用</strong>——規格與實作是分開的兩份。現在對映表建 body 一定經過它們</li>
+          <li>新增 <code>DocumentNotFoundError</code>／<code>ThumbnailUnavailableError</code>，掛在
+              <code>ServiceError</code> 底下（跟 job 無關，不進 <code>JobManagerError</code>）</li>
+          <li>那個 <code>type: ignore</code> 是「宣告回傳 <code>VideoDocumentOut</code> 卻回 <code>JSONResponse</code>」的症狀，
+              改成 <code>raise</code> 之後簽章與實際一致</li>
+          <li><strong>驗證</strong>：兩支測試先從「只看 code」改成逐欄位比對完整 body、在舊實作上跑綠，再改碼。
+              另外用真的 server A/B——舊碼 :8000 與新碼 :8001 的 body <code>diff</code> 完全相同</li>
+        </ul></details>
+        <div class="commit"><code>f123a8e</code></div>
+      </article>
+
+      <p class="round-divider">第三輪</p>
 
       <article class="card" data-kind="docs">
         <div class="card-top"><span class="id">DOC</span><span class="tag">文件</span></div>
@@ -312,7 +732,7 @@
         <p>前兩輪重構都記在 <code>docs/01-development-timeline.md</code>，這一輪照同樣格式補上。</p>
         <details><summary>細節</summary><ul>
           <li>三波 8 個 commit、C0 缺陷、驗證方式與刻意不做的理由各一段</li>
-          <li>時間軸原本停在 2026-08-20，新章節開頭註明 Web 化與 UI 改版記在 docs/09／docs/11，
+          <li>時間軸原本停在 2026-08-20，新章節開頭註明 Web 化與 UI 改版記在 docs/archive/09／docs/05，
               不留下沒有交代的五天空白</li>
         </ul></details>
         <div class="commit"><code>e176886</code></div>
@@ -328,7 +748,7 @@
           <li>不是刪掉了事：每處改寫成目前實際成立的說明。例如 <code>pipeline/conversation.py</code>
               原本寫「不需要 conversation_id」（早已不成立），改成指向 conversation_service 的實際持久化方式</li>
           <li><strong>README 有一處是實質錯誤</strong>：預算上限仍寫 US$0.30，實際已是 $0.80</li>
-          <li><code>docs/08</code> 的 API 清單改用註記處理（曾實作後移除／從未實作／實際多出的端點），
+          <li><code>docs/prompts/08</code> 的 API 清單改用註記處理（曾實作後移除／從未實作／實際多出的端點），
               而不是直接改動設計階段的歷史紀錄</li>
           <li>移除死碼 <code>cancel_job()</code> 與它的 3 支測試；剩餘 4 個 <code>assert</code> 改成明確 raise</li>
         </ul></details>
@@ -555,6 +975,16 @@
   </article>
 
   <article class="card">
+    <div class="card-top"><span class="id">N5</span></div>
+    <h3>不抽 <code>MasterDetail</code> 版面元件</h3>
+    <p>三頁的主從版面看起來重複，攤開比對後<strong>六個半邊只有一組真的相同</strong>：右半有的是 Card、有的是
+      <code>div</code> 包兩張 Card，捲動一個 <code>overflow-auto</code> 一個 <code>overflow-hidden</code>，
+      對話頁還多 <code>max-h-[70vh]</code> 與 <code>md:flex-row-reverse</code>（§8.18）。真正共用的只有
+      <code>md:w-1/2</code> 那段字串與「50/50」這個決定，而這個專案的版面對
+      <code>min-h-0</code>／<code>overflow</code> 鏈極度敏感——多包一層 div 的風險大於收益。</p>
+  </article>
+
+  <article class="card">
     <div class="card-top"><span class="id">N4</span></div>
     <h3>不修正本地 OCR 失敗時的費用低估</h3>
     <p>舊版把累加金額放在區域變數，例外一拋就整個丟掉。這是<strong>行為</strong>不是結構債，已在程式碼註解標記。</p>
@@ -564,19 +994,45 @@
 
 <footer>
   <p>
-    卡片內容對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> →
+    <strong>第五輪</strong>對應 git 歷史：<code>8e6a7b6</code> → <code>9dc8783</code> →
+    <code>1017849</code> → <code>1280804</code> → <code>43d0265</code> → <code>39aaab1</code>
+    （6 個 commit；看板更新另外提交）。後端測試 <strong>463 → 471 passed</strong>、前端 e2e
+    <strong>43 → 57</strong>、最大的後端單檔 <strong>836 → 538 行</strong>、
+    <code>LibraryPage</code> 411→295、<code>ConversationPage</code> 367→357、<code>SearchPage</code> 175→165。
+    <strong>零刻意的行為變更</strong>。
+  </p>
+  <p>
+    本輪的驗證方式跟前兩輪一致（先補特徵測試、在舊實作上跑綠、突變測試證明它會咬），
+    另外多了兩次<strong>機器比對</strong>：R2 用 AST 逐一比對 28 個頂層名字（唯一差異是事先聲明的那一個 token），
+    R3 用逐字元比對搬移前後的七段清單邏輯。兩次「突變沒抓到」都不是程式的問題而是<strong>測試太弱</strong>
+    （R1 的價格對調、R3 的排序鍵歸零），補強後才收工。
+  </p>
+  <p>
+    <strong>第四輪</strong>對應 git 歷史：<code>f123a8e</code> → <code>1268eac</code> →
+    <code>cd25835</code> → <code>6116096</code> → <code>1b1e274</code> → <code>8334589</code> →
+    <code>b0032b7</code> → <code>7d9e926</code> → <code>f783695</code> → <code>8a27855</code> →
+    <code>dddc675</code> → <code>d8e0c1b</code> → <code>ea95366</code>
+    （13 個 commit，<strong>三波全數完成</strong>；看板更新另外提交）。
+    後端測試 <strong>382 → 410 passed</strong>，前端 e2e <strong>0 → 32</strong>，
+    <code>LibraryPage</code> 574→385 行、<code>VideosPage</code> 392→315 行。
+  </p>
+  <p>
+    每一步都先補特徵測試、在<strong>舊實作</strong>上跑綠之後才改碼，而且都拿真實的東西驗過，不只是跑測試：
+    E1 是新舊碼並跑的 server A/B 位元組比對，E2 是真實 multipart 上傳，
+    E3 用真的 ffmpeg ＋ 真的 OpenAI 跑完整分析，
+    E4 拿真實資料庫 1,156 個片段做新舊實作逐字元比對，
+    E5 拿改名前的完整備份樹跟現在的程式碼對同一個資料庫跑 9 組查詢比對 62 筆結果。
+  </p>
+  <p>
+    <strong>第三輪</strong>對應 git 歷史：<code>8a5bd32</code> → <code>584cbc9</code> → <code>19b8204</code> →
     <code>60bd954</code> → <code>a322c73</code> → <code>0135b0e</code> → <code>992fbeb</code> →
     <code>06101cc</code>（8 個 commit）。每一步都遵守「先分析、確認後才動手、一次只做一步、
     每步都跑測試驗證」；最後三個 commit 在提交前各自匯出成獨立副本跑過完整測試，
-    確認每一個 commit 單獨 checkout 都是綠的。
+    確認每一個 commit 單獨 checkout 都是綠的。第三輪結束時全套測試 <strong>326 passed</strong>。
   </p>
   <p>
-    驗收標準已全數達成：C3 補上日誌／設定管理的一致性，C4 讓文件與程式碼對齊。
-    C0 是分析中發現的缺陷，屬於<strong>刻意的行為變更</strong>，與重構分開處理。
-  </p>
-  <p>
-    全套測試 <strong>326 passed</strong>；另外用真的 server 驗過 <code>/stats</code>、
-    <code>/videos</code> 旗標與錯誤格式。
+    兩輪各有一個<strong>分析中發現、與重構分開處理</strong>的項目：第三輪的 C0（分析 slot 永久洩漏，
+    刻意的行為變更），第四輪的 FIX（整合測試的假失敗，測試缺陷、產品程式碼零改動）。
   </p>
 </footer>
 

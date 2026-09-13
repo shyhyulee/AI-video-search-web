@@ -9,7 +9,7 @@ from typing import Callable
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import AdaptiveDetector, ContentDetector
 
-from . import progress_estimation
+from . import media, progress_estimation
 
 # scenedetect 預設的 opencv backend 在這台機器上無法解碼 AV1：沒有硬體加速，
 # 軟體解碼路徑直接讀不到任何畫面（回傳 0 frame），會被誤判成「整支影片只有
@@ -65,12 +65,15 @@ class NormalizedScene:
     <= SPLIT_ABOVE_SEC）；`source_raw_duration` 明顯更長，代表場景偵測器
     在這段長度裡完全沒抓到任何切點，是被機械式均分出來的其中一段。
 
-    見 docs/02-technical-decisions.md「VLM 條件式多幀取樣」：這個欄位是
-    pipeline/analyzer.py 決定要不要對這個場景觸發多幀 VLM 取樣的訊號來源，
-    直接對應根因（偵測器完全沒偵測到切點），比另外用 pixel/HSV 差異當
-    代理訊號（已測試放棄，見 docs/03-excluded-approaches.md）更準，也
-    幾乎零額外成本——這個長度本來就是 `_split_long_scenes()` 算完就丟的
-    中間值，這裡只是保留下來往下傳。
+    **目前沒有任何呼叫端讀它**。它原本是 analyzer 決定要不要對這個場景觸發多幀
+    VLM 取樣的訊號來源（見 docs/02-technical-decisions.md「VLM 條件式多幀取樣」），
+    2026-08-31 的 P4 把取樣統一成一律三幀之後那個判斷就不存在了。
+
+    留著而不刪，是因為它是「這個場景是不是被機械式硬切出來的」這件事唯一的紀錄，
+    而且幾乎零成本（`_split_long_scenes()` 本來就算得出來，只是順手保留）。之後
+    如果要回答「哪些內容值得抽超過三幀」，這是現成而且已經校準過的訊號——當初
+    比較過的替代方案（pixel/HSV 差異）已經實測放棄，見
+    docs/02-technical-decisions.md#已排除方案。
     """
     start_sec: float
     end_sec: float
@@ -186,18 +189,16 @@ def _to_ranges(scenes, duration_sec: float) -> list[NormalizedScene]:
 
 def _is_av1(video_path: Path) -> bool:
     try:
-        result = subprocess.run(
+        codec = media.run_ffprobe(
             [
-                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-select_streams", "v:0",
                 "-show_entries", "stream=codec_name",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 str(video_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
+            ]
         )
-        return result.stdout.strip() == "av1"
     except (subprocess.SubprocessError, OSError):
+        # 讀不到編碼就當作不是 AV1（走比較快的 opencv backend），不讓整支分析
+        # 失敗在一個「猜錯了頂多慢一點」的判斷上。
         return False
+    return codec == "av1"

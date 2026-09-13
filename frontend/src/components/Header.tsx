@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getStats } from '../api/client'
 import { formatCost } from '../lib/format'
+import { statsKey } from '../lib/queryKeys'
 import { StatCard } from './StatCard'
 import { TopNav } from './TopNav'
 
@@ -10,7 +11,7 @@ import { TopNav } from './TopNav'
  * 這裡刻意不顯示「當前頁面標題」：TopNav 選中的頁籤已經表明使用者在哪一頁，
  * 再放一次標題是重複資訊，也會跟頁籤搶同一列的水平空間。 */
 export function Header() {
-  const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: getStats })
+  const { data: stats } = useQuery({ queryKey: statsKey(), queryFn: getStats })
 
   return (
     <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-4 py-3 lg:px-6">

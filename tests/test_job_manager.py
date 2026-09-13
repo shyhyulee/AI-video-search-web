@@ -342,7 +342,7 @@ def test_analysis_slot_is_released_when_the_worker_dies_before_its_own_error_han
     以前 worker 會無聲死掉、pump 永遠停在 queue.get()、slot 永不釋放，之後
     每一支影片都卡在 queued。
     """
-    monkeypatch.setattr(analyzer, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("沒有 API 金鑰")))
+    monkeypatch.setattr(analyzer.worker, "get_client", lambda: (_ for _ in ()).throw(RuntimeError("沒有 API 金鑰")))
 
     real_video = tmp_path / "real.mp4"
     real_video.write_bytes(b"not really a video")
@@ -533,3 +533,84 @@ def test_reconcile_marks_running_jobs_failed_and_returns_count(temp_db):
 
 def test_reconcile_returns_zero_when_nothing_running(temp_db):
     assert job_manager.reconcile_stale_jobs() == 0
+
+
+def _make_interrupted_first_analysis() -> int:
+    """第一次分析跑到一半被砍掉的影片：status=analyzing、analyzed_at 還是 None，
+    而且已經有部分寫入的 segment／ocr_event 殘骸。
+    """
+    video_id = _make_video()
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "畫面分析 14%")
+    db.insert_segment(
+        video_id=video_id, start_sec=0.0, end_sec=5.0,
+        transcript="半成品", visual_description=None, ocr_text=None,
+        transcript_embedding=None, visual_embedding=None,
+        asr_model=None, vlm_model=None, embedding_model=None,
+    )
+    db.insert_ocr_event(
+        video_id=video_id, segment_id=None, start_sec=0.0, end_sec=5.0, frame_sec=1.0,
+        raw_text="ABC", resolved_text="ABC", confidence=0.9, bbox=None,
+        primary_engine="easyocr", ocr_pipeline_version="local-ocr-v1", embedding=None,
+    )
+    return video_id
+
+
+def _make_interrupted_reanalysis() -> int:
+    """重新分析跑到一半被砍掉的影片：analyzed_at 有值（上一輪成功過），舊的
+    segments 還在——analyzer 要到 `_write_segments()` 才會換掉舊結果。
+    """
+    video_id = _make_video()
+    db.insert_segment(
+        video_id=video_id, start_sec=0.0, end_sec=5.0,
+        transcript="上一輪的結果", visual_description=None, ocr_text=None,
+        transcript_embedding=None, visual_embedding=None,
+        asr_model=None, vlm_model=None, embedding_model=None,
+    )
+    db.mark_video_analyzed(
+        video_id, segment_count=1, cost_usd=0.5,
+        asr_model="whisper-1", vlm_model="gpt-4o-mini", embedding_model="text-embedding-3-small",
+        summary="上一輪的摘要",
+    )
+    db.update_video_status(video_id, db.STATUS_ANALYZING, "畫面分析 14%")
+    return video_id
+
+
+def test_reconcile_resets_interrupted_first_analysis_to_pending(temp_db):
+    video_id = _make_interrupted_first_analysis()
+
+    job_manager.reconcile_stale_jobs()
+
+    video = db.get_video(video_id)
+    assert video.status == db.STATUS_PENDING
+    assert video.pipeline_stage is None  # 不再掛著「畫面分析 14%」
+    # 沒產出過結果的影片，部分寫入的殘骸要一起清掉
+    assert db.list_segments_for_video(video_id) == []
+    assert db.list_ocr_events_for_video(video_id) == []
+
+
+def test_reconcile_restores_interrupted_reanalysis_to_analyzed(temp_db):
+    video_id = _make_interrupted_reanalysis()
+
+    job_manager.reconcile_stale_jobs()
+
+    video = db.get_video(video_id)
+    assert video.status == db.STATUS_ANALYZED
+    assert video.pipeline_stage is None
+    # 上一輪的結果一個都不能掉：影片要能直接回影片庫繼續被搜尋
+    assert video.analyzed_at is not None
+    assert video.summary == "上一輪的摘要"
+    assert len(db.list_segments_for_video(video_id)) == 1
+
+
+def test_reconcile_leaves_settled_videos_alone(temp_db):
+    pending = _make_video()
+    analyzed = _make_video()
+    db.mark_video_analyzed(
+        analyzed, segment_count=0, cost_usd=0.1,
+        asr_model="whisper-1", vlm_model="gpt-4o-mini", embedding_model="text-embedding-3-small",
+    )
+
+    job_manager.reconcile_stale_jobs()
+
+    assert db.get_video(pending).status == db.STATUS_PENDING
+    assert db.get_video(analyzed).status == db.STATUS_ANALYZED

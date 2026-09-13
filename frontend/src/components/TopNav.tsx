@@ -1,19 +1,21 @@
 import { NavLink } from 'react-router-dom'
 import { Film, Library, Search, MessageCircle, MonitorPlay } from 'lucide-react'
 
-// YouTube 搜尋放第一個：它是整條流程的入口（搜尋 → 播放確認 → 加入待分析），
-// 分析本身在下一個頁籤「影片與分析」進行，再後面三個是分析完成後才會用到。
+// 「新增影片」放第一個：它是整條流程的入口（搜尋 YouTube → 播放確認 →
+// 加入待分析），分析本身在下一個頁籤「影片分析」進行，再後面三個是分析完成
+// 後才會用到。
 const NAV_ITEMS = [
   // lucide 這個版本已移除品牌圖示（沒有 Youtube icon），用 MonitorPlay 代替。
-  { to: '/youtube', label: 'YouTube 搜尋', icon: MonitorPlay },
-  { to: '/videos', label: '影片與分析', icon: Film },
+  { to: '/youtube', label: '新增影片', icon: MonitorPlay },
+  { to: '/videos', label: '影片分析', icon: Film },
   { to: '/library', label: '影片庫', icon: Library },
-  { to: '/search', label: '搜尋影片', icon: Search },
-  { to: '/conversation', label: '對話搜尋', icon: MessageCircle },
+  { to: '/search', label: '片段搜尋', icon: Search },
+  { to: '/conversation', label: 'AI對話', icon: MessageCircle },
 ]
 
 /** Header 中段的主導覽：≥1180px 顯示圖示＋文字（實測五個頁籤含 padding 約
- * 620px，加上品牌區 141px 與統計卡 258px 仍在 1180px 內），900–1180px 收合
+ * 620px，頁籤改名後只會更短，加上品牌區 141px 與統計卡 258px 仍在 1180px
+ * 內），900–1180px 收合
  * 成僅圖示（約 236px），≤900px 隱藏改用 MobileBottomNav。
  *
  * 原本是左側 Sidebar，改成頂部橫向後主內容多出 240px 寬度；收合的三段邏輯

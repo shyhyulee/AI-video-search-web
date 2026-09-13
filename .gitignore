@@ -28,3 +28,11 @@ wheels/
 
 # Claude Code harness 執行期 session lock（含 PID／timestamp），非專案內容
 .claude/scheduled_tasks.lock
+
+# Playwright 執行產物：.last-run.json 與 screenshot: 'only-on-failure' 的失敗截圖
+# （見 frontend/playwright.config.ts）。從 repo 根目錄或 frontend/ 跑都會留一份。
+/test-results/
+/frontend/test-results/
+
+# 手動除錯時丟在 frontend/ 根目錄的截圖。專案真正要用的圖檔放在 frontend/public/。
+/frontend/*.png

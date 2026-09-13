@@ -40,7 +40,7 @@ def test_merge_short_scenes_empty_input():
 # ----------------------------------------------------------------------
 # _split_long_scenes()：回傳 NormalizedScene（見 scene_detect.py 的說明），
 # 除了 start_sec／end_sec 之外還帶 source_raw_duration（切分前的原始長度）——
-# pipeline/analyzer.py 用它判斷要不要對這個場景觸發多幀 VLM 取樣。
+# pipeline/analyzer/phases.py 曾用它判斷要不要對這個場景觸發多幀 VLM 取樣（現在一律三幀）。
 # ----------------------------------------------------------------------
 
 

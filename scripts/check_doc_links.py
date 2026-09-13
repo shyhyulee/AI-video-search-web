@@ -1,4 +1,4 @@
-"""檢查 docs/*.md 裡所有 markdown 連結的檔案與錨點是否存在。
+"""檢查 docs/ 底下（含 archive/、prompts/ 子目錄）所有 markdown 連結的檔案與錨點是否存在。
 
     uv run python scripts/check_doc_links.py
 
@@ -31,6 +31,8 @@ KNOWN_ABSENT = {
     "AI_Video_Search_搜尋準確率提升規劃.md",   # 原始需求 prompt，從未進過版控
     "Claude_Code_OCR_影片搜尋開發規劃.md",     # 同上
     "development-log.md",                     # 已被 01-development-timeline.md 取代
+    "03-excluded-approaches.md",              # 2026-09-02 併進 02 的「已排除方案」一章
+    "06-conversational-search-flow.md",       # 2026-09-02 併進 12 的 §7
 }
 
 
@@ -61,7 +63,9 @@ def main() -> int:
     anchor_cache: dict[Path, set[str]] = {}
     problems: list[str] = []
 
-    for md in sorted(DOCS.glob("*.md")):
+    # rglob 而不是 glob：文件分層之後（archive/、prompts/）子目錄裡的連結一樣要驗，
+    # 否則搬進去的那幾份等於失去覆蓋。
+    for md in sorted(DOCS.rglob("*.md")):
         text = md.read_text(encoding="utf-8")
         body = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
 
@@ -83,7 +87,7 @@ def main() -> int:
                 if not cand.exists():
                     cand2 = ROOT / file_part
                     if not cand2.exists():
-                        problems.append(f"{md.name}: 檔案不存在 → {file_part}")
+                        problems.append(f"{md.relative_to(DOCS)}: 檔案不存在 → {file_part}")
                         continue
                     cand = cand2
             else:
@@ -92,7 +96,7 @@ def main() -> int:
                 if cand not in anchor_cache:
                     anchor_cache[cand] = anchors_of(cand)
                 if anchor not in anchor_cache[cand]:
-                    problems.append(f"{md.name}: 錨點不存在 → {file_part}#{anchor}")
+                    problems.append(f"{md.relative_to(DOCS)}: 錨點不存在 → {file_part}#{anchor}")
 
     if problems:
         unique = sorted(set(problems))

@@ -1,7 +1,7 @@
 """conversations 表：把 pipeline.conversation.ConversationState 序列化存到
 DB，讓多輪對話能跨 HTTP request（甚至跨伺服器重啟）延續——狀態只放在記憶體
 的話，換一個 request 就不見了。見
-docs/09-web-ui-migration-plan.md 3.2 節。
+docs/archive/09-web-ui-migration-plan.md 3.2 節。
 
 state_json 存整包序列化後的 ConversationState（見
 services/conversation_service.py），不拆欄位：ConversationState 每輪整批

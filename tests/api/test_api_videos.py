@@ -1,5 +1,5 @@
 """videos API：關鍵驗收條件——分析超長影片回 422、YouTube 重複網址回 409，
-見 docs/09-web-ui-migration-plan.md 4.3 節。
+見 docs/archive/09-web-ui-migration-plan.md 4.3 節。
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def test_list_videos_empty(client):
 def test_analyzing_video_stays_in_pending_list_and_out_of_library(client):
     """驗收條件：分析中的影片在任何時刻都至少屬於一個清單。
 
-    `?status=pending` ＝「影片與分析」頁，不帶 status ＝「影片庫」。analyzing
+    `?status=pending` ＝「影片分析」頁，不帶 status ＝「影片庫」。analyzing
     落在前者；兩個端點都不收的話，影片會在整段分析期間從畫面上消失。
     """
     analyzing_id = make_video(status=db.STATUS_ANALYZING)
@@ -275,4 +275,171 @@ def test_thumbnail_unavailable_for_nonexistent_file_returns_404(client):
     video_id = make_video()  # file_path 指向不存在的檔案
     resp = client.get(f"/api/v1/videos/{video_id}/thumbnail")
     assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "THUMBNAIL_UNAVAILABLE"
+    # 逐欄位比對而不是只看 code：這個 body 原本是端點自己手刻的 JSONResponse，
+    # 改走統一的例外對映之後形狀必須一模一樣，前端才不會受影響。
+    assert resp.json() == {
+        "error": {"code": "THUMBNAIL_UNAVAILABLE", "message": "無法產生縮圖", "details": None}
+    }
+
+
+# ----------------------------------------------------------------------
+# 整理成文件（POST/GET /videos/{id}/document）
+# ----------------------------------------------------------------------
+
+
+def _fake_document():
+    from ai_video_search_web.pipeline.document import DocumentSection, DocumentStep, VideoDocument
+
+    return VideoDocument(
+        doc_type="sop", title="生產流程", overview="概述",
+        sections=[DocumentSection(heading="階段一", steps=[
+            DocumentStep(timestamp_sec=12.0, heading="塗矽膏", detail="刷過鋼板"),
+        ])],
+        uncovered=[],
+    )
+
+
+def test_generate_document_returns_document_and_persists_type(client, monkeypatch):
+    from ai_video_search_web.services import video_service
+
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="第一步")
+    monkeypatch.setattr(
+        video_service.document_pipeline, "generate_document",
+        lambda client_, title, segments: type("R", (), {"document": _fake_document(), "cost_usd": 0.005})(),
+    )
+
+    resp = client.post(f"/api/v1/videos/{video_id}/document")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["document"]["doc_type"] == "sop"
+    assert body["document"]["sections"][0]["steps"][0]["timestamp_sec"] == 12.0
+    # 回報的模型名稱要跟實際產生文件的 pipeline 一致（端點原本直接 import
+    # pipeline 讀這個常數，現在經過 video_service.document_model_name()）。
+    assert body["model"] == video_service.document_pipeline.MODEL_NAME
+    # 清單只帶類型不帶內容
+    listed = client.get("/api/v1/videos").json()[0]
+    assert listed["document_type"] == "sop"
+    assert "document_json" not in listed
+
+
+def test_generate_document_also_refreshes_the_summary(client, monkeypatch):
+    """「整理成文件」與「產生摘要」合併成一個動作：同一次呼叫的 overview 會寫回
+    videos.summary。摘要不能只當顯示欄位——搜尋的影片層級篩選與影片庫的主題分類
+    都在讀它。"""
+    from ai_video_search_web.services import video_service
+
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    _add_segment(video_id, transcript="第一步")
+    db.update_video_summary(video_id, "分析時產生的舊摘要", "gpt-4o-mini", 0.0)
+    monkeypatch.setattr(
+        video_service.document_pipeline, "generate_document",
+        lambda client_, title, segments: type("R", (), {"document": _fake_document(), "cost_usd": 0.005})(),
+    )
+
+    client.post(f"/api/v1/videos/{video_id}/document")
+
+    listed = client.get("/api/v1/videos").json()[0]
+    assert listed["summary"] == _fake_document().overview
+    assert listed["summary"] != "分析時產生的舊摘要"
+
+
+def test_generate_document_missing_video_returns_404_not_422(client):
+    """/summary 對不存在的 video 會回 422（先查片段再查影片），這支刻意不照抄
+    那個順序，維持 _get_video_or_raise 的 404 慣例。"""
+    resp = client.post("/api/v1/videos/999/document")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "VIDEO_NOT_FOUND"
+
+
+def test_generate_document_no_segments_returns_422(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    resp = client.post(f"/api/v1/videos/{video_id}/document")
+    assert resp.status_code == 422
+
+
+def test_get_document_before_generating_returns_404(client):
+    """還沒整理過是正常狀態，前端靠這個 404 決定顯示「尚未整理」。"""
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    resp = client.get(f"/api/v1/videos/{video_id}/document")
+    assert resp.status_code == 404
+    # 逐欄位比對，理由同 test_thumbnail_unavailable_for_nonexistent_file_returns_404。
+    assert resp.json() == {
+        "error": {
+            "code": "DOCUMENT_NOT_FOUND",
+            "message": "這支影片還沒有整理過的文件",
+            "details": None,
+        }
+    }
+
+
+def test_get_document_returns_stored_document(client):
+    video_id = make_video(status=db.STATUS_ANALYZED)
+    db.update_video_document(
+        video_id, _fake_document().model_dump_json(), "sop", "gpt-4o-mini", "概述", 0.005
+    )
+
+    resp = client.get(f"/api/v1/videos/{video_id}/document")
+
+    assert resp.status_code == 200
+    assert resp.json()["document"]["title"] == "生產流程"
+    assert resp.json()["model"] == "gpt-4o-mini"
+
+
+def test_frame_qa_returns_the_answer_and_echoes_the_timestamp(client, monkeypatch):
+    """停格畫面問答：問哪一秒就回哪一秒。
+
+    回傳 at_sec 不是多餘的——前端送出之後使用者可能又把影片拖走了，答案要標得
+    出來自哪一格，否則畫面上會出現一則對不上目前時間點的回答。
+    """
+    from ai_video_search_web.pipeline import frame_qa
+    from ai_video_search_web.services import video_service
+
+    monkeypatch.setattr(
+        video_service, "answer_about_frame",
+        lambda video, at_sec, question, history: frame_qa.FrameAnswer(
+            answer=f"看到了：{question}｜{len(history)} 輪上下文", cost_usd=0.00045,
+        ),
+    )
+    video_id = make_video()
+
+    resp = client.post(
+        f"/api/v1/videos/{video_id}/frame-qa",
+        json={
+            "at_sec": 252.0,
+            "question": "畫面中有幾個箱子？",
+            "history": [{"question": "有幾個人？", "answer": "三個人。"}],
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["at_sec"] == 252.0
+    assert body["answer"] == "看到了：畫面中有幾個箱子？｜1 輪上下文"
+    assert body["cost_usd"] == 0.00045
+
+
+def test_frame_qa_on_a_missing_video_is_404(client):
+    resp = client.post(
+        "/api/v1/videos/9999/frame-qa", json={"at_sec": 1.0, "question": "這是什麼？"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "VIDEO_NOT_FOUND"
+
+
+def test_frame_qa_when_the_frame_cannot_be_extracted_is_422_not_500(client):
+    """影片存在但抽不出畫面（檔案不見、ffmpeg 逾時）要走錯誤對映表，不能讓
+    subprocess 的例外穿到 API 層變成 500——使用者剛按下送出，要看得到「哪一秒
+    抽不出畫面」而不是伺服器錯誤。
+
+    `make_video()` 的 file_path 本來就指向不存在的路徑，所以這裡不用 mock。
+    """
+    video_id = make_video()
+
+    resp = client.post(
+        f"/api/v1/videos/{video_id}/frame-qa", json={"at_sec": 5.0, "question": "這是什麼？"}
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "FRAME_UNAVAILABLE"

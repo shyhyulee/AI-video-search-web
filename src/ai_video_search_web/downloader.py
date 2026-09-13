@@ -52,7 +52,7 @@ def start_download(
 ) -> threading.Thread:
     """啟動背景執行緒下載，立即回傳、不阻塞呼叫端。dest_dir 預設為 VIDEO_DIR；
     Web 版 Job Manager 會傳入依 job_id 區隔的子目錄，避免不同 URL 剛好標題
-    相同時互相覆蓋檔案，見 docs/09-web-ui-migration-plan.md 3.1 節。
+    相同時互相覆蓋檔案，見 docs/archive/09-web-ui-migration-plan.md 3.1 節。
     """
     thread = threading.Thread(target=_download_worker, args=(url, progress_queue, dest_dir), daemon=True)
     thread.start()

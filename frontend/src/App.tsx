@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { Header } from './components/Header'
 import { MobileBottomNav } from './components/MobileBottomNav'
 import { ToastProvider } from './components/Toast'
+import { SearchScopeProvider } from './components/SearchScopeProvider'
 import { VideosPage } from './pages/VideosPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { SearchPage } from './pages/SearchPage'
@@ -22,7 +23,7 @@ function App() {
   const { pathname } = useLocation()
   const isKnownPage = PAGES.some((p) => p.path === pathname)
 
-  // 造訪過的頁籤才掛載——第一次點進去才付出初始化成本（例如「對話搜尋」會
+  // 造訪過的頁籤才掛載——第一次點進去才付出初始化成本（例如「AI對話」會
   // 建立一筆 conversation、「影片庫」會拉整份清單），之後就一直留著不卸載。
   // 在 render 中呼叫自己的 setState 是 React 官方的「render 期間調整 state」
   // 用法：有 includes 擋著不會無限迴圈，React 會直接重跑這個 component，不會
@@ -34,33 +35,37 @@ function App() {
 
   return (
     <ToastProvider>
-      <div className="flex h-dvh flex-col">
-        <Header />
-        {/* 主導覽已移進 Header（TopNav），這裡不再有左右分欄；min-h-0 flex-1
-            原本掛在包住 Sidebar 與 main 的 wrapper 上，拆掉 wrapper 後一定要
-            搬到 <main> 自己身上，否則 main 會被內容撐高、蓋掉下面的
-            MobileBottomNav。 */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-auto">
-          {/* h-full 讓每個頁面內部的 min-h-0/flex-1/overflow-auto 雙欄捲動邏輯
-              能正確拿到高度，這個 wrapper 一定要跟著給 h-full，不然頁面內容
-              會退化成撐開高度、整頁一起捲動。 */}
-          <div className="mx-auto h-full max-w-[1540px] p-4 lg:p-6">
-            {/* relative 的定位基準刻意放在「沒有 padding」的這一層：隱藏中的
-                頁籤是 absolute inset-0，這樣它的框跟作用中頁籤（in-flow 的
-                h-full）完全一樣寬高，切回來時排版與捲動位置才不會位移。 */}
-            <div className="relative h-full">
-              {/* 未知路徑（含首頁 /）一律導到第一個頁籤。 */}
-              {!isKnownPage && <Navigate to="/youtube" replace />}
-              {PAGES.filter((p) => mountedPaths.includes(p.path)).map((p) => (
-                <KeepAlivePage key={p.path} active={p.path === pathname}>
-                  {p.element}
-                </KeepAlivePage>
-              ))}
+      {/* 搜尋範圍要跨頁籤共用（影片庫設定 → 搜尋影片／對話搜尋兩頁都吃），
+          所以 Provider 一定要包在 KeepAlivePage 外面。 */}
+      <SearchScopeProvider>
+        <div className="flex h-dvh flex-col">
+          <Header />
+          {/* 主導覽已移進 Header（TopNav），這裡不再有左右分欄；min-h-0 flex-1
+              原本掛在包住 Sidebar 與 main 的 wrapper 上，拆掉 wrapper 後一定要
+              搬到 <main> 自己身上，否則 main 會被內容撐高、蓋掉下面的
+              MobileBottomNav。 */}
+          <main className="min-h-0 min-w-0 flex-1 overflow-auto">
+            {/* h-full 讓每個頁面內部的 min-h-0/flex-1/overflow-auto 雙欄捲動邏輯
+                能正確拿到高度，這個 wrapper 一定要跟著給 h-full，不然頁面內容
+                會退化成撐開高度、整頁一起捲動。 */}
+            <div className="mx-auto h-full max-w-[1540px] p-4 lg:p-6">
+              {/* relative 的定位基準刻意放在「沒有 padding」的這一層：隱藏中的
+                  頁籤是 absolute inset-0，這樣它的框跟作用中頁籤（in-flow 的
+                  h-full）完全一樣寬高，切回來時排版與捲動位置才不會位移。 */}
+              <div className="relative h-full">
+                {/* 未知路徑（含首頁 /）一律導到第一個頁籤。 */}
+                {!isKnownPage && <Navigate to="/youtube" replace />}
+                {PAGES.filter((p) => mountedPaths.includes(p.path)).map((p) => (
+                  <KeepAlivePage key={p.path} active={p.path === pathname}>
+                    {p.element}
+                  </KeepAlivePage>
+                ))}
+              </div>
             </div>
-          </div>
-        </main>
-        <MobileBottomNav />
-      </div>
+          </main>
+          <MobileBottomNav />
+        </div>
+      </SearchScopeProvider>
     </ToastProvider>
   )
 }

@@ -1,5 +1,5 @@
 """YouTube 搜尋 Application Service：用 yt-dlp 的 `ytsearch{n}:` 前綴查詢
-YouTube，回傳影片 metadata 清單，供「YouTube 搜尋」頁使用。
+YouTube，回傳影片 metadata 清單，供「新增影片」頁使用。
 
 刻意不引入 YouTube Data API v3：yt-dlp 已經是本專案的相依套件（downloader.py
 在用），`ytsearch40:` 實測 1.5 秒就能拿到 40 筆含標題／網址／時長／頻道／
@@ -8,7 +8,7 @@ YouTube 網頁，官方改版時可能失效——這個風險下載功能本來
 
 分類上屬於 Category B（同步回應、不寫 DB、不進 jobs 表、不呼叫 OpenAI），
 跟 search_service 同類，不經過 job_manager，見
-docs/09-web-ui-migration-plan.md 2.1 節。
+docs/archive/09-web-ui-migration-plan.md 2.1 節。
 """
 from __future__ import annotations
 

@@ -1,11 +1,14 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronUp, Copy, ExternalLink, ImageOff, ListPlus, Play, X } from 'lucide-react'
 import { downloadYoutube } from '../api/client'
 import { ApiError } from '../api/types'
 import type { YoutubeSearchItem } from '../api/types'
 import { formatDuration, formatViewCount } from '../lib/format'
+import { isActive } from '../lib/jobStatus'
+import { pendingVideosKey, statsKey } from '../lib/queryKeys'
 import { useJobPolling } from '../lib/useJobPolling'
+import { useJobSettlement } from '../lib/useJobSettlement'
 import { Button } from './Button'
 import { Card } from './Card'
 import { useToast } from '../lib/useToast'
@@ -16,11 +19,11 @@ interface YoutubeResultCardProps {
 
 /** YouTube 搜尋結果卡片：收合時只有縮圖／標題／頻道資訊，「播放」就地把縮圖
  * 換成 YouTube 內嵌播放器（不用離開這一頁確認影片內容），「加入待分析」把影片
- * 下載進來排進「影片與分析」頁的待分析清單，點「查看詳情」在卡片內就地展開
+ * 下載進來排進「影片分析」頁的待分析清單，點「查看詳情」在卡片內就地展開
  * 網址與說明（不用 Modal，窄螢幕不會擋住畫面）。
  *
  * 這張卡片**只負責下載、不觸發分析**：分析要花錢、也需要挑選要不要跑，一律
- * 留在「影片與分析」頁由使用者勾選後統一送出，這頁維持「挑片」的單一職責。
+ * 留在「影片分析」頁由使用者勾選後統一送出，這頁維持「挑片」的單一職責。
  *
  * 展開／播放／下載狀態都放在卡片內部，多張可以同時進行；外層 grid 記得加
  * items-start，不然展開一張會把同一列其他卡片一起撐高。 */
@@ -53,9 +56,6 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
   const [downloadJobId, setDownloadJobId] = useState<number | null>(null)
   const [added, setAdded] = useState(false)
   const [failure, setFailure] = useState('')
-  // downloadJob 是輪詢查詢，同一個終態會被讀到很多次；用 ref 記下已經處理過的
-  // job id，確保收尾（invalidate＋toast）只做一次。
-  const handledDownload = useRef<number | null>(null)
 
   const downloadJob = useJobPolling(downloadJobId).data
 
@@ -72,34 +72,26 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
       ),
   })
 
-  useEffect(() => {
-    if (!downloadJob || handledDownload.current === downloadJob.id) return
-    if (downloadJob.status === 'completed') {
-      handledDownload.current = downloadJob.id
+  // 輪詢會把同一個終態讀到很多次，收尾只能做一次——去重交給 useJobSettlement。
+  useJobSettlement([downloadJob], ([job]) => {
+    if (job.status === 'completed') {
       // 下載完成 = 影片已經以 pending 狀態進 DB，刷新「待分析影片」清單與
-      // Header 統計卡；分析要不要跑、什麼時候跑，交給「影片與分析」頁決定。
-      queryClient.invalidateQueries({ queryKey: ['videos', 'pending'] })
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
-      // oxlint-disable-next-line react/set-state-in-effect
+      // Header 統計卡；分析要不要跑、什麼時候跑，交給「影片分析」頁決定。
+      queryClient.invalidateQueries({ queryKey: pendingVideosKey() })
+      queryClient.invalidateQueries({ queryKey: statsKey() })
       setAdded(true)
       toast.show(`已把「${item.title}」加入待分析清單`, 'success')
-    } else if (downloadJob.status === 'failed') {
-      handledDownload.current = downloadJob.id
-      // 來源是輪詢查詢（外部系統）而非 DOM 事件，ref 已擋掉重複執行。
-      // oxlint-disable-next-line react/set-state-in-effect
-      setFailure(`下載失敗：${downloadJob.error_message ?? '未知錯誤'}`)
+    } else {
+      setFailure(`下載失敗：${job.error_message ?? '未知錯誤'}`)
     }
-    // toast／queryClient 每次 render 都是新物件，放進 deps 會讓 effect 每輪都跑；
-    // 真正的觸發條件只有 downloadJob 的狀態變化。
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [downloadJob])
+  })
 
   const busy =
-    downloadMutation.isPending || (downloadJob ? downloadJob.status === 'queued' || downloadJob.status === 'running' : false)
+    downloadMutation.isPending || isActive(downloadJob?.status)
 
   const progressText = (() => {
     if (failure) return failure
-    if (added) return '✓ 已加入「影片與分析」待分析清單'
+    if (added) return '✓ 已加入「影片分析」待分析清單'
     if (downloadMutation.isPending) return '準備下載…'
     if (busy) return downloadJob?.progress_message ?? '下載中…'
     return ''
@@ -107,7 +99,8 @@ export function YoutubeResultCard({ item }: YoutubeResultCardProps) {
 
   const onAddClicked = () => {
     setFailure('')
-    handledDownload.current = null
+    // 不用重設去重狀態：重按會建立一個**新的** job（後端每次 submit 都給新
+    // id），新 id 本來就不在 useJobSettlement 的已處理集合裡。
     downloadMutation.mutate()
   }
 

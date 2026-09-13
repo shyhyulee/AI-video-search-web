@@ -17,8 +17,8 @@ _STOPWORDS = set("的了在是這那個有跟和與上中一準備出現連續�
 _ENGLISH_RE = re.compile(r"[A-Za-z0-9]+")
 
 # 否定詞清單：偵測到這些詞，後面到下一個標點符號（或字串結尾）之前的內容
-# 視為「使用者不想要」的範圍，見 _split_negated_query()。只用
-# docs/05-known-limitations-and-open-items.md 待辦事項裡已經列出的四個，
+# 視為「使用者不想要」的範圍，見 split_negated_query()。只用
+# docs/04-known-limitations-and-open-items.md 待辦事項裡已經列出的四個，
 # 不預先擴充；之後有真實案例顯示需要更多否定詞，再照這個模式新增。
 _NEGATION_MARKERS = ("不要", "沒有", "不是", "並非")
 _CLAUSE_PUNCTUATION = "，。！？、"
@@ -34,14 +34,14 @@ _CLAUSE_PUNCTUATION = "，。！？、"
 # 的這兩個詞刪除，不是真正斷詞，跟 _STOPWORDS／_NEGATION_MARKERS 同樣「粗糙
 # 但夠用」的取捨——極端情況（詞組剛好包住這兩個字，例如「壁畫面積」）會被
 # 誤刪，但這個 app 的查詢型態（人物／動作／物件描述）機率很低，先不處理。
-_GENERIC_DESCRIPTIVE_TERMS = ("畫面", "段落")
+_GENERIC_DESCRIPTIVE_TERMS = ("畫面", "段落", "片段")
 
 
-def _strip_generic_terms(query: str) -> str:
+def strip_generic_terms(query: str) -> str:
     """移除查詢字串裡的泛用描述詞（見 _GENERIC_DESCRIPTIVE_TERMS 旁的說明），
     回傳清理後的字串供 dense／sparse 兩個 channel 共用。清理後整句變空字串
     （例如使用者只打「畫面」兩個字）就退回用原始查詢——安全網，跟
-    dense._get_query_vectors() 翻譯失敗、dense._relevant_video_ids() 判斷失敗
+    dense.get_query_vectors() 翻譯失敗、dense.relevant_video_ids() 判斷失敗
     時的退回邏輯一致，不讓清理把整個查詢清空。
     """
     cleaned = query
@@ -51,7 +51,7 @@ def _strip_generic_terms(query: str) -> str:
     return cleaned if cleaned else query
 
 
-def _extract_terms(query: str) -> list[str]:
+def extract_terms(query: str) -> list[str]:
     """把查詢字串拆成候選關鍵字：英文／數字直接當一個詞；中文用虛詞表切開，
     剩下的連續中文片段整段當一個候選詞（不是真正斷詞，見 _STOPWORDS 旁的說明）。
     長度 <2 的片段丟棄，太短沒有鑑別力。"""
@@ -71,7 +71,7 @@ def _extract_terms(query: str) -> list[str]:
     return list(dict.fromkeys(english + chunks))  # 去重，保留順序
 
 
-def _split_negated_query(query: str) -> tuple[str, str]:
+def split_negated_query(query: str) -> tuple[str, str]:
     """把查詢依 _NEGATION_MARKERS 切成 (positive_text, negative_text)。否定詞
     出現後、到下一個標點符號（_CLAUSE_PUNCTUATION）或字串結尾之前的內容算
     否定範圍；可能有多段否定，全部否定範圍合併成一段 negative_text（用空白

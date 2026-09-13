@@ -1,6 +1,6 @@
 """對話式搜尋的 Conversation Orchestrator：串起 intent.py（意圖判斷／改寫）
 與既有 search.py（Hybrid Search，原封不動、不修改排序邏輯），組出這一輪要
-顯示給使用者的回覆與結果。見 docs/Claude_Code_Conversational_Video_Search_Prompt.md
+顯示給使用者的回覆與結果。見 docs/prompts/Claude_Code_Conversational_Video_Search_Prompt.md
 的責任區分——LLM 只負責判斷意圖與改寫查詢，實際搜尋一律經過 search.search()，
 不允許 LLM 直接產生影片 ID、時間點或搜尋分數。
 
@@ -46,12 +46,22 @@ class ConversationTurnResult:
     results: list[SearchResult]
     cost_usd: float
     new_state: ConversationState
+    # 這一輪實際生效的搜尋範圍（空 list＝全部影片）。要回傳出去是因為 LLM 可能
+    # 在使用者勾選的範圍內再收窄（見 _resolve_video_ids()），不告訴前端的話，
+    # 畫面上勾著 3 支、實際只搜了 1 支，使用者完全無從察覺。
+    video_ids: list[int] = field(default_factory=list)
 
 
-def handle_turn(state: ConversationState, user_message: str) -> ConversationTurnResult:
+def handle_turn(
+    state: ConversationState, user_message: str, ui_video_ids: list[int] | None = None
+) -> ConversationTurnResult:
     """處理一輪對話輸入，回傳這輪的回覆文字、要顯示的結果，以及更新後的狀態。
     呼叫端（UI）負責把 new_state 存回去給下一輪使用；這個函式本身不保留任何
     跨呼叫的狀態，方便測試與（理論上）未來要支援多個對話並存時直接沿用。
+
+    ui_video_ids 是使用者在畫面上勾選的搜尋範圍（None／空 list 代表沒有限定）。
+    它是**硬邊界**，LLM 從自然語言解析出的範圍只能在其中再收窄，見
+    _resolve_video_ids()。
     """
     client = get_client()
     try:
@@ -74,7 +84,7 @@ def handle_turn(state: ConversationState, user_message: str) -> ConversationTurn
         return _handle_clarify(state, user_message, classification)
     if classification.action == "select_result":
         return _handle_select_result(state, user_message, classification)
-    return _handle_search(state, user_message, classification)
+    return _handle_search(state, user_message, classification, ui_video_ids or [])
 
 
 def _handle_clarify(
@@ -93,6 +103,7 @@ def _handle_clarify(
         results=state.last_results,
         cost_usd=classification.cost_usd,
         new_state=new_state,
+        video_ids=list(state.active_filters.get("video_ids", [])),
     )
 
 
@@ -136,19 +147,21 @@ def _handle_select_result(
         results=[selected],
         cost_usd=classification.cost_usd,
         new_state=new_state,
+        video_ids=list(state.active_filters.get("video_ids", [])),
     )
 
 
 def _handle_search(
-    state: ConversationState, user_message: str, classification: intent_module.IntentClassification
+    state: ConversationState,
+    user_message: str,
+    classification: intent_module.IntentClassification,
+    ui_video_ids: list[int],
 ) -> ConversationTurnResult:
-    video_ids = _resolve_video_ids(state, classification)
-    # search.search() 目前只接受單一 video_id（不是清單），已知的介面落差，
-    # 留給之後真的要支援多影片篩選時再擴充 search.py 的簽名（見 plan 風險
-    # 章節）。Phase 1 先取第一個 id 當作「限定在這支影片」的常見情境。
-    video_id = video_ids[0] if video_ids else None
+    video_ids = _resolve_video_ids(state, classification, ui_video_ids)
 
-    response = search_module.search(classification.standalone_query, video_id=video_id)
+    response = search_module.search(
+        classification.standalone_query, video_ids=video_ids or None
+    )
     reply_text = _build_reply_text(response)
 
     new_state = ConversationState(
@@ -165,15 +178,38 @@ def _handle_search(
         results=response.results,
         cost_usd=classification.cost_usd + response.cost_usd,
         new_state=new_state,
+        video_ids=list(video_ids),
     )
 
 
-def _resolve_video_ids(state: ConversationState, classification: intent_module.IntentClassification) -> list[int]:
+def _resolve_video_ids(
+    state: ConversationState,
+    classification: intent_module.IntentClassification,
+    ui_video_ids: list[int],
+) -> list[int]:
+    """決定這一輪實際要搜的影片範圍（空 list＝全部）。
+
+    使用者在畫面上勾選的 ui_video_ids 是**硬邊界**：LLM 從自然語言解析出的
+    範圍（或 refine_search 繼承上一輪的範圍）只能在其中再收窄，不能擴張出去。
+    理由是勾選是明確的使用者操作，模型不該默默推翻它——畫面上勾著 3 支、實際
+    卻搜了第 4 支，使用者沒有任何線索可以除錯。
+
+    收窄之後變成空集合（LLM 指的影片一支都不在勾選範圍內，通常是它認錯了）
+    就整個忽略這次收窄、退回使用者勾選的範圍：這比回傳「零結果」更接近使用者
+    的意圖，也不會讓畫面上的範圍跟實際搜尋範圍不一致。
+    """
     if classification.filters_video_ids:
-        return list(classification.filters_video_ids)
-    if classification.action == "refine_search":
-        return list(state.active_filters.get("video_ids", []))
-    return []
+        llm_ids = list(classification.filters_video_ids)
+    elif classification.action == "refine_search":
+        llm_ids = list(state.active_filters.get("video_ids", []))
+    else:
+        llm_ids = []
+
+    if not ui_video_ids:
+        return llm_ids  # 沒有勾選範圍：行為跟加這層之前完全相同
+
+    narrowed = [vid for vid in llm_ids if vid in set(ui_video_ids)]
+    return narrowed or list(ui_video_ids)
 
 
 def _build_reply_text(response: search_module.SearchResponse) -> str:

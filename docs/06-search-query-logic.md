@@ -1,0 +1,301 @@
+# 搜尋查詢處理邏輯
+
+> **類型**：現況參考｜**狀態**：維護中，跟著程式碼更新
+> 分類說明與完整索引見 [`README.md`](README.md)。
+
+## 1. 這份文件的範圍
+
+記錄「使用者在『片段搜尋』頁按下搜尋之後，一句查詢字串到底被怎麼處理」的**完整順序與行為**，以及最常被問到的「支不支援複合搜尋／輸入多個關鍵字會怎樣」。第 7 章接著講「AI對話」頁在同一條檢索之上多做了什麼——**兩頁共用同一個 `search()`，沒有第二套搜尋**。
+
+跟既有文件的分工：
+
+| 文件 | 負責的問題 |
+|---|---|
+| 這份 | **How**：查詢字串經過哪些階段、每個階段做什麼、多關鍵字的實際行為 |
+| [`02-technical-decisions.md`](02-technical-decisions.md#搜尋) | **Why**：每個機制當初為什麼這樣設計、比較過什麼、實測數據 |
+| [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md#搜尋) | **What's broken**：已知限制與待辦 |
+
+以下所有行為都是直接讀 `src/ai_video_search_web/pipeline/search.py` 得到的，標註了對應的函式；沒有實測的推論會明確標示。
+
+## 2. 使用者能設定的搜尋條件
+
+「片段搜尋」頁（`frontend/src/pages/SearchPage.tsx`）**只有兩個條件**：
+
+1. **查詢字串**：一個自由文字輸入框，當成一句自然語言描述處理。
+2. **搜尋範圍**：全部影片，或**任意一批已分析影片**。範圍在影片庫勾選（每列一個 checkbox，底部「在選取影片內搜尋」），或用單支影片的「在此影片內搜尋」——後者只是「勾一支」的捷徑，走同一條路徑。搜尋頁上方以可移除的 chips 呈現目前範圍，也可以整個清除。
+
+   範圍存在一份跨頁共用的 React context（`frontend/src/lib/useSearchScope.ts`），**「片段搜尋」與「AI對話」兩頁吃同一份**；不再像以前那樣用 `?video_id=` 帶在 URL 上（兩頁各自從 URL 解析會分岔）。改變範圍**不會**自動重新搜尋，跟改關鍵字一樣要再按一次「搜尋」。
+
+沒有布林運算子、引號片語、欄位限定（如 `title:`）、時間範圍、模態（字幕／畫面／OCR）勾選等語法或 UI。API 層 (`POST /search`) 另有 `top_k`（預設 20，見 `schemas/search.py`），但前端沒有暴露給使用者調整。
+
+## 3. 一次搜尋的處理順序
+
+`pipeline/search.py::search(query, top_k=20, video_id=None)`。
+
+### 階段 0 — 泛用描述詞清理（`strip_generic_terms()`）
+
+字面刪除查詢裡的「畫面」「段落」兩個詞，得到 `cleaned_query`。清理後如果整句變空（例如使用者只打「畫面」），退回使用原始查詢。
+
+- 後續 dense 與 sparse **兩個 channel 都吃清理後的字串**。
+- `search_log` 記錄的仍是使用者**原始輸入**，清理不影響稽核軌跡。
+
+### 階段 1 — 決定候選片段池
+
+- 有 `video_ids`（一支或多支都一樣）：只取那幾支影片的片段，**不做**影片層級篩選。使用者已經明確選了要搜哪幾支，系統不該再拿摘要相似度二次猜測、把選中的影片篩掉；這也省下一次 embedding 比對（實測全域 $0.00016 vs 限定範圍 $0.00004）。**沒有「選超過幾支就改用另一套規則」這種隱形門檻**。
+- `video_ids` 是**空 list**：代表「限定了範圍但一支都沒選」，正確答案是回零筆，不是退回搜全部。
+- 沒有 `video_ids`（全域搜尋）：先取全部片段，再用 `relevant_video_ids()` 拿查詢向量比對每支影片的**摘要**（沒摘要退回標題），只保留跟最高分差距在 `RELEVANCE_MARGIN`(0.15) 以內的影片；最高分低於 `MIN_RELEVANCE`(0.10) 時視為「沒有明顯相關影片」，不篩選（安全網）。影片只有一支時也不篩選。
+
+### 階段 2 — 否定條件排除（`split_negated_query()` / `negated_segment_ids()`）
+
+查詢裡出現 `_NEGATION_MARKERS`（**不要／沒有／不是／並非**）時，該詞之後到下一個標點（`，。！？、`）或字串結尾之間的文字視為「不想要的內容」。用跟 sparse channel 同一套取詞規則去比對，**字面命中的片段直接從候選池移除**，不進後續評分與融合。
+
+這是目前系統裡**唯一真正的複合條件**，語意上相當於 `AND NOT`。沒有否定詞的查詢，這個階段回傳空集合、行為完全不變。
+
+> 只作用在 sparse／字面層級。dense 相似度與階段 1 的影片層級篩選都還是拿含否定內容的完整查詢去 embed，看不懂否定語意——這個缺口的實測影響見 [`05`](04-known-limitations-and-open-items.md#搜尋)。
+
+### 階段 3 — Dense channel（語意向量）
+
+`get_query_vectors()` 把 `cleaned_query` 用 GPT-4o-mini 翻成中文、英文兩個版本，連同原始字串一起（去重後）各自 embed，得到一組查詢向量；翻譯失敗就只用原始查詢（不擋住搜尋）。
+
+每個候選片段對**字幕／畫面／OCR** 三個模態各自算 cosine（`best_score()`，對多個查詢向量取最高分），本地 OCR 事件的向量也併入 OCR 模態取最高。三個模態的最大值就是畫面上顯示的 `similarity`。
+
+**關鍵**：查詢是整句一起 embed 的，不是逐詞。多個關鍵字在這裡被壓成單一語意向量。
+
+### 階段 4 — Sparse channel（關鍵字）
+
+`sparse_scores()`：
+
+1. `extract_terms()` 切詞——英文／數字用正則抽出（長度 ≥2）；中文以**虛詞表 `_STOPWORDS`、空白、標點**當切點，切完剩下的連續中文片段整段當一個候選詞（長度 ≥2 才保留）。**這不是真正的斷詞**，是規則式的粗糙作法。
+2. **≥3 字元**的詞：丟給 `db.fts_bm25_search()`，多個詞是 **`OR`** 語意，取 bm25 分數（越負越相關），最多回傳 200 筆。
+2b. **≥3 字元但 BM25 命中 0 的詞**：拆成 **2 字滑動窗**再走下面的短詞路徑（`_split_terms()`）。取詞是規則式的，會把「人員作業」黏成庫裡不存在的四字詞，那個訊號原本會整個消失，見 [`02-technical-decisions.md`](02-technical-decisions.md) 的「排序被『誰先被資料庫回傳』決定」。只在**完全查不到**時才拆。
+3. **<3 字元**的詞：改用 `LIKE` 子字串比對（`db.fts_like_search()`）；命中片段給哨兵分數 `-1e6`（排在所有真實 bm25 之前），但**只補**「完全沒被任何長詞 bm25 找到」的片段，不覆寫真實分數。若某個短詞命中超過候選池 `_SHORT_TERM_MAX_MATCH_RATIO`(20%) 的片段，視為沒有鑑別力的泛用詞，整個跳過。
+
+**搜尋範圍在這一層是下推到 SQL 的，不是查完再過濾。** 上面兩個函式都吃 `video_ids` 參數，`_BM25_SQL` 最前面有一個 `scope` CTE（`db/segments.py`），`stats`／`df`／`hits` 三個 CTE 一律只看範圍內的片段。
+
+這件事非做不可，因為 **`LIMIT 200` 是在排序之後才截斷的**：範圍不下推的話，範圍外的片段會先把 200 個名額佔走，限定範圍搜尋時 sparse channel 常常整個落空——RRF 只剩 dense 一路、`is_confident` 恆為 false。這是「名額被佔走」的失敗模式，SQLite 時期的殘留列已經踩過一次（見 `db/segments.py` `create_table` 的說明）。
+
+兩個實作上的地雷（都寫在 `_BM25_SQL` 的註解裡）：`scope` 被引用兩次，**一定要標 `NOT MATERIALIZED`**，否則 PostgreSQL 會物化它、`content` 上的 pg_trgm GIN 索引就吃不到；`stats` 也要讀 `scope`，IDF 的分母（`n_docs`）與長度正規化（`avg_len`）必須跟 `n_hits` 算在同一份語料上，只縮 `df`／`hits` 會讓 IDF 被全庫文件數灌水。
+
+`video_ids` 是 `NULL` 時整段 SQL 語意與加這層之前逐字相同，全域搜尋的行為沒有變。
+
+### 階段 5 — RRF 融合（`rrf_scores()`）
+
+畫面上「融合分數」欄位的值，公式只有一行：
+
+```
+fusion_score(片段) = 1/(K + dense_rank) + 1/(K + sparse_rank)    K = RRF_K = 5
+```
+
+**同分共用平均名次**：短詞的哨兵分數會讓命中同一個詞的片段全部同分，逐一給名次等於讓資料庫回傳順序決定誰拿 0.167、誰拿 0.008。改成共用平均名次之後，這個 bonus 會依關鍵字的鑑別力自動縮放（命中 3 個 → 0.143，命中 120 個 → 0.015），見 [`02-technical-decisions.md`](02-technical-decisions.md) 的「排序被『誰先被資料庫回傳』決定」。
+
+**看的是名次，不是分數本身**——dense 的 cosine 值與 sparse 的 bm25 值都只用來決定名次，數值大小不進公式。兩個項的來源：
+
+| 項 | 排名依據 | 涵蓋範圍 |
+|---|---|---|
+| `dense_rank` | `similarity`（三個模態取最高的 cosine）由大到小，rank 從 1 起算 | **全部候選片段**都有，不是只有 `top_k` |
+| `sparse_rank` | `sparse_scores()` 的分數由小到大（bm25 越負越相關；短詞 LIKE 的哨兵分數 `-1e6` 必定排第 1） | 只有被 BM25／LIKE 找到的片段才有 |
+
+沒被 sparse channel 找到的片段，第二項就是 **0，不是扣分**（`fused.get(seg_id, 0.0)`）。分數沒有做正規化，所以實際落點是固定的：
+
+| 情境 | 值 |
+|---|---|
+| 兩個 channel 都排第 1（上限） | `1/6 + 1/6` = **0.3333** |
+| dense 第 1、sparse 沒命中 | `1/6` = **0.1667** |
+| dense 第 100、sparse 沒命中 | `1/105` = **0.0095** |
+
+融合分數決定 `results` 的排列順序，但**不覆寫** `similarity` 欄位——UI 上「相似度」與「融合分數」是兩個並列顯示的數字，結果順序跟相似度百分比不一致是設計如此，見 [`02-technical-decisions.md`](02-technical-decisions.md#hybrid-檢索與-rrf-融合) 的「UI 透明度問題」。排序用 Python 的穩定排序，分數相同時維持候選片段原本的走訪順序。
+
+同時回傳「被 sparse channel 找到的片段集合」，供 `is_confident`（top1 是否被兩個 channel 同時印證）判斷。
+
+### 階段 6 — 品質門檻與截斷（`apply_quality_filter()`）
+
+`similarity >= MIN_SIMILARITY`(0.4) **且** `fusion_score >= MIN_FUSION_SCORE`(0.1) 兩個條件都成立才保留，最後取前 `top_k` 筆。
+
+- `top_k` 只是**上限**，不保證有這麼多筆。
+- `is_confident` 刻意用**套門檻之前**的 top1 判斷，跟最終 `results` 有沒有東西是兩件事。
+
+#### `MIN_FUSION_SCORE` 與 `RRF_K` 的隱含規則（推論，未實測）
+
+`MIN_FUSION_SCORE = 0.1` 搭配 `RRF_K = 5`，等於隱含了一條沒有寫在任何地方的規則：
+
+**只靠 dense 命中（sparse 完全沒找到）的片段，必須排進 dense 前 5 名才可能出現在結果裡。**
+
+因為 `1/(5+5) = 0.1` 剛好達標，`1/(5+6) = 0.0909` 就被濾掉。反過來，只要 sparse 排進前 5 名（同樣是 `1/(5+5) = 0.1`），不管 dense 排第幾都能過關。
+
+除錯時的用途：遇到「明明相似度很高卻沒出現在結果裡」，先查這條規則，不是先查 `MIN_SIMILARITY`。
+
+這是讀常數推導出來的，不是實測結論。`RRF_K` 從業界慣例 60 調到 5 是掃參決定的（見 [`02-technical-decisions.md`](02-technical-decisions.md#hybrid-檢索與-rrf-融合)），`MIN_FUSION_SCORE` 則是使用者直接指定的門檻值，兩個常數**沒有一起校準過**——`RRF_K` 若之後再往下調（例如 1、2），這條規則會跟著收得更緊。
+
+## 4. 複合搜尋：輸入多個關鍵字會發生什麼
+
+**結論：不支援布林式複合搜尋。**沒有 `AND`／`OR`／`NOT` 語法，也沒有引號片語。多個關鍵字的實際行為是兩個 channel 各自處理後融合：
+
+| Channel | 多關鍵字的處理方式 | 效果 |
+|---|---|---|
+| Dense（階段 3） | 整句壓成**一個**語意向量 | 偏 AND 的**傾向**：同時符合兩者的片段通常分數較高，但不強制兩者都出現 |
+| Sparse（階段 4） | 切成多個詞，FTS5 用 **`OR`** 串接 | 明確是 **OR**：只命中其中一個詞也會被召回，兩個都命中因 bm25 較好而排前面 |
+| 否定範圍（階段 2） | 字面比對後整段排除 | 唯一真正的 `AND NOT` |
+
+### 4.1 有沒有分隔符，結果不一樣
+
+`extract_terms()` 只在**虛詞、空白、標點**處切詞，所以：
+
+| 輸入 | 切出的詞 | sparse 端行為 |
+|---|---|---|
+| `工廠 機器人` | `工廠`、`機器人` | 「機器人」(3 字) 走 bm25；「工廠」(2 字) 走 LIKE，且命中比例超過 20% 就被跳過 |
+| `工廠的機器人` | `工廠`、`機器人` | 同上（「的」在 `_STOPWORDS` 裡） |
+| `工廠機器人` | `工廠機器人`（黏成一個詞） | trigram 的片語查詢等同**子字串比對**，要逐字連續出現「工廠機器人」才算命中，通常一無所獲，只剩 dense 在支撐 |
+
+這跟 [`02-technical-decisions.md`](02-technical-decisions.md#否定句查詢的疊加案例要真人的畫面不要出現機器人的畫面) 記錄的「要真人」黏字案例是同一個機制造成的。**實務建議：關鍵字之間留空白。**
+
+### 4.2 想表達「兩個條件都要」目前只能怎麼做
+
+沒有語法可以強制。可用的替代路徑：
+
+1. 關鍵字之間留空白，讓兩個詞都進 sparse 的 OR 召回，靠 dense 的語意傾向把「同時符合」的片段推上去。
+2. 在影片庫勾選一批影片、用「在選取影片內搜尋」把範圍先縮小，等於用範圍條件取代一個關鍵字條件。範圍可以是任意子集（不只單支），所以「這幾支影片裡的 X」這種需求現在用範圍表達，比塞進查詢字串可靠。
+3. 用**AI對話**頁的多輪 refine（`pipeline/intent.py` 的 `refine_search`）——但要注意它是把整句改寫成新的 `standalone_query` 後**重新搜尋一次**，不是在上一輪結果上做交集過濾。
+
+## 5. 已確認 vs 未驗證
+
+**已確認（讀程式碼即可成立）**：第 3 節每個階段的順序與行為、sparse 端是 OR、dense 端整句 embed、只有否定是真正的複合條件、黏字會查不到。
+
+**未驗證**：
+
+- dense 端對多關鍵字的「AND 傾向」有多強沒有數據；`docs/golden-set.csv` 也沒有專門針對多關鍵字複合查詢的題目，所以現況的準確率是未知數。
+- **邊界情況（程式碼上成立、未實測）**：`fts_bm25_search()` 有 `LIMIT 200`，階段 2 的否定排除也是走同一條路徑，所以當否定關鍵字命中超過 200 個片段時，只有前 200 個會被排除；剩下的片段之後在階段 5 仍可能因為同一個否定關鍵字拿到 sparse 加分（階段 5 傳進去的是完整的 `cleaned_query`，含否定範圍的文字）。目前資料庫規模（約 1,156 個片段）下是否真的會踩到，沒有實測。範圍下推之後，限定範圍搜尋時這個 200 名額是算在範圍內的，等於**變寬鬆**，但全域搜尋沒有改善。
+- **範圍下推改變了限定範圍搜尋的排序結果**（單支與多支都是）：BM25 的 IDF 與 `LIMIT` 現在都算在範圍內的語料上，跟改動之前不是同一組分數。這是修掉「名額被佔走」缺陷的必然結果、方向明確是對的，但 `docs/eval-runs/` 的 golden set baseline 因此失去比較基準——golden set 的題目本身都是全域搜尋（`evaluation.py` 不傳範圍參數），所以 baseline 數字本身沒有被影響，只是「限定範圍搜尋」這條路徑從來就沒進過評測。
+
+## 6. 如果要做真正的 AND
+
+判斷投報率最高的最小改動：在 `sparse_scores()` 加「同時命中越多候選詞、分數越好」的權重，而**不是**把 FTS5 查詢改成 `AND`——後者會讓召回率大幅下降，也違背 RRF「沒命中不懲罰」的設計前提。
+
+更根本的解法是 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md) 待辦裡的 **Top 20-50 Reranker**：用 LLM 對完整查詢語意重新判斷相關性，能一次處理否定句、多條件查詢、hard negative 這幾類「需要真正理解語意」的問題，不用為每種語言現象各寫一套規則。
+
+## 7. 多輪對話（「AI對話」頁）在這之上多做了什麼
+
+> 這一章原本是獨立的 `06-conversational-search-flow.md`。併進來的理由：對話搜尋**沒有自己的檢索邏輯**——它只是在上面第 3 章那條完全相同的 `search()` 前面，多加一層「這句話想做什麼」的意圖判斷。分成兩份文件會讓讀者以為有兩套搜尋。
+
+### 7.1 一句話總覽
+
+使用者在「AI對話」頁打字 → LLM 只負責判斷「這句話想做什麼、要用什麼查詢字串去搜」→ **真正的搜尋動作 100% 交給第 3 章那條 `search()`**（Hybrid RRF，邏輯完全沒改）→ 結果與回覆文字顯示回前端，這一輪的狀態存進 `conversations` 表供下一輪使用。
+
+```text
+前端送出（POST /conversations/{id}/messages，前端每輪重送畫面上勾選的 video_ids）
+        ▼
+services/conversation_service.py  讀出 ConversationState → 交給 pipeline
+        ▼
+pipeline/conversation.py :: handle_turn(state, user_message)
+        │
+        ├─ 1) pipeline/intent.py :: classify_intent()
+        │     → LLM（gpt-4o-mini，structured output）判斷四種意圖之一，
+        │       並改寫成一句「不靠上下文也看得懂」的 standalone_query
+        │
+        ├─ 2) 依 action 分派三條路徑（見 7.3）
+        │
+        └─ 3) 組回覆文字＋結果清單＋花費＋新的 ConversationState
+        ▼
+services/conversation_service.py  把新狀態寫回 conversations 表
+```
+
+**跟 Tkinter 時期的差異**（`06` 舊版寫的是那時的行為）：狀態不再只活在頁籤實例的記憶體裡，而是**落地 `conversations` 表**（`db/conversations.py`、`services/conversation_service.py`），所以有 `conversation_id`、重新整理頁面接得回來。`ConversationState` 的欄位本身沒變。
+
+### 7.2 意圖判斷（`pipeline/intent.py :: classify_intent()`）
+
+把「歷史摘要」「上一輪結果清單（含編號、影片名、時間、描述）」「使用者這句話」一起塞進一個 prompt，用 `chat.completions.parse` 拿結構化輸出（跟 `translation.py` 同一套機制）。LLM 只回傳五類欄位：
+
+- `action`：`new_search`／`refine_search`／`select_result`／`clarify` 四選一
+- `standalone_query`：改寫後的獨立查詢句
+- `filters_video_ids`：使用者有沒有明講要限定在哪支影片
+- `selected_result_index`：選第幾個結果（1-based，對應清單上顯示的編號）
+- `requires_clarification`／`clarification_question`：看不懂時的反問
+
+LLM 完全碰不到資料庫、不會自己編影片 ID 或時間點——這是規劃時的責任區分限制，見原始 prompt 文件「LLM：判斷意圖、改寫 Query；Search Service：執行搜尋」。
+
+### 7.3 三條分派路徑（`pipeline/conversation.py`）
+
+| action | 邏輯 | 會不會呼叫 `search()` |
+|---|---|---|
+| `clarify` 或 `requires_clarification=True` | 直接把 `clarification_question` 當回覆，結果清單維持顯示上一輪的（不清空） | 不會 |
+| `select_result` | 檢查 index 是否落在 `1..len(last_results)`；有效就取 `last_results[index-1]` 當 `selected_result`，回傳只有這一筆的結果清單；index 無效或根本沒有上一輪結果，就退回反問「不確定指的是哪一個」 | 不會 |
+| `new_search`／`refine_search` | 解析要不要帶影片篩選（見下），呼叫 `search.search(standalone_query, video_ids=...)`，用規則模板組回覆文字 | 會 |
+
+### 7.4 篩選條件沿用邏輯（`_resolve_video_ids()`）
+
+先照舊決定「LLM 這輪想要的範圍」：
+
+- LLM 這輪明講了 `filters_video_ids` → 直接用（覆蓋）
+- 沒明講，但 action 是 `refine_search` → 沿用上一輪 `state.active_filters["video_ids"]`
+- 沒明講，且 action 是 `new_search` → 清空，視為換題目
+
+再套上**使用者在畫面上勾選的範圍（`ui_video_ids`）當硬邊界**：
+
+- 沒有勾選任何影片 → 上面的結果原封不動（行為跟加這層之前完全相同）
+- 有勾選 → LLM 的範圍只能在其中**再收窄**（取交集），不能擴張出去
+- 交集為空（LLM 指的影片一支都不在勾選範圍內，通常是它認錯了）→ 整個忽略這次收窄，退回使用者勾選的範圍，而不是回零筆
+
+為什麼硬邊界方向是這樣：勾選是明確的使用者操作，模型不該默默推翻它——畫面上勾著 3 支、實際卻搜了第 4 支，使用者沒有任何線索可以除錯。
+
+`ui_video_ids` 由前端**每輪重送**，刻意**不存進 `conversations` 表**：範圍屬於「使用者現在正在看的畫面」，不是對話內容的一部分；存起來的話，使用者在影片庫改了勾選、回到對話卻還沿用舊範圍。
+
+`ConversationTurnOut.video_ids` 回傳**這一輪實際生效**的範圍，前端拿它跟畫面上勾選的比對，收窄了就在狀態列標示「這一輪只搜了：…」。
+
+> 之前的落差（`search.search()` 只吃單一 `video_id`、`_handle_search()` 只取 `video_ids[0]`）**已經解決**：`search()` 的簽名改成 `video_ids: list[int] | None`，多個 id 全部生效。`intent.py` 的 `filters_video_ids` 本來就是清單型別，之前只是在最後一哩被丟掉。
+
+### 7.5 回覆文字（`_build_reply_text()`）
+
+純規則模板，不是 LLM 生成：沒結果就明講「沒有找到足夠相關的片段」；有結果但 `is_confident=False`（沒有被 BM25/LIKE 印證）就加「把握度較低」前綴；否則只回「找到 N 個相關片段」。**這是 Phase 1 刻意簡化的地方**——原始需求要的「Grounded Answer（LLM 摘要＋引用）」還沒做，現在只列清單不生成摘要文字。
+
+### 7.6 歷史摘要（`_append_history()`）
+
+不額外呼叫 LLM 摘要（省成本），純字串規則：每輪把「使用者說了什麼→做了什麼」append 成一行，超過 `_HISTORY_MAX_CHARS`（800 字元）就從最舊的一行開始砍掉，餵給下一輪 `classify_intent()` 當 `history_summary`。
+
+### 7.7 每輪實際的 API 呼叫量（跟成本有關）
+
+- `clarify` / `select_result`：只有 1 次 LLM 呼叫（意圖判斷）。
+- `new_search` / `refine_search`：意圖判斷 1 次 ＋ `search.search()` 內部（查詢翻譯 1 次＋中英文最多 3 次 embedding，全域搜尋還可能疊加影片層級篩選的 embedding，但標題／摘要有記憶體快取，見 `search.py::_embed_cached()`）。
+
+這個成本疊加**沒有上限或警示**——延續既有搜尋本來就有的缺口（見 [`04-known-limitations-and-open-items.md`](04-known-limitations-and-open-items.md)），對話模式會讓每輪呼叫次數更多，是規劃時已經跟使用者確認過、刻意列為已知風險、Phase 1 沒有處理的部分。
+
+### 7.8 目前範圍內 vs 範圍外
+
+**已做（Phase 1）：** 四種意圖分派、獨立查詢改寫、指代解析（選上一輪第 N 個結果）、條件沿用/覆蓋、無結果／低把握度的明確提示。
+
+**還沒做（規劃時就標記給 Phase 2／3，非實作遺漏）：**
+
+- `expand_time_range`（「前後延長十秒」）、`summarize_results`（片段摘要問答）
+- 真正的 LLM Grounded Answer（現在只有規則模板組回覆文字）
+- 多影片同時篩選、依 modalities 動態選擇搜尋方式（Query Router）
+- 對話成本護欄、對話狀態落地資料庫
+
+### 7.9 資料模型
+
+```python
+# pipeline/conversation.py
+@dataclass
+class ConversationState:
+    active_query: str | None = None
+    active_filters: dict = field(default_factory=dict)   # 目前只用 {"video_ids": list[int]}
+    last_results: list[SearchResult] = field(default_factory=list)
+    selected_result: SearchResult | None = None
+    history_summary: str = ""
+```
+
+欄位跟 Tkinter 時期一樣，**存放位置變了**：當時是頁籤實例的記憶體（App 關掉就重置、也不需要
+`conversation_id`），現在整包序列化進 `conversations` 表的 `state_json`（`db/conversations.py`、
+`services/conversation_service.py`），所以有 `conversation_id`、重新整理頁面接得回來。
+
+`SearchResult` 為了讓對話能跨輪次穩定引用同一個片段，帶有 `segment_id: int`（對應
+`db.SegmentRecord.id`）——這是當初導入對話搜尋時唯一動到既有搜尋核心 dataclass 的地方，
+排序／融合邏輯本身沒有變動。
+
+### 7.10 相關檔案
+
+| 檔案 | 角色 |
+|---|---|
+| `frontend/src/pages/ConversationPage.tsx` | 「AI對話」頁：訊息串、輸入框、結果清單與播放器、停格提問 |
+| `api/conversations.py`／`services/conversation_service.py` | 端點與狀態持久化（`conversations` 表） |
+| `pipeline/conversation.py` | Conversation Orchestrator：`ConversationState`／`handle_turn()` |
+| `pipeline/intent.py` | 意圖判斷與 Query Rewriter：`classify_intent()` |
+| `pipeline/search/` | 既有 Hybrid Search（未改動排序邏輯，只加 `segment_id` 欄位） |
+| `tests/test_conversation.py`／`tests/test_intent.py` | 對應的純邏輯測試（mock LLM／搜尋，不呼叫真實 API） |

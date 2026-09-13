@@ -1,5 +1,5 @@
 // 對齊 src/ai_video_search_web/schemas/*.py 的 Pydantic model 欄位，
-// 見 docs/09-web-ui-migration-plan.md。改後端 schema 時要同步改這裡。
+// 見 docs/archive/09-web-ui-migration-plan.md。改後端 schema 時要同步改這裡。
 
 export interface HeaderStats {
   pending_count: number
@@ -24,9 +24,48 @@ export interface Video {
   segment_count: number | null
   cost_usd: number | null
   summary: string | null
+  /** 整理過的文件類型；null＝還沒整理過。清單刻意只帶類型不帶內容，
+   * 完整文件走 getVideoDocument()。 */
+  document_type: DocumentType | null
   has_transcript: boolean
   has_visual: boolean
   has_ocr: boolean
+}
+
+export type DocumentType = 'sop' | 'tutorial' | 'lecture_notes' | 'content_log'
+
+/** 對齊 pipeline/document.py 的 DOC_TYPE_LABELS。 */
+export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
+  sop: '流程 SOP',
+  tutorial: '教學步驟',
+  lecture_notes: '課堂筆記',
+  content_log: '內容紀錄',
+}
+
+export interface DocumentStep {
+  timestamp_sec: number
+  heading: string
+  detail: string
+}
+
+export interface DocumentSection {
+  heading: string
+  steps: DocumentStep[]
+}
+
+export interface VideoDocument {
+  doc_type: DocumentType
+  title: string
+  overview: string
+  sections: DocumentSection[]
+  /** 素材裡沒交代清楚、讀者要自己補的事。可以是空陣列。 */
+  uncovered: string[]
+}
+
+export interface VideoDocumentResponse {
+  video_id: number
+  document: VideoDocument
+  model: string | null
 }
 
 export type JobType = 'download' | 'analysis'
@@ -92,9 +131,25 @@ export interface ConversationTurn {
   reply_text: string
   results: SearchResult[]
   cost_usd: number
+  /** 這一輪實際生效的搜尋範圍（空陣列＝全部影片）。可能比畫面上勾選的更窄——
+   * 後端的 LLM 會在勾選範圍內再收窄，見 pipeline/conversation._resolve_video_ids()。 */
+  video_ids: number[]
 }
 
-// 沿用 docs/08-web-ui-migration-design.md 第 6 節的 Error Schema，
+/** 停格畫面問答的一組問答，追問時帶回後端當上下文。 */
+export interface FrameQATurn {
+  question: string
+  answer: string
+}
+
+export interface FrameQAResponse {
+  /** 回傳問的是哪一秒：送出後使用者可能又把影片拖走了，答案要標得出來源。 */
+  at_sec: number
+  answer: string
+  cost_usd: number
+}
+
+// 沿用 docs/prompts/08-web-ui-migration-design.md 第 6 節的 Error Schema，
 // api/errors.py 實作。
 export interface ApiErrorBody {
   error: {

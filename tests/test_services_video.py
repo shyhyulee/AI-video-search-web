@@ -4,6 +4,8 @@ test_db.py／test_analyzer.py／test_summary.py 測過）。
 """
 from __future__ import annotations
 
+import io
+import re
 from unittest.mock import MagicMock
 from pathlib import Path
 
@@ -41,6 +43,40 @@ def test_register_downloaded_video_inserts_youtube_source(monkeypatch):
     assert captured["source_url"] == "u"
     assert captured["file_path"] == "/tmp/x.mp4"
     assert captured["duration_sec"] == 10
+
+
+def test_store_upload_writes_into_uploads_dir_with_a_generated_name(monkeypatch, tmp_path):
+    """落檔規則原本寫在 api/videos.py 的端點裡、只有註解沒有測試。搬進 service
+    時一併鎖住：uuid4 檔名是防 Path Traversal／檔名衝突的手段，不是風格選擇。
+    """
+    monkeypatch.setattr(video_service.downloader, "VIDEO_DIR", tmp_path / "video")
+
+    dest = video_service.store_upload(io.BytesIO(b"fake mp4 bytes"), ".mp4")
+
+    assert dest.parent == tmp_path / "video" / "uploads"
+    assert dest.read_bytes() == b"fake mp4 bytes"
+    assert dest.suffix == ".mp4"
+    # 檔名整段都是系統產生的 32 位 hex，不含使用者提供的任何字元
+    assert re.fullmatch(r"[0-9a-f]{32}", dest.stem)
+
+
+def test_store_upload_never_overwrites_an_earlier_upload(monkeypatch, tmp_path):
+    """兩次上傳（即使原始檔名相同）必須落在不同檔案上——舊版沿用使用者檔名時
+    第二次會覆蓋第一次。"""
+    monkeypatch.setattr(video_service.downloader, "VIDEO_DIR", tmp_path / "video")
+
+    first = video_service.store_upload(io.BytesIO(b"first"), ".mp4")
+    second = video_service.store_upload(io.BytesIO(b"second"), ".mp4")
+
+    assert first != second
+    assert first.read_bytes() == b"first"
+    assert second.read_bytes() == b"second"
+
+
+def test_document_model_name_follows_the_pipeline_constant(monkeypatch):
+    """用函式而不是模組層常數，才不會在 import 時把值定死。"""
+    monkeypatch.setattr(video_service.document_pipeline, "MODEL_NAME", "some-other-model")
+    assert video_service.document_model_name() == "some-other-model"
 
 
 def test_register_uploaded_video_inserts_local_source_with_explicit_title(monkeypatch):
@@ -194,3 +230,63 @@ def test_regenerate_summary_generates_and_persists(monkeypatch):
         "summary_model": video_service.summary_pipeline.MODEL_NAME,
         "additional_cost_usd": 0.01,
     }
+
+
+def test_generate_document_generates_and_persists(monkeypatch):
+    """service 層只驗證委派：有把整包 JSON、doc_type、model 名、**摘要**與成本
+    正確傳給 db.update_video_document()。文件內容的邏輯在 test_document.py。"""
+    fake_client = object()
+    monkeypatch.setattr(video_service, "get_client", lambda: fake_client)
+
+    fake_document = video_service.document_pipeline.VideoDocument(
+        doc_type="sop", title="生產流程", overview="這支影片介紹主板產線。",
+        sections=[], uncovered=[],
+    )
+    fake_result = MagicMock(document=fake_document, cost_usd=0.005)
+    captured_generate = {}
+
+    def fake_generate_document(client, video_title, segments):
+        captured_generate.update(client=client, video_title=video_title, segments=segments)
+        return fake_result
+
+    monkeypatch.setattr(video_service.document_pipeline, "generate_document", fake_generate_document)
+
+    captured_update = {}
+    monkeypatch.setattr(
+        video_service.db, "update_video_document",
+        lambda video_id, document_json, document_type, document_model, summary, additional_cost_usd: captured_update.update(
+            video_id=video_id, document_json=document_json, document_type=document_type,
+            document_model=document_model, summary=summary, additional_cost_usd=additional_cost_usd,
+        ),
+    )
+
+    video = MagicMock(id=3, title="技嘉主板工廠")
+    segments = [MagicMock()]
+    result = video_service.generate_document(video, segments)
+
+    assert result is fake_result
+    assert captured_generate == {"client": fake_client, "video_title": "技嘉主板工廠", "segments": segments}
+    assert captured_update["video_id"] == 3
+    assert captured_update["document_type"] == "sop"
+    assert captured_update["document_model"] == video_service.document_pipeline.MODEL_NAME
+    assert captured_update["additional_cost_usd"] == 0.005
+    # 摘要來自文件的 overview（一稿兩用），不是另外再呼叫一次 LLM 產生的
+    assert captured_update["summary"] == "這支影片介紹主板產線。"
+    # 存的是整包 JSON，形狀由 pipeline 的 pydantic 模型決定
+    assert '"doc_type":"sop"' in captured_update["document_json"].replace(" ", "")
+
+
+def test_load_document_returns_none_when_never_generated():
+    assert video_service.load_document(MagicMock(document_json=None)) is None
+
+
+def test_load_document_parses_stored_json():
+    stored = video_service.document_pipeline.VideoDocument(
+        doc_type="tutorial", title="壽司做法", overview="概述", sections=[], uncovered=[],
+    ).model_dump_json()
+
+    loaded = video_service.load_document(MagicMock(document_json=stored))
+
+    assert loaded is not None
+    assert loaded.doc_type == "tutorial"
+    assert loaded.title == "壽司做法"

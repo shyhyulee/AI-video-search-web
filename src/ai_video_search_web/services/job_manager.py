@@ -2,9 +2,9 @@
 `analyzer.start_analysis()`）既有的「背景 thread ＋ queue.Queue 進度事件」
 機制接上 `db.jobs` 表，讓 Web 版能在多個 HTTP request 之間查詢工作狀態，
 並把 `docs/02-technical-decisions.md`（Tier 3）「同時只分析一支影片」的
-隱性約束變成顯式機制。詳見 docs/09-web-ui-migration-plan.md 3.2 節。
+隱性約束變成顯式機制。詳見 docs/archive/09-web-ui-migration-plan.md 3.2 節。
 
-不改動 `analyzer.py`／`downloader.py` 任何一行既有 threading／併發邏輯：
+不改動 `analyzer`／`downloader.py` 任何一行既有 threading／併發邏輯：
 這裡只是起一條 pump thread，把「原本會被 Tk widget 讀走的 queue 事件」
 改成「寫進 jobs 表」。
 
@@ -217,7 +217,7 @@ def _pump_download(job_id: int, url: str, internal_queue: "queue.Queue[object]")
 
 # ----------------------------------------------------------------------
 # Retry（Cancel 沒有實作：pipeline 沒有 checkpoint／取消 token，
-# 無法安全中途停止，見模組說明與 docs/09-web-ui-migration-plan.md）
+# 無法安全中途停止，見模組說明與 docs/archive/09-web-ui-migration-plan.md）
 # ----------------------------------------------------------------------
 def retry_job(job_id: int) -> int:
     """對失敗的工作建立全新一筆重新 submit（舊列保留當歷史紀錄），回傳新
@@ -242,10 +242,28 @@ def retry_job(job_id: int) -> int:
 # 伺服器啟動時的 reconciliation
 # ----------------------------------------------------------------------
 def reconcile_stale_jobs() -> int:
-    """把上次異常中止（process 被砍掉）、卡在 running 的工作全部標記失敗，
-    回傳受影響筆數。見 docs/09-web-ui-migration-plan.md 3.2 節「Zombie job」。
+    """把上次異常中止（process 被砍掉）、卡在 running 的工作全部標記失敗，並把
+    連帶卡在 analyzing 的影片還原，回傳受影響的**工作**筆數。
+    見 docs/archive/09-web-ui-migration-plan.md 3.2 節「Zombie job」。
+
+    兩個動作都要做，因為狀態分別記在兩張表：jobs 標成 failed 只修好「工作歷史」
+    那一半，影片自己的 status／pipeline_stage 沒人動，畫面上就會看到一支永遠停在
+    「畫面分析 14%」的影片（實際案例：2026-09-11 的 job 118）。還原規則見
+    `video_service.restore_interrupted_analyses()`。
+
+    queued 的工作維持不動——它不像 running 那樣「不可能還活著」，下一次
+    `submit_analysis()` 觸發的 `_try_dispatch_next_analysis()` 會挑最舊的 queued
+    工作接著跑，把它標成失敗等於平白丟掉一次使用者已經送出的分析。
     """
     count = db.fail_all_running_jobs("伺服器重新啟動，任務中斷")
     if count:
         logger.warning("啟動時發現 %d 個卡在 running 的工作，已標記失敗", count)
+
+    restored = video_service.restore_interrupted_analyses()
+    if restored:
+        logger.warning(
+            "啟動時發現 %d 支卡在分析中的影片，已還原狀態：%s",
+            len(restored),
+            "、".join(video.title for video in restored),
+        )
     return count

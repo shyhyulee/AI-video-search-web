@@ -1,4 +1,4 @@
-"""工作狀態 API：查詢與重試背景工作，見 docs/09-web-ui-migration-plan.md
+"""工作狀態 API：查詢與重試背景工作，見 docs/archive/09-web-ui-migration-plan.md
 3.2 節。"""
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def list_jobs(
 ) -> list[JobOut]:
     """`active=true` 只回還沒到終態（queued／running）的工作。
 
-    前端載入「影片與分析」頁時用 `?active=true&job_type=analysis` 把進行中的
+    前端載入「影片分析」頁時用 `?active=true&job_type=analysis` 把進行中的
     分析接回進度顯示——追蹤清單原本只活在 React state，重新整理就沒了。
     active 與 video_id 不併用（前端只需要其中一種查法），給了 active 就以它為準。
     """

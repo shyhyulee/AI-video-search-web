@@ -4,7 +4,7 @@ conversations 六個子模組。這個檔案負責連線管理、跨表的 init_
 各子模組的公開函式／型別重新匯出成原本的扁平介面。
 
 原本是 SQLite，2026-08 遷移到 PostgreSQL，見
-docs/14-postgresql-migration-plan.md。呼叫端（services／pipeline／api）的
+docs/archive/14-postgresql-migration-plan.md。呼叫端（services／pipeline／api）的
 程式碼一行都沒有因此改動——這層的函式介面就是為了這種抽換而存在的。
 
 DSN／get_connection() 刻意只定義在這裡（不是某個子模組）：Python
@@ -76,9 +76,11 @@ from .videos import (
     list_analyzed_videos,
     list_library_videos,
     list_unanalyzed_videos,
+    list_videos_by_status,
     mark_video_analyzed,
     reset_to_pending,
     update_video_status,
+    update_video_document,
     update_video_summary,
 )
 from .segments import (
@@ -89,6 +91,7 @@ from .segments import (
     insert_segment,
     list_all_segments,
     list_segments_for_video,
+    list_segments_for_videos,
     modality_flags_by_video,
 )
 from .ocr_events import (
@@ -96,6 +99,7 @@ from .ocr_events import (
     insert_ocr_event,
     list_all_ocr_events,
     list_ocr_events_for_video,
+    list_ocr_events_for_videos,
 )
 from .search_log import insert_search_log
 from .jobs import (
@@ -133,11 +137,15 @@ __all__ = [
     "VideoRecord", "HeaderStatsData", "SegmentRecord", "ModalityFlags", "OcrEventRecord",
     "insert_video", "get_video", "find_by_source_url", "list_unanalyzed_videos",
     "get_header_stats", "list_analyzed_videos", "list_library_videos",
-    "update_video_summary", "reset_to_pending", "delete_video", "clear_analysis_output",
+    "list_videos_by_status",
+    "update_video_summary", "update_video_document",
+    "reset_to_pending", "delete_video", "clear_analysis_output",
     "update_video_status", "mark_video_analyzed",
-    "insert_segment", "list_segments_for_video", "list_all_segments", "modality_flags_by_video",
+    "insert_segment", "list_segments_for_video", "list_segments_for_videos", "list_all_segments",
+    "modality_flags_by_video",
     "fts_bm25_search", "fts_like_search",
-    "insert_ocr_event", "list_ocr_events_for_video", "list_all_ocr_events",
+    "insert_ocr_event", "list_ocr_events_for_video", "list_ocr_events_for_videos",
+    "list_all_ocr_events",
     "insert_search_log",
     "JobRecord", "JOB_TYPE_ANALYSIS", "JOB_TYPE_DOWNLOAD",
     "JOB_STATUS_QUEUED", "JOB_STATUS_RUNNING", "JOB_STATUS_COMPLETED", "JOB_STATUS_FAILED",
@@ -159,7 +167,7 @@ def init_db() -> None:
       - segments.prune_orphan_fts()：清掉 FTS 裡對不到片段的殘留列。
     後兩者是因為 FTS5 虛擬表的 rowid 得靠呼叫端自己同步才需要存在；改用
     generated column 之後由資料庫自己維護，那類殘留在結構上不可能發生。
-    見 docs/14-postgresql-migration-plan.md §5.2。
+    見 docs/archive/14-postgresql-migration-plan.md §5.2。
     """
     with get_connection() as conn:
         # segments 的中文關鍵字索引需要 pg_trgm。放在這裡而不是只寫在文件裡，

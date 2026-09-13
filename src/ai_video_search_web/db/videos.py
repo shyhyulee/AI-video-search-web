@@ -36,6 +36,12 @@ class VideoRecord:
     embedding_model: str | None
     summary: str | None
     summary_model: str | None
+    #: pipeline/document.py 產生的結構化文件（VideoDocument 的 JSON）。
+    #: document_type 另外抽成一欄是為了讓清單頁不用解析整包 JSON 就知道
+    #: 這支影片整理出來的是 SOP 還是內容紀錄。
+    document_json: str | None
+    document_type: str | None
+    document_model: str | None
 
 
 @dataclass
@@ -69,8 +75,30 @@ def create_table(conn: psycopg.Connection) -> None:
             vlm_model TEXT,
             embedding_model TEXT,
             summary TEXT,
-            summary_model TEXT
+            summary_model TEXT,
+            -- 整理出來的結構化文件，見 pipeline/document.py。跟 summary 一樣是
+            -- 「LLM 產出的長文掛在影片上」，所以沿用同一個位置而不是另開一張表；
+            -- 重新整理直接覆蓋，不留版本歷史。
+            document_json TEXT,
+            document_type TEXT,
+            document_model TEXT
         )
+        """
+    )
+    # PostgreSQL 遷移時是全新資料庫，所以 SQLite 時期的 migrate_columns() 機制
+    # 被整個移除了（見上面的註解）。但那個前提在「遷移完成之後才新增欄位」時
+    # 就不成立了：`CREATE TABLE IF NOT EXISTS` 對既有資料庫是 no-op，欄位不會
+    # 自己長出來，_row_to_record() 會在下一次讀取時 KeyError。
+    #
+    # 這三行是為了那個情況存在的，不是要把整套 migration 機制加回來：
+    # ADD COLUMN IF NOT EXISTS 是冪等的，全新資料庫執行等於沒事，既有資料庫
+    # 則在啟動時自動補齊，不需要任何人手動下 SQL。之後再加欄位就照這個模式。
+    conn.execute(
+        """
+        ALTER TABLE videos
+            ADD COLUMN IF NOT EXISTS document_json TEXT,
+            ADD COLUMN IF NOT EXISTS document_type TEXT,
+            ADD COLUMN IF NOT EXISTS document_model TEXT
         """
     )
 
@@ -109,13 +137,13 @@ def find_by_source_url(source_url: str) -> VideoRecord | None:
 
 # 一支影片在任何時刻都恰好屬於兩個清單的其中一個。分界是 analyzed_at：
 # 有值＝這支影片已經產出過可搜尋的結果，永遠屬於影片庫；沒有值＝還沒產出過，
-# 屬於「影片與分析」。status 只決定那一列長什麼樣子，不決定它在哪一頁。
+# 屬於「影片分析」。status 只決定那一列長什麼樣子，不決定它在哪一頁。
 #
 # 這條規則是為了讓 analyzing 有地方去。原本的切法是「pending 在工作區、
 # analyzed／failed 在影片庫」，中間的 analyzing 兩邊都不收——analyzer 一開始
 # 跑就把狀態改成 analyzing，影片會在整段分析期間（實測 43～93 秒）從兩個頁籤
 # 同時消失，連那一列上的進度顯示一起帶走。分成兩種 analyzing 之後：
-#   第一次分析（analyzed_at IS NULL）→ 留在「影片與分析」原地跑完
+#   第一次分析（analyzed_at IS NULL）→ 留在「影片分析」原地跑完
 #   重新分析（analyzed_at IS NOT NULL）→ 留在「影片庫」原地跑完
 _UNANALYZED_WHERE = f"(status = '{STATUS_PENDING}' OR (status = '{STATUS_ANALYZING}' AND analyzed_at IS NULL))"
 _LIBRARY_WHERE = (
@@ -125,10 +153,22 @@ _LIBRARY_WHERE = (
 
 
 def list_unanalyzed_videos() -> list[VideoRecord]:
-    """「影片與分析」頁籤用：還沒產出過分析結果的影片（pending＋第一次分析中）。"""
+    """「影片分析」頁籤用：還沒產出過分析結果的影片（pending＋第一次分析中）。"""
     with get_connection() as conn:
         rows = conn.execute(
             f"SELECT * FROM videos WHERE {_UNANALYZED_WHERE} ORDER BY created_at DESC"
+        ).fetchall()
+        return [_row_to_record(row) for row in rows]
+
+
+def list_videos_by_status(status: str) -> list[VideoRecord]:
+    """單純依 status 取影片。跟上面兩支清單函式不同，這支不套 analyzed_at 的
+    分頁規則——啟動時的 reconciliation 要的就是「status 是 analyzing 的全部」，
+    正是那條規則刻意模糊掉的東西（第一次分析與重新分析在它眼裡是兩頁）。
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM videos WHERE status = %s ORDER BY id", (status,)
         ).fetchall()
         return [_row_to_record(row) for row in rows]
 
@@ -169,7 +209,7 @@ def list_analyzed_videos() -> list[VideoRecord]:
 def list_library_videos() -> list[VideoRecord]:
     """「影片庫」頁籤用：分析完成、分析失敗，以及正在重新分析的影片。
 
-    重新分析中的影片留在這裡（不是跳回「影片與分析」再跳回來）：它的舊
+    重新分析中的影片留在這裡（不是跳回「影片分析」再跳回來）：它的舊
     segments 還在、還搜得到，對使用者來說它一直都是庫裡的影片，只是正在
     更新。見 _UNANALYZED_WHERE 上面那段分界說明。
     """
@@ -193,6 +233,38 @@ def update_video_summary(video_id: int, summary: str, summary_model: str, additi
         )
 
 
+def update_video_document(
+    video_id: int,
+    document_json: str,
+    document_type: str,
+    document_model: str,
+    summary: str,
+    additional_cost_usd: float,
+) -> None:
+    """設定整理出來的文件**與摘要**，並把這次的花費累加進 cost_usd（可重複呼叫＝
+    重新整理，直接覆蓋舊文件，不留版本歷史）。
+
+    摘要跟文件在同一句 UPDATE 裡寫：它們來自同一次 LLM 呼叫（文件的 overview
+    一稿兩用，見 pipeline/document.py），拆成先呼叫 update_video_summary() 再呼叫
+    這支的話，同一次呼叫的成本會被累加兩次。
+    """
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE videos
+            SET document_json = %s, document_type = %s, document_model = %s,
+                summary = %s, summary_model = %s,
+                cost_usd = COALESCE(cost_usd, 0) + %s
+            WHERE id = %s
+            """,
+            (
+                document_json, document_type, document_model,
+                summary, document_model,
+                additional_cost_usd, video_id,
+            ),
+        )
+
+
 def clear_analysis_output(video_id: int) -> None:
     """只刪掉既有的 segments 與 ocr_events，videos 表的欄位一個都不動。
 
@@ -212,6 +284,10 @@ def reset_to_pending(video_id: int) -> None:
     segments 的刪除委派給 `segments.delete_for_video()`，ocr_events 則直接
     DELETE——兩者都傳同一個 conn，跟 videos 表的 UPDATE 落在同一個
     get_connection() 交易裡，video 更新失敗時前面的刪除也會一起回滾，維持原子性。
+
+    文件三欄也要清：文件裡的每個步驟都帶 `timestamp_sec`，而片段在上面兩行已經
+    被刪掉了——留著就是一份指向不存在內容的文件。這在文件只能手動整理的時候
+    是少見情況，Phase F 自動整理文件之後變成每支重置的影片都會遇到。
     """
     with get_connection() as conn:
         segments.delete_for_video(conn, video_id)
@@ -221,7 +297,8 @@ def reset_to_pending(video_id: int) -> None:
             UPDATE videos
             SET status = %s, pipeline_stage = NULL, analyzed_at = NULL, segment_count = NULL,
                 cost_usd = NULL, asr_model = NULL, vlm_model = NULL, embedding_model = NULL,
-                summary = NULL, summary_model = NULL
+                summary = NULL, summary_model = NULL,
+                document_json = NULL, document_type = NULL, document_model = NULL
             WHERE id = %s
             """,
             (STATUS_PENDING, video_id),
@@ -258,10 +335,17 @@ def mark_video_analyzed(
     pipeline_stage: str | None = None,
     summary: str | None = None,
     summary_model: str | None = None,
+    document_json: str | None = None,
+    document_type: str | None = None,
+    document_model: str | None = None,
 ) -> None:
-    """summary／summary_model 是自動摘要（Phase F）寫入用的可選欄位；不傳
-    （None）就用 COALESCE 保留原本的值，不會覆蓋掉既有摘要（例如重新分析
-    但這次自動摘要失敗的情況）。
+    """後面五個欄位是 Phase F 寫入用的可選欄位；不傳（None）就用 COALESCE 保留
+    原本的值，不會覆蓋掉既有內容（例如重新分析但這次 Phase F 失敗的情況）。
+
+    文件三欄跟摘要一起寫在這裡而不是呼叫 `update_video_document()`：那支把花費
+    當「增量」累加（`cost_usd = COALESCE(cost_usd, 0) + %s`），而這支的 cost_usd
+    是 `analyzer` 算好的**絕對總額**（文件的花費已經透過 `ctx.spend()` 進去了）。
+    兩支都呼叫的話同一次 LLM 呼叫的錢會被算兩次。
     """
     analyzed_at = datetime.now().isoformat(timespec="seconds")
     with get_connection() as conn:
@@ -270,7 +354,10 @@ def mark_video_analyzed(
             UPDATE videos
             SET status = %s, pipeline_stage = %s, analyzed_at = %s, segment_count = %s,
                 cost_usd = %s, asr_model = %s, vlm_model = %s, embedding_model = %s,
-                summary = COALESCE(%s, summary), summary_model = COALESCE(%s, summary_model)
+                summary = COALESCE(%s, summary), summary_model = COALESCE(%s, summary_model),
+                document_json = COALESCE(%s, document_json),
+                document_type = COALESCE(%s, document_type),
+                document_model = COALESCE(%s, document_model)
             WHERE id = %s
             """,
             (
@@ -284,6 +371,9 @@ def mark_video_analyzed(
                 embedding_model,
                 summary,
                 summary_model,
+                document_json,
+                document_type,
+                document_model,
                 video_id,
             ),
         )
@@ -311,4 +401,7 @@ def _row_to_record(row: dict) -> VideoRecord:
         embedding_model=row["embedding_model"],
         summary=row["summary"],
         summary_model=row["summary_model"],
+        document_json=row["document_json"],
+        document_type=row["document_type"],
+        document_model=row["document_model"],
     )

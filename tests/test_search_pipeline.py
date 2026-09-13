@@ -3,8 +3,8 @@
 is_confident／cost_usd／search_log 這三個容易被忽略的可觀察結果，做為之後把
 search.py 拆成子模組（重構 B4）的安全網。
 
-跟 tests/test_search.py 的分工：那邊測個別 helper 的純邏輯（`_extract_terms`／
-`_rrf_scores`／`_apply_quality_filter`／`_hit_source`…），這裡測「把它們串起來
+跟 tests/test_search.py 的分工：那邊測個別 helper 的純邏輯（`extract_terms`／
+`rrf_scores`／`apply_quality_filter`／`hit_source_label`…），這裡測「把它們串起來
 之後」的行為，包含只有整條跑完才看得到的細節——例如 is_confident 用的是套用
 品質門檻**之前**的 top1，所以 results 是空的時候 is_confident 仍可能是 True。
 
@@ -302,19 +302,88 @@ def test_search_excludes_segments_hit_by_negated_terms(temp_db, fake_openai):
 # ----------------------------------------------------------------------
 # 搜尋範圍：指定 video_id vs 全域（影片層級篩選）
 # ----------------------------------------------------------------------
-def test_search_with_video_id_scopes_to_that_video_and_skips_video_level_filter(temp_db, fake_openai):
+def test_search_with_single_video_id_scopes_to_that_video_and_skips_video_level_filter(
+    temp_db, fake_openai
+):
     fake_openai.vectors["查詢"] = QUERY_VECTOR
     target = _add_video(title="目標影片", summary="這支影片講機器人")
     other = _add_video(title="另一支影片", summary="這支影片講烹飪")
     wanted = _add_segment(target, visual="目標片段", visual_vec=SIMILARITY_1_00)
     _add_segment(other, visual="其他片段", visual_vec=SIMILARITY_1_00)
 
-    response = search.search("查詢", video_id=target)
+    response = search.search("查詢", video_ids=[target])
 
     assert [r.segment_id for r in response.results] == [wanted]
     # 只 embed 查詢本身：指定影片時不做影片層級篩選，不會為了比對摘要多花錢
     assert fake_openai.texts == ["查詢"]
     assert response.cost_usd == pytest.approx(TRANSLATE_COST + EMBED_COST)
+
+
+def test_search_with_multiple_video_ids_covers_all_of_them_and_excludes_the_rest(
+    temp_db, fake_openai
+):
+    """多選範圍：選中的每一支都要進候選集，沒選的完全不出現。也一併確認選了
+    多支時同樣不做影片層級篩選——不會因為第三支的摘要比較像就把選中的篩掉。"""
+    fake_openai.vectors["查詢"] = QUERY_VECTOR
+    first = _add_video(title="第一支", summary="摘要一")
+    second = _add_video(title="第二支", summary="摘要二")
+    third = _add_video(title="第三支", summary="摘要三")
+    seg_first = _add_segment(first, visual="第一支的片段", visual_vec=SIMILARITY_1_00)
+    seg_second = _add_segment(second, visual="第二支的片段", visual_vec=SIMILARITY_0_71)
+    _add_segment(third, visual="第三支的片段", visual_vec=SIMILARITY_1_00)
+
+    response = search.search("查詢", video_ids=[first, second])
+
+    assert sorted(r.segment_id for r in response.results) == sorted([seg_first, seg_second])
+    assert {r.video_id for r in response.results} == {first, second}
+    # 沒有為了影片層級篩選去 embed 三支影片的摘要
+    assert fake_openai.texts == ["查詢"]
+
+
+def test_search_with_empty_video_ids_returns_nothing_instead_of_searching_everything(
+    temp_db, fake_openai
+):
+    """空 list 是「限定了範圍但一支都沒選」，不能退化成搜全部。"""
+    fake_openai.vectors["查詢"] = QUERY_VECTOR
+    video_id = _add_video()
+    _add_segment(video_id, visual="片段", visual_vec=SIMILARITY_1_00)
+
+    response = search.search("查詢", video_ids=[])
+
+    assert response.results == []
+    assert response.is_confident is False
+    # 早退路徑仍然要記帳
+    assert _search_log_rows() == [("查詢", pytest.approx(TRANSLATE_COST + EMBED_COST))]
+
+
+def test_scoped_search_sparse_channel_survives_out_of_scope_bm25_competition(temp_db, fake_openai):
+    """迴歸測試：BM25 的 LIMIT 是在排序之後才截斷的，範圍不下推到 SQL 的話，
+    範圍外的片段會把名額全部佔走，選中影片的關鍵字命中就進不了 sparse channel。
+
+    用 fts_bm25_search 的 limit 當放大鏡：範圍外先塞滿超過 limit 筆同樣命中
+    「生產線」的片段，範圍內只有一筆。範圍有下推時這一筆一定查得到；沒下推
+    時它會被擠掉、回傳空的。
+    """
+    fake_openai.vectors["生產線"] = QUERY_VECTOR
+    noisy = _add_video(title="吵雜影片")
+    for i in range(30):
+        _add_segment(noisy, transcript=f"生產線畫面 {i}", transcript_vec=UNRELATED)
+
+    target = _add_video(title="目標影片")
+    wanted = _add_segment(target, transcript="生產線正在運轉", transcript_vec=SIMILARITY_1_00)
+
+    # 直接對 db 層驗證截斷語意：limit 小於範圍外的干擾筆數時，
+    # 沒有範圍下推的話目標片段一定排不進來。
+    unscoped = db.fts_bm25_search(["生產線"], limit=5)
+    scoped = db.fts_bm25_search(["生產線"], limit=5, video_ids=[target])
+    assert wanted not in [seg_id for seg_id, _ in unscoped]
+    assert wanted in [seg_id for seg_id, _ in scoped]
+
+    # 端到端：限定範圍搜尋時，top1 有被 sparse channel 印證
+    response = search.search("生產線", video_ids=[target])
+
+    assert [r.segment_id for r in response.results] == [wanted]
+    assert response.is_confident is True
 
 
 def test_global_search_filters_out_videos_whose_summary_is_irrelevant(temp_db, fake_openai):
