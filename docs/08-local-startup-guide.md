@@ -102,7 +102,7 @@ uv run ai-video-search-web    # http://127.0.0.1:8000
 FastAPI lifespan 啟動時會做兩件事（`api/main.py:50`）：
 
 1. `db.init_db()`——建立資料表與索引，**冪等**，每次啟動都會跑，不需要手動 migrate。
-2. `job_manager.reconcile_stale_jobs()`——把上次關機時卡在「執行中」的背景工作標記為失敗。
+2. `job_manager.reconcile_stale_jobs()`——把上次關機時卡在「執行中」的背景工作標記為失敗，並把連帶卡在「分析中」的影片還原：已經分析成功過的回到「已分析」（舊結果原封不動），第一次分析就被中斷的回到「待分析」（順便清掉部分寫入的殘骸）。少了後面這半，影片會一直停在中斷當下的進度（例如「畫面分析 14%」）。
 
 看到 `Application startup complete.` 就代表 DB 連得上、表也備好了。
 

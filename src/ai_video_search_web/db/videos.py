@@ -161,6 +161,18 @@ def list_unanalyzed_videos() -> list[VideoRecord]:
         return [_row_to_record(row) for row in rows]
 
 
+def list_videos_by_status(status: str) -> list[VideoRecord]:
+    """單純依 status 取影片。跟上面兩支清單函式不同，這支不套 analyzed_at 的
+    分頁規則——啟動時的 reconciliation 要的就是「status 是 analyzing 的全部」，
+    正是那條規則刻意模糊掉的東西（第一次分析與重新分析在它眼裡是兩頁）。
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM videos WHERE status = %s ORDER BY id", (status,)
+        ).fetchall()
+        return [_row_to_record(row) for row in rows]
+
+
 def get_header_stats() -> HeaderStatsData:
     with get_connection() as conn:
         # 兩個數字各自對齊一個清單，加起來永遠等於影片總數（除了分析失敗的）。

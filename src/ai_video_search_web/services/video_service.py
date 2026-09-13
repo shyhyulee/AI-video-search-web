@@ -173,6 +173,39 @@ def prepare_reanalysis(video: VideoRecord) -> None:
         db.reset_to_pending(video.id)
 
 
+def restore_interrupted_analyses() -> list[VideoRecord]:
+    """把卡在 analyzing 的影片還原成分析開始前的狀態，回傳被還原的影片紀錄。
+
+    只給伺服器啟動時的 reconciliation 呼叫（`job_manager.reconcile_stale_jobs()`）。
+    那個時間點 process 剛起來、一條分析執行緒都還沒開，所以「status 是 analyzing」
+    在定義上就等於「上次異常中止留下來的」——不需要再去比對 jobs 表有沒有對應
+    的 job。刻意不比對還有第二個好處：jobs 只是歷史紀錄，影片是靠自己的 status
+    決定落在哪個頁籤、進度顯示什麼，兩邊在舊版本留下的不一致（job 已經 failed
+    但影片還是 analyzing）也會被這支一併修掉。
+
+    還原規則跟 `prepare_reanalysis()` 完全對稱——它把影片切進 analyzing，這支
+    把影片切回來，所以分支條件也是同一個 `analyzed_at`：
+
+    - 重新分析中斷（`analyzed_at` 有值）：只把 status 改回 analyzed。舊的
+      segments 與分析欄位從頭到尾沒被動過（analyzer 要到 `_write_segments()`
+      才會換掉），影片回到影片庫、舊結果照樣搜得到。
+    - 第一次分析中斷（`analyzed_at` 是 None）：`reset_to_pending()`，連同部分
+      寫入的殘骸一起清掉，影片回到「影片分析」的待分析清單等重新勾選。
+
+    少了這一步，影片會永遠停在中斷當下的 pipeline_stage：`reconcile_stale_jobs()`
+    原本只把 jobs 標成 failed，videos 那一列沒人動，而前端在沒有進行中的 job 時
+    正是退回讀 `video.pipeline_stage`（見 `VideosPage.tsx` 的 statusBadge），
+    於是畫面上就一直掛著「畫面分析 14%」這種永遠不會前進的進度。
+    """
+    stale = db.list_videos_by_status(db.STATUS_ANALYZING)
+    for video in stale:
+        if video.analyzed_at is not None:
+            db.update_video_status(video.id, db.STATUS_ANALYZED, None)
+        else:
+            db.reset_to_pending(video.id)
+    return stale
+
+
 def regenerate_summary(video_id: int, segments: list[SegmentRecord]) -> summary_pipeline.SummaryResult:
     client = get_client()
     result = summary_pipeline.generate_summary(client, segments)
